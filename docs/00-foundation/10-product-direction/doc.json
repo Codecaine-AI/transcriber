@@ -16,11 +16,17 @@
         "b-10-product-direction-the-archive-has-no-artif-5",
         "b-10-product-direction-the-working-archive-stay-6",
         "b-10-product-direction-the-fork-lives-under-co-7",
+        "decision-deepgram",
         "naming-heading",
         "naming-lead",
         "naming-identity",
         "naming-upstream",
         "naming-retained",
+        "fork-diff-heading",
+        "fork-diff-lead",
+        "fork-diff-identity",
+        "fork-diff-deepgram",
+        "fork-diff-scripts",
         "b-10-product-direction-boundaries-8",
         "b-10-product-direction-the-archive-is-a-single-9",
         "b-10-product-direction-see-archive-design-doc-10"
@@ -138,6 +144,121 @@
         },
         {
           "insert": ". Preserve upstream attribution and keep personal data, model weights, and local runtime configuration out of Git."
+        }
+      ],
+      "children": []
+    },
+    "decision-deepgram": {
+      "id": "decision-deepgram",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " is the primary speech recognizer, and local Whisper "
+        },
+        {
+          "insert": "large-v3-turbo",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " is the fallback."
+        }
+      ],
+      "children": [
+        "decision-deepgram-why",
+        "decision-deepgram-fork",
+        "decision-deepgram-off",
+        "decision-deepgram-english"
+      ]
+    },
+    "decision-deepgram-why": {
+      "id": "decision-deepgram-why",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Ford chose Deepgram on 2026-10-05 because it is faster and more accurate than local Whisper."
+        }
+      ],
+      "children": []
+    },
+    "decision-deepgram-fork": {
+      "id": "decision-deepgram-fork",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Upstream V07 recognizes speech with local Whisper only, so this routing is a fork difference."
+        }
+      ],
+      "children": []
+    },
+    "decision-deepgram-off": {
+      "id": "decision-deepgram-off",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Turning off "
+        },
+        {
+          "insert": "Transcribe with Deepgram",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " in Preferences restores local-only recognition, and audio stays on the Mac."
+        }
+      ],
+      "children": []
+    },
+    "decision-deepgram-english": {
+      "id": "decision-deepgram-english",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcriber dictates English only, so Preferences has no "
+        },
+        {
+          "insert": "Language",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " picker. The "
+        },
+        {
+          "insert": "language",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " field stays in the API for upstream compatibility."
         }
       ],
       "children": []
@@ -294,6 +415,254 @@
         },
         {
           "insert": "Codecaine-AI/sotto",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-heading": {
+      "id": "fork-diff-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Fork Differences From Upstream"
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-lead": {
+      "id": "fork-diff-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The fork differs from upstream V07 in three areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-identity": {
+      "id": "fork-diff-identity",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The installed app keeps the fixed Transcriber identity."
+        }
+      ],
+      "children": [
+        "fork-diff-identity-detail"
+      ]
+    },
+    "fork-diff-identity-detail": {
+      "id": "fork-diff-identity-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The Naming section lists the bundle identifier and the files that keep upstream's names."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-deepgram": {
+      "id": "fork-diff-deepgram",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Speech recognition uses Deepgram first and local Whisper as the fallback."
+        }
+      ],
+      "children": [
+        "fork-diff-deepgram-files",
+        "fork-diff-deepgram-new"
+      ]
+    },
+    "fork-diff-deepgram-files": {
+      "id": "fork-diff-deepgram-files",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The change touches "
+        },
+        {
+          "insert": "Server/api/openapi.yaml",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Server/src/api.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Server/src/generation-service.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Server/src/imports.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Server/src/inference/native-inference.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Sources/V07API",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Sources/V07/Views/HistoryPage.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "Sources/V07/Views/PreferencesPage.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-deepgram-new": {
+      "id": "fork-diff-deepgram-new",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork adds "
+        },
+        {
+          "insert": "Server/src/inference/deepgram.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and two optional contract fields, "
+        },
+        {
+          "insert": "deepgramSpeechEnabled",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "fallbackReason",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-scripts": {
+      "id": "fork-diff-scripts",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The archive worker and the local install scripts exist only in the fork."
+        }
+      ],
+      "children": [
+        "fork-diff-scripts-files"
+      ]
+    },
+    "fork-diff-scripts-files": {
+      "id": "fork-diff-scripts-files",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "These are "
+        },
+        {
+          "insert": "scripts/archive",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "scripts/install-local.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "scripts/run-server-local.sh",
           "attributes": {
             "code": true
           }

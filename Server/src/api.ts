@@ -23,10 +23,11 @@ export type PersonalDictionary = Omit<Schemas["PersonalDictionary"], "lists"> & 
 };
 export type ServerPreferences = Omit<
   Schemas["ServerPreferences"],
-  "dictionary" | "proofreadingPrompt"
+  "dictionary" | "proofreadingPrompt" | "deepgramSpeechEnabled"
 > & {
   dictionary: PersonalDictionary;
   proofreadingPrompt: string;
+  deepgramSpeechEnabled: boolean;
 };
 export type PreferencesSnapshot = Omit<Schemas["PreferencesSnapshot"], "preferences"> & {
   preferences: ServerPreferences;
@@ -57,8 +58,14 @@ export type WisprFlowKnownIDsRequest = Schemas["WisprFlowKnownIDsRequest"];
 export type WisprFlowKnownIDsResponse = Schemas["WisprFlowKnownIDsResponse"];
 export type WisprFlowDictionaryArchiveReceipt = Schemas["WisprFlowDictionaryArchiveReceipt"];
 export type ImportedSource = Schemas["ImportedSource"];
+// Fork: record snapshots omit deepgramSpeechEnabled so archives stay readable by servers
+// and clients that predate it; the Deepgram decision for a take is kept in memory.
+export type RecordPreferences = Omit<ServerPreferences, "deepgramSpeechEnabled">;
+export type RecordSettings = Omit<PreferencesSnapshot, "preferences"> & {
+  preferences: RecordPreferences;
+};
 export type GenerationRecord = Omit<Schemas["GenerationRecord"], "settings"> & {
-  settings: PreferencesSnapshot;
+  settings: RecordSettings;
 };
 export type GenerationPage = Omit<Schemas["GenerationPage"], "items"> & {
   items: GenerationRecord[];

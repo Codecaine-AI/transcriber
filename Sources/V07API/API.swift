@@ -31,6 +31,7 @@ public struct ServerPreferences: Codable, Equatable, Sendable {
     public var vocabulary: String
     public var dictionary: PersonalDictionary
     public var textCorrectionEnabled: Bool
+    public var deepgramSpeechEnabled: Bool
     public var keepOriginalAudio: Bool
     public static let maximumProofreadingPromptBytes = 4096
     public static let maximumVocabularyTermBytes = 16_384
@@ -54,13 +55,13 @@ public struct ServerPreferences: Codable, Equatable, Sendable {
     public static let supportedLanguages = ["en", "auto", "es", "fr", "de", "it", "pt", "nl", "ja", "zh", "ko", "hi", "ar", "pl", "ru", "uk", "sv"]
     public init(language: String = "en", proofreadingPrompt: String = Self.defaultProofreadingPrompt, vocabulary: String = "",
                 dictionary: PersonalDictionary = .default, textCorrectionEnabled: Bool = true,
-                keepOriginalAudio: Bool = true) {
+                deepgramSpeechEnabled: Bool = true, keepOriginalAudio: Bool = true) {
         self.language = language; self.proofreadingPrompt = proofreadingPrompt; self.vocabulary = vocabulary
         self.dictionary = dictionary; self.textCorrectionEnabled = textCorrectionEnabled
-        self.keepOriginalAudio = keepOriginalAudio
+        self.deepgramSpeechEnabled = deepgramSpeechEnabled; self.keepOriginalAudio = keepOriginalAudio
     }
     private enum CodingKeys: String, CodingKey {
-        case language, proofreadingPrompt, vocabulary, dictionary, textCorrectionEnabled, keepOriginalAudio
+        case language, proofreadingPrompt, vocabulary, dictionary, textCorrectionEnabled, deepgramSpeechEnabled, keepOriginalAudio
     }
     public init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -69,6 +70,7 @@ public struct ServerPreferences: Codable, Equatable, Sendable {
         vocabulary = try values.decode(String.self, forKey: .vocabulary)
         dictionary = try values.decode(PersonalDictionary.self, forKey: .dictionary)
         textCorrectionEnabled = try values.decode(Bool.self, forKey: .textCorrectionEnabled)
+        deepgramSpeechEnabled = try values.decodeIfPresent(Bool.self, forKey: .deepgramSpeechEnabled) ?? true
         keepOriginalAudio = try values.decode(Bool.self, forKey: .keepOriginalAudio)
     }
     public var validationError: String? {
@@ -183,9 +185,12 @@ public struct ModelProvenance: Codable, Equatable, Sendable {
     public var backend: String
     public var engineVersion: String?
     public var processingSeconds: Double?
-    public init(modelID: String, modelSHA256: String? = nil, backend: String, engineVersion: String? = nil, processingSeconds: Double? = nil) {
+    /// Why speech recognition fell back from Deepgram to local Whisper.
+    public var fallbackReason: String?
+    public init(modelID: String, modelSHA256: String? = nil, backend: String, engineVersion: String? = nil, processingSeconds: Double? = nil,
+                fallbackReason: String? = nil) {
         self.modelID = modelID; self.modelSHA256 = modelSHA256; self.backend = backend
-        self.engineVersion = engineVersion; self.processingSeconds = processingSeconds
+        self.engineVersion = engineVersion; self.processingSeconds = processingSeconds; self.fallbackReason = fallbackReason
     }
 }
 

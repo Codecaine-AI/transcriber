@@ -23,6 +23,7 @@
         "b-client-server-contract-a-lost-connection-during-11",
         "b-client-server-contract-api-result-bytes-and-met-12",
         "b-client-server-contract-shared-original-audio-se-13",
+        "http-api-speech-provenance",
         "b-client-server-contract-shared-preferences-14",
         "b-client-server-contract-get-put-use-revision-15",
         "b-client-server-contract-field-default-limi-16-table",
@@ -579,6 +580,89 @@
       ],
       "children": []
     },
+    "http-api-speech-provenance": {
+      "id": "http-api-speech-provenance",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The fork recognizes speech with Deepgram first and local Whisper as the fallback, as "
+        },
+        {
+          "insert": "Architecture",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/10-architecture"
+            }
+          }
+        },
+        {
+          "insert": " describes. A generation's "
+        },
+        {
+          "insert": "speech",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " "
+        },
+        {
+          "insert": "ModelProvenance",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " records "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with backend "
+        },
+        {
+          "insert": "Deepgram",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", or the Whisper model. Its optional "
+        },
+        {
+          "insert": "fallbackReason",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " string says why recognition fell back to local Whisper. "
+        },
+        {
+          "insert": "ServerHealth.speech",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reports Deepgram with a message such as "
+        },
+        {
+          "insert": "Deepgram primary; local Whisper loads on demand.",
+          "attributes": {
+            "code": true
+          }
+        }
+      ],
+      "children": []
+    },
     "b-client-server-contract-shared-preferences-14": {
       "id": "b-client-server-contract-shared-preferences-14",
       "type": "heading",
@@ -638,7 +722,7 @@
                 }
               },
               {
-                "insert": "; "
+                "insert": ". Accepts "
               },
               {
                 "insert": "auto",
@@ -669,7 +753,7 @@
                 }
               }
             ],
-            "Editable default; nonempty, at most 4,096 UTF-8 bytes."
+            "Editable default. Nonempty, at most 4,096 UTF-8 bytes."
           ],
           [
             [
@@ -680,7 +764,7 @@
                 }
               }
             ],
-            "Recognition hints; at most 16 KiB."
+            "Recognition hints. At most 16 KiB."
           ],
           [
             [
@@ -710,7 +794,28 @@
                 }
               },
               {
-                "insert": "; toggles Qwen, preserving dictionary/list processing when off."
+                "insert": ". Toggles Qwen, preserving dictionary/list processing when off."
+              }
+            ]
+          ],
+          [
+            [
+              {
+                "insert": "deepgramSpeechEnabled",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "true",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ". Optional. Sends speech to Deepgram first, with local Whisper as the fallback. A save that omits it keeps the stored value."
               }
             ]
           ],
@@ -731,7 +836,7 @@
                 }
               },
               {
-                "insert": "; affects future uploads and retention, not existing artifacts."
+                "insert": ". Affects future uploads and retention, not existing artifacts."
               }
             ]
           ]

@@ -21,6 +21,14 @@
         "b-architecture-ndjson-events-carry-prog-10",
         "b-architecture-interrupted-partial-uplo-11",
         "architecture-activation-modes",
+        "arch-speech-heading",
+        "arch-speech-lead",
+        "arch-speech-stream",
+        "arch-speech-retry",
+        "arch-speech-prewarm",
+        "arch-speech-key",
+        "arch-speech-lazy",
+        "arch-speech-provenance",
         "b-architecture-text-delivery-12",
         "b-architecture-only-the-new-insertiont-13",
         "b-architecture-the-mac-rechecks-destina-14",
@@ -28,6 +36,7 @@
         "architecture-output-muting",
         "b-architecture-settings-16",
         "b-architecture-scope-where-to-edit-17-table",
+        "architecture-settings-language",
         "b-architecture-shared-saves-use-revisio-18",
         "b-architecture-the-regular-app-uses-19",
         "architecture-client-files",
@@ -182,7 +191,18 @@
                 }
               }
             ],
-            "Persistent whisper.cpp speech helper; Metal on Mac, CPU/CUDA on Linux."
+            "Persistent whisper.cpp speech helper. Metal on Mac, CPU/CUDA on Linux."
+          ],
+          [
+            [
+              {
+                "insert": "Server/src/inference/deepgram.ts",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Codecaine Deepgram client for live and prerecorded speech recognition."
           ],
           [
             [
@@ -193,7 +213,7 @@
                 }
               }
             ],
-            "Persistent Qwen helper; Swift MLX on Mac, llama.cpp on Linux."
+            "Persistent Qwen helper. Swift MLX on Mac, llama.cpp on Linux."
           ],
           [
             [
@@ -238,7 +258,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The server talks to helpers over bounded JSON-lines pipes. Models warm at startup and stay loaded. The client contains no model helpers. The client never starts or stops the server. Bun manages the JavaScript dependencies and compiles the server into a standalone executable. The native application and inference server have no Python runtime dependency. The Codecaine archive worker and Data viewer require Python 3.12 or later."
+          "insert": "The server talks to helpers over bounded JSON-lines pipes. Models warm at startup and stay loaded, except local Whisper while Deepgram is usable. The client contains no model helpers. The client never starts or stops the server. Bun manages the JavaScript dependencies and compiles the server into a standalone executable. The native application and inference server have no Python runtime dependency. The Codecaine archive worker and Data viewer require Python 3.12 or later."
         }
       ],
       "children": []
@@ -303,7 +323,64 @@
       },
       "text": [
         {
-          "insert": "Sealed recordings enter a FIFO processing queue. One job at a time runs Whisper, mechanical cleanup, dictionary rules, and list formatting. Optional Qwen output passes through dictionary rules and deterministic rewrite checks. Rejection or proofreading failure keeps the pre-proofreading text. Cancelling one upload or queued job does not interrupt another."
+          "insert": "Sealed recordings enter a FIFO processing queue, and one job at a time runs speech recognition, mechanical cleanup, dictionary rules, and list formatting."
+        }
+      ],
+      "children": [
+        "arch-step4-speech",
+        "arch-step4-qwen",
+        "arch-step4-reject",
+        "arch-step4-cancel"
+      ]
+    },
+    "arch-step4-speech": {
+      "id": "arch-step4-speech",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Speech Recognition, later on this page, describes how the server chooses Deepgram or local Whisper."
+        }
+      ],
+      "children": []
+    },
+    "arch-step4-qwen": {
+      "id": "arch-step4-qwen",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Optional Qwen output passes through dictionary rules and deterministic rewrite checks."
+        }
+      ],
+      "children": []
+    },
+    "arch-step4-reject": {
+      "id": "arch-step4-reject",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Rejection or proofreading failure keeps the pre-proofreading text."
+        }
+      ],
+      "children": []
+    },
+    "arch-step4-cancel": {
+      "id": "arch-step4-cancel",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Cancelling one upload or queued job does not interrupt another."
         }
       ],
       "children": []
@@ -375,6 +452,293 @@
         },
         {
           "insert": " starts recording on a double tap and ends it on a second double tap."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-heading": {
+      "id": "arch-speech-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Speech Recognition"
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-lead": {
+      "id": "arch-speech-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " recognizes speech first, and local Whisper "
+        },
+        {
+          "insert": "large-v3-turbo",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " is the fallback. Upstream V07 uses local Whisper only, so this routing is a fork difference. Deepgram replaces only the speech step. Dictionary rules, list formatting, and Qwen proofreading run unchanged on its text."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-stream": {
+      "id": "arch-speech-stream",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server streams inference audio to Deepgram's WebSocket while the user speaks."
+        }
+      ],
+      "children": [
+        "arch-speech-stream-detail"
+      ]
+    },
+    "arch-speech-stream-detail": {
+      "id": "arch-speech-stream-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The transcript is ready right after release."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-retry": {
+      "id": "arch-speech-retry",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A Deepgram error starts two retries through Deepgram's prerecorded API with the saved clip, then local Whisper."
+        }
+      ],
+      "children": [
+        "arch-speech-retry-ceiling",
+        "arch-speech-retry-skip"
+      ]
+    },
+    "arch-speech-retry-ceiling": {
+      "id": "arch-speech-retry-ceiling",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Each attempt has a 15-second ceiling. A slow response causes a fallback only when it reaches that ceiling."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-retry-skip": {
+      "id": "arch-speech-retry-skip",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "An offline network, an authentication failure, or a missing key skips the retries and goes straight to local Whisper."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-prewarm": {
+      "id": "arch-speech-prewarm",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "If the live socket fails to open, the server starts loading local Whisper at once."
+        }
+      ],
+      "children": [
+        "arch-speech-prewarm-detail"
+      ]
+    },
+    "arch-speech-prewarm-detail": {
+      "id": "arch-speech-prewarm-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Whisper is then warm when the user stops talking."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-key": {
+      "id": "arch-speech-key",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server reads "
+        },
+        {
+          "insert": "DEEPGRAM_API_KEY",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from the shared Codecaine env file "
+        },
+        {
+          "insert": "~/.config/codecaine/env",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " for each recording."
+        }
+      ],
+      "children": [
+        "arch-speech-key-env"
+      ]
+    },
+    "arch-speech-key-env": {
+      "id": "arch-speech-key-env",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A variable already set in the server's process environment wins over the file."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-lazy": {
+      "id": "arch-speech-lazy",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Local Whisper loads on demand while Deepgram is usable."
+        }
+      ],
+      "children": [
+        "arch-speech-lazy-unload",
+        "arch-speech-lazy-eager"
+      ]
+    },
+    "arch-speech-lazy-unload": {
+      "id": "arch-speech-lazy-unload",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Whisper loads on the first fallback and unloads after 1 hour without local use, which frees about 1.6 to 2 GB of memory."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-lazy-eager": {
+      "id": "arch-speech-lazy-eager",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "When Deepgram is off or no key exists, Whisper warms at startup and stays loaded."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-provenance": {
+      "id": "arch-speech-provenance",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Turning off "
+        },
+        {
+          "insert": "Transcribe with Deepgram",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " under "
+        },
+        {
+          "insert": "Server preferences",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " limits recognition to local Whisper, and audio stays on the Mac. Each generation's "
+        },
+        {
+          "insert": "speech",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " provenance records the provider and an optional "
+        },
+        {
+          "insert": "fallbackReason",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The "
+        },
+        {
+          "insert": "HTTP API",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/20-http-api"
+            }
+          }
+        },
+        {
+          "insert": " page defines both fields."
         }
       ],
       "children": []
@@ -526,7 +890,7 @@
                 }
               }
             ],
-            "Language, cleanup prompt, vocabulary, dictionary, proofreading toggle, original-audio retention."
+            "Deepgram speech toggle, cleanup prompt, vocabulary, dictionary, proofreading toggle, original-audio retention."
           ],
           [
             "Server process",
@@ -548,6 +912,53 @@
           ]
         ]
       },
+      "children": []
+    },
+    "architecture-settings-language": {
+      "id": "architecture-settings-language",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Transcriber dictates English only, so its "
+        },
+        {
+          "insert": "Server preferences",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " page has no "
+        },
+        {
+          "insert": "Language",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " picker. The "
+        },
+        {
+          "insert": "language",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " preference stays in the API for upstream compatibility, and its default is "
+        },
+        {
+          "insert": "en",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
       "children": []
     },
     "b-architecture-shared-saves-use-revisio-18": {

@@ -280,6 +280,10 @@ extension Components {
             public var dictionary: Components.Schemas.PersonalDictionary
             /// - Remark: Generated from `#/components/schemas/ServerPreferences/textCorrectionEnabled`.
             public var textCorrectionEnabled: Swift.Bool
+            /// Transcribe with Deepgram first and fall back to local Whisper. Missing values keep the stored setting, which defaults to true.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ServerPreferences/deepgramSpeechEnabled`.
+            public var deepgramSpeechEnabled: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/ServerPreferences/keepOriginalAudio`.
             public var keepOriginalAudio: Swift.Bool
             /// Creates a new `ServerPreferences`.
@@ -290,6 +294,7 @@ extension Components {
             ///   - vocabulary: Maximum UTF-8 size is 16384 bytes.
             ///   - dictionary:
             ///   - textCorrectionEnabled:
+            ///   - deepgramSpeechEnabled: Transcribe with Deepgram first and fall back to local Whisper. Missing values keep the stored setting, which defaults to true.
             ///   - keepOriginalAudio:
             public init(
                 language: Components.Schemas.ServerPreferences.LanguagePayload,
@@ -297,6 +302,7 @@ extension Components {
                 vocabulary: Swift.String,
                 dictionary: Components.Schemas.PersonalDictionary,
                 textCorrectionEnabled: Swift.Bool,
+                deepgramSpeechEnabled: Swift.Bool? = nil,
                 keepOriginalAudio: Swift.Bool
             ) {
                 self.language = language
@@ -304,6 +310,7 @@ extension Components {
                 self.vocabulary = vocabulary
                 self.dictionary = dictionary
                 self.textCorrectionEnabled = textCorrectionEnabled
+                self.deepgramSpeechEnabled = deepgramSpeechEnabled
                 self.keepOriginalAudio = keepOriginalAudio
             }
             public enum CodingKeys: String, CodingKey {
@@ -312,6 +319,7 @@ extension Components {
                 case vocabulary
                 case dictionary
                 case textCorrectionEnabled
+                case deepgramSpeechEnabled
                 case keepOriginalAudio
             }
             public init(from decoder: any Swift.Decoder) throws {
@@ -336,6 +344,10 @@ extension Components {
                     Swift.Bool.self,
                     forKey: .textCorrectionEnabled
                 )
+                self.deepgramSpeechEnabled = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .deepgramSpeechEnabled
+                )
                 self.keepOriginalAudio = try container.decode(
                     Swift.Bool.self,
                     forKey: .keepOriginalAudio
@@ -346,6 +358,7 @@ extension Components {
                     "vocabulary",
                     "dictionary",
                     "textCorrectionEnabled",
+                    "deepgramSpeechEnabled",
                     "keepOriginalAudio"
                 ])
             }
@@ -809,6 +822,10 @@ extension Components {
             public var engineVersion: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ModelProvenance/processingSeconds`.
             public var processingSeconds: Swift.Double?
+            /// Why speech recognition fell back from Deepgram to local Whisper.
+            ///
+            /// - Remark: Generated from `#/components/schemas/ModelProvenance/fallbackReason`.
+            public var fallbackReason: Swift.String?
             /// Creates a new `ModelProvenance`.
             ///
             /// - Parameters:
@@ -817,18 +834,21 @@ extension Components {
             ///   - backend:
             ///   - engineVersion:
             ///   - processingSeconds:
+            ///   - fallbackReason: Why speech recognition fell back from Deepgram to local Whisper.
             public init(
                 modelID: Swift.String,
                 modelSHA256: Swift.String? = nil,
                 backend: Swift.String,
                 engineVersion: Swift.String? = nil,
-                processingSeconds: Swift.Double? = nil
+                processingSeconds: Swift.Double? = nil,
+                fallbackReason: Swift.String? = nil
             ) {
                 self.modelID = modelID
                 self.modelSHA256 = modelSHA256
                 self.backend = backend
                 self.engineVersion = engineVersion
                 self.processingSeconds = processingSeconds
+                self.fallbackReason = fallbackReason
             }
             public enum CodingKeys: String, CodingKey {
                 case modelID
@@ -836,6 +856,7 @@ extension Components {
                 case backend
                 case engineVersion
                 case processingSeconds
+                case fallbackReason
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -859,12 +880,17 @@ extension Components {
                     Swift.Double.self,
                     forKey: .processingSeconds
                 )
+                self.fallbackReason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .fallbackReason
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "modelID",
                     "modelSHA256",
                     "backend",
                     "engineVersion",
-                    "processingSeconds"
+                    "processingSeconds",
+                    "fallbackReason"
                 ])
             }
         }

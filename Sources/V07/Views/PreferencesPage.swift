@@ -131,12 +131,6 @@ struct ServerPreferencesPage: View {
         return dirty && base.revision != latest.revision
     }
     private var available: Bool { controller.sharedPreferences != nil && controller.serverHealth != nil }
-    private let languages = [
-        ("English", "en"), ("Detect automatically", "auto"), ("Spanish", "es"), ("French", "fr"),
-        ("German", "de"), ("Italian", "it"), ("Portuguese", "pt"), ("Dutch", "nl"), ("Japanese", "ja"),
-        ("Chinese", "zh"), ("Korean", "ko"), ("Hindi", "hi"), ("Arabic", "ar"), ("Polish", "pl"),
-        ("Russian", "ru"), ("Ukrainian", "uk"), ("Swedish", "sv")
-    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -176,9 +170,15 @@ struct ServerPreferencesPage: View {
                     } header: { Text("Server models").textCase(nil) }
                 }
                 Section {
-                    Picker("Language", selection: $draft.language) {
-                        ForEach(languages, id: \.1) { name, code in Text(name).tag(code) }
-                    }
+                    // Fork: Transcriber dictates English only, so the Language picker is removed.
+                    // `draft.language` still round-trips unchanged for upstream API compatibility.
+                    Toggle("Transcribe with Deepgram", isOn: $draft.deepgramSpeechEnabled)
+                        .accessibilityIdentifier("preferences.deepgram-speech")
+                    Text(draft.deepgramSpeechEnabled
+                        ? "Faster, more accurate. Falls back to local Whisper when offline or Deepgram fails."
+                        : "Local Whisper only. No audio is sent to Deepgram.")
+                        .font(.caption)
+                        .foregroundStyle(V07Palette.muted)
                     Toggle("Proofread with Qwen", isOn: $draft.textCorrectionEnabled)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {

@@ -255,6 +255,13 @@ struct HistoryPage: View {
                         .font(.caption2)
                         .foregroundStyle(V07Palette.muted)
                         .lineLimit(1)
+                    if let reason = speech.fallbackReason, !reason.isEmpty {
+                        Text("Local Whisper (fallback): \(reason)")
+                            .font(.caption2)
+                            .foregroundStyle(V07Palette.muted)
+                            .lineLimit(2)
+                            .help(reason)
+                    }
                 }
             }
             .padding(.leading, 20)

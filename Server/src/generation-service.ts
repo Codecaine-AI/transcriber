@@ -13,7 +13,12 @@ import type {
   FinishGenerationRequest,
   GenerationPage,
   GenerationRecord,
+  ModelHintUsage,
+  ModelProvenance,
+  ModelRuntimeInfo,
   PreferencesSnapshot,
+  RecordPreferences,
+  RecordSettings,
   ServerHealth,
   ServerPreferences,
   TextProcessingRecord,
@@ -26,6 +31,15 @@ import { decodePersonalDictionary } from "./domain/dictionary.ts";
 import { validateBody } from "./validation.ts";
 import type { InferenceBackend } from "./inference/native-inference.ts";
 import { InferenceError } from "./inference/inference-error.ts";
+import {
+  DeepgramError,
+  DeepgramLiveSession,
+  deepgramApiKey,
+  transcribeFile,
+  type DeepgramFailureKind,
+  type DeepgramOptions,
+  type DeepgramTranscript,
+} from "./inference/deepgram.ts";
 import { ServiceError } from "./errors.ts";
 import {
   atomicPrivateWrite,
@@ -84,6 +98,7 @@ export const defaultPreferences = (): PreferencesSnapshot => ({
     vocabulary: "",
     dictionary: copy(defaultDictionary),
     textCorrectionEnabled: true,
+    deepgramSpeechEnabled: true,
     keepOriginalAudio: true,
   },
 });
@@ -132,16 +147,36 @@ export function preferencesValidationError(preferences: ServerPreferences) {
   return dictionaryValidationError(preferences.dictionary);
 }
 
-function normalizePreferences(
+function normalizeRecordPreferences(
   value: components["schemas"]["ServerPreferences"],
-): ServerPreferences {
+): RecordPreferences {
   const dictionary = decodePersonalDictionary(value.dictionary);
   if (dictionary.error) throw new ServiceError(400, "invalid_preferences", dictionary.error);
-  return {
+  const preferences = {
     ...value,
     dictionary: dictionary.value!,
     proofreadingPrompt: value.proofreadingPrompt ?? defaultProofreadingPrompt,
   };
+  // Fork: the Deepgram flag is a live setting, never part of a record snapshot.
+  delete preferences.deepgramSpeechEnabled;
+  return preferences;
+}
+
+function normalizePreferences(
+  value: components["schemas"]["ServerPreferences"],
+  deepgramSpeechEnabled = true,
+): ServerPreferences {
+  return {
+    ...normalizeRecordPreferences(value),
+    // Older clients omit this; the stored setting stands.
+    deepgramSpeechEnabled: value.deepgramSpeechEnabled ?? deepgramSpeechEnabled,
+  };
+}
+
+function recordSettings(snapshot: PreferencesSnapshot): RecordSettings {
+  const preferences: RecordPreferences & Partial<ServerPreferences> = copy(snapshot.preferences);
+  delete preferences.deepgramSpeechEnabled;
+  return { revision: snapshot.revision, preferences };
 }
 
 interface ServiceConfiguration {
@@ -158,6 +193,12 @@ interface Watcher {
   wake?: () => void;
   done: boolean;
 }
+interface LiveSpeech {
+  session: DeepgramLiveSession;
+  options: DeepgramOptions;
+  result?: Promise<DeepgramTranscript>;
+}
+const LOCAL_SPEECH_IDLE_MS = 3_600_000;
 
 /** All durable mutations share one queue. Model work proceeds outside it. */
 export class GenerationService {
@@ -174,6 +215,12 @@ export class GenerationService {
   private timer?: ReturnType<typeof setInterval>;
   private queue: Promise<unknown> = Promise.resolve();
   private subscribers = new Map<string, Set<Watcher>>();
+  private liveSpeech = new Map<string, LiveSpeech>();
+  /** Takes created with Deepgram enabled but no API key; their Whisper result records why. */
+  private deepgramKeyMissing = new Set<string>();
+  private speechPreload?: Promise<void>;
+  private localSpeechActive = 0;
+  private lastLocalSpeech = Date.now();
   private readonly imports: WisprFlowImports;
   private constructor(
     private readonly configuration: ServiceConfiguration,
@@ -181,7 +228,7 @@ export class GenerationService {
   ) {
     this.imports = new WisprFlowImports({
       dataDirectory: configuration.dataDirectory,
-      getPreferences: () => copy(this.preferences),
+      getPreferences: () => recordSettings(this.preferences),
       getRecord: (id) => this.getInternal(id),
       publish: (record) => this.publish(record),
       requireDiskSpace: () => requireDiskSpace(configuration.dataDirectory),
@@ -252,7 +299,7 @@ export class GenerationService {
         if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
         throw error;
       }
-      record.settings.preferences = normalizePreferences(record.settings.preferences);
+      record.settings.preferences = normalizeRecordPreferences(record.settings.preferences);
       if (
         record.id.toUpperCase() !== id ||
         record.schemaVersion !== 1 ||
@@ -310,6 +357,7 @@ export class GenerationService {
           await this.cancelRecord(record.id);
       }
     });
+    await this.unloadIdleSpeech();
   }
   async shutdown() {
     this.stopping = true;
@@ -319,10 +367,13 @@ export class GenerationService {
     await this.mutate(async () => {
       for (const record of this.records.values())
         if (!terminal(record)) await this.cancelRecord(record.id);
+      for (const id of this.liveSpeech.keys()) this.discardLiveSpeech(id);
     });
     await this.inference.shutdown();
     await Promise.allSettled(
-      [this.processingQueue, this.warmTask].filter((task): task is Promise<void> => Boolean(task)),
+      [this.processingQueue, this.warmTask, this.speechPreload].filter(
+        (task): task is Promise<void> => Boolean(task),
+      ),
     );
     await this.mutate(() => {
       for (const watchers of this.subscribers.values())
@@ -335,6 +386,7 @@ export class GenerationService {
   }
   async health(): Promise<ServerHealth> {
     const state = await this.inference.readiness(false);
+    const apiKey = await this.deepgramKey();
     let writable = true;
     try {
       await access(this.configuration.dataDirectory, constants.W_OK);
@@ -343,31 +395,35 @@ export class GenerationService {
       writable = false;
     }
     return this.mutate(() => {
-      const ready = state.available && writable && !this.stopping && !this.speechUnloadable(state);
+      // Deepgram is primary when usable; local Whisper is then only a lazy fallback.
+      const deepgram = Boolean(apiKey) && this.preferences.preferences.deepgramSpeechEnabled;
+      const unloadable = !deepgram && this.speechUnloadable(state);
+      const ready = (deepgram || state.available) && writable && !this.stopping && !unloadable;
       const message = !writable
         ? "Server storage is unavailable or full."
         : this.stopping
           ? "The server is shutting down."
           : ready
-            ? state.speechLoaded
+            ? deepgram || state.speechLoaded
               ? "Server ready."
               : "Loading server models; recordings will queue."
-            : this.speechUnloadable(state)
+            : unloadable
               ? "Speech model failed to load."
               : this.warming
                 ? "Loading server models…"
                 : "Server models are unavailable.";
-      if (!state.speechLoaded) this.beginWarmup();
+      if (
+        deepgram
+          ? this.preferences.preferences.textCorrectionEnabled && !state.proofLoaded
+          : !state.speechLoaded
+      )
+        this.beginWarmup();
       return {
         apiVersion: 1,
         serverVersion: "0.1.0",
         isDev: this.configuration.development,
         ready,
-        speech: {
-          modelID: "whisper-large-v3-turbo",
-          backend: this.speechBackend,
-          ready: state.speechLoaded,
-        },
+        speech: this.speechRuntime(deepgram, state),
         proofreading: {
           modelID: "Qwen3-4B-Instruct-2507",
           backend: this.proofBackend,
@@ -393,7 +449,10 @@ export class GenerationService {
           "stale_preferences",
           "Preferences changed on another device. Reload and try again.",
         );
-      const normalized = normalizePreferences(update.preferences);
+      const normalized = normalizePreferences(
+        update.preferences,
+        this.preferences.preferences.deepgramSpeechEnabled,
+      );
       const error = preferencesValidationError(normalized);
       if (error) throw new ServiceError(400, "invalid_preferences", error);
       const next = { revision: this.preferences.revision + 1, preferences: normalized };
@@ -412,6 +471,7 @@ export class GenerationService {
   }
   async create(request: CreateGenerationRequest) {
     const state = await this.inference.readiness(false);
+    const apiKey = await this.deepgramKey();
     return this.mutate(async () => {
       if (this.stopping)
         throw new ServiceError(503, "server_stopping", "The server is shutting down.");
@@ -432,7 +492,8 @@ export class GenerationService {
           record.device.id === request.device.id,
       );
       if (existing) return copy(existing);
-      if (!state.available || this.speechUnloadable(state)) {
+      const deepgramKey = this.preferences.preferences.deepgramSpeechEnabled ? apiKey : undefined;
+      if (!deepgramKey && (!state.available || this.speechUnloadable(state))) {
         this.beginWarmup();
         throw new ServiceError(
           503,
@@ -452,6 +513,9 @@ export class GenerationService {
       await mkdir(this.directory(record.id), { mode: 0o700 });
       await this.save(record);
       this.uploads.set(record.id, {});
+      if (deepgramKey) this.openLiveSpeech(record, deepgramKey);
+      else if (this.preferences.preferences.deepgramSpeechEnabled)
+        this.deepgramKeyMissing.add(record.id);
       return copy(record);
     });
   }
@@ -471,7 +535,7 @@ export class GenerationService {
       status: "receiving",
       createdAt: date,
       updatedAt: date,
-      settings: copy(this.preferences),
+      settings: recordSettings(this.preferences),
       rawText: "",
       finalText: "",
       insertionText: "",
@@ -620,6 +684,8 @@ export class GenerationService {
       this.uploads.set(id, streams);
       record.updatedAt = now();
       this.records.set(id, record);
+      // Only newly accepted chunks reach Deepgram, in sequence order.
+      if (kind === "inference") this.liveSpeech.get(id)?.session.send(bytes);
       return {
         nextSequence: upload.chunks.length,
         frameCount: upload.bytes / (format.channels * 4),
@@ -695,10 +761,12 @@ export class GenerationService {
         record.updatedAt = now();
         await this.save(record).catch(() => this.publish(record));
         await this.cleanPartial(id);
+        this.discardLiveSpeech(id);
         this.beginWarmup();
         throw new ServiceError(500, "audio_storage_failed", record.error);
       }
       this.uploads.delete(id);
+      this.finishLiveSpeech(id);
       this.enqueueProcessing(id, previous);
       return copy(record);
     });
@@ -802,6 +870,7 @@ export class GenerationService {
     delete record.progress;
     record.updatedAt = now();
     this.processingControllers.get(record.id)?.abort();
+    this.discardLiveSpeech(record.id);
     await this.save(record).catch(() => this.publish(record));
     await this.cleanPartial(record.id);
     return copy(record);
@@ -863,6 +932,7 @@ export class GenerationService {
         );
       await requireRegularDirectory(this.directory(record.id));
       await rm(this.directory(record.id), { recursive: true });
+      this.discardLiveSpeech(record.id);
       this.records.delete(record.id);
       this.imports.removeRecord(record);
     });
@@ -1026,6 +1096,7 @@ export class GenerationService {
       .catch(() => {})
       .finally(() => {
         this.processingControllers.delete(id);
+        this.discardLiveSpeech(id);
         this.beginWarmup();
       });
   }
@@ -1034,6 +1105,9 @@ export class GenerationService {
     previous: DictationContinuation | undefined,
     signal: AbortSignal,
   ) {
+    const live = this.liveSpeech.get(id);
+    this.liveSpeech.delete(id);
+    const deepgramKeyMissing = this.deepgramKeyMissing.delete(id);
     try {
       let record = await this.mutate(async () => {
         const record = this.getInternal(id);
@@ -1045,26 +1119,12 @@ export class GenerationService {
       });
       if (!record) return;
       const settings = record.settings.preferences;
-      const speech = await this.inference.transcribe(
-        join(this.directory(id), "inference.wav"),
-        settings.language,
-        recognitionVocabularyTerms(settings.dictionary, settings.vocabulary),
-        (value) => {
-          void this.mutate(() => this.progress(id, value));
-        },
-        signal,
-      );
+      const speech = await this.recognize(id, settings, live, deepgramKeyMissing, signal);
       signal.throwIfAborted();
       record.rawText = speech.text;
       record.detectedLanguage = speech.language;
       record.recognitionHints = speech.hints;
-      record.speech = {
-        modelID: "whisper-large-v3-turbo",
-        modelSHA256: speech.modelSHA256,
-        backend: this.speechBackend,
-        engineVersion: speech.engineVersion,
-        processingSeconds: speech.processingSeconds,
-      };
+      record.speech = speech.provenance;
       const cleaned = cleanTranscript(speech.text);
       const transcript = applyDictionary(settings.dictionary, cleaned, 24 * 1024);
       const structured = formatSpokenList(transcript, previous?.list);
@@ -1136,12 +1196,14 @@ export class GenerationService {
         delete failed.progress;
         await this.save(failed).catch(() => this.publish(failed));
       });
+    } finally {
+      live?.session.abort();
     }
   }
 
   private async proofread(
     text: string,
-    settings: ServerPreferences,
+    settings: RecordPreferences,
     dictionaryChanged: boolean,
     language: string,
     signal: AbortSignal,
@@ -1251,15 +1313,23 @@ export class GenerationService {
     this.warming = true;
     const controller = new AbortController();
     this.warmController = controller;
-    this.warmTask = this.inference
-      .warmUp(this.preferences.preferences.textCorrectionEnabled, controller.signal)
+    let speech = true;
+    this.warmTask = this.localSpeechRequired()
+      .then((required) => {
+        speech = required;
+        return this.inference.warmUp(
+          this.preferences.preferences.textCorrectionEnabled,
+          controller.signal,
+          { speech },
+        );
+      })
       .then(
         () => {
-          this.speechLoadFailed = false;
+          if (speech) this.speechLoadFailed = false;
         },
         async (error) => {
           // A cancelled take or shutdown can interrupt loading; that is not a failure.
-          if (error instanceof InferenceError && error.code === "cancelled") return;
+          if (!speech || (error instanceof InferenceError && error.code === "cancelled")) return;
           this.speechLoadFailed = !(await this.inference.readiness(false)).speechLoaded;
         },
       )
@@ -1280,4 +1350,214 @@ export class GenerationService {
   private get proofBackend() {
     return process.platform === "darwin" ? "MLX" : "llama.cpp";
   }
+
+  // Fork: Deepgram streams during recording; local Whisper is the lazy fallback.
+  private async deepgramKey() {
+    if (!this.preferences.preferences.deepgramSpeechEnabled) return undefined;
+    return deepgramApiKey().catch(() => undefined);
+  }
+  private async localSpeechRequired() {
+    return !(await this.deepgramKey());
+  }
+  private speechRuntime(
+    deepgram: boolean,
+    state: { available: boolean; message: string; speechLoaded: boolean },
+  ): ModelRuntimeInfo {
+    if (deepgram) {
+      // readiness(false) checks only speech assets. Unverified models are normal while
+      // Whisper stays unloaded, so only missing assets or a failed load count as broken.
+      const broken =
+        (!state.available && state.message.startsWith("Missing")) || this.speechUnloadable(state);
+      return {
+        modelID: "nova-3",
+        backend: "Deepgram",
+        ready: true,
+        message: broken
+          ? "Deepgram primary; local Whisper fallback is unavailable."
+          : state.speechLoaded
+            ? "Deepgram primary; local Whisper fallback is loaded."
+            : "Deepgram primary; local Whisper loads on demand.",
+      };
+    }
+    return {
+      modelID: "whisper-large-v3-turbo",
+      backend: this.speechBackend,
+      ready: state.speechLoaded,
+      message: this.preferences.preferences.deepgramSpeechEnabled
+        ? "Deepgram API key not found; using local Whisper."
+        : undefined,
+    };
+  }
+  private openLiveSpeech(record: GenerationRecord, apiKey: string) {
+    const settings = record.settings.preferences;
+    const options: DeepgramOptions = {
+      apiKey,
+      language: settings.language,
+      keyterms: recognitionVocabularyTerms(settings.dictionary, settings.vocabulary),
+    };
+    const session = DeepgramLiveSession.open(options);
+    this.liveSpeech.set(record.id, { session, options });
+    // Any live failure warms the local fallback while the user talks or retries run.
+    void session.failed.then((error) => {
+      const current = this.records.get(record.id);
+      if (error.kind !== "cancelled" && current && !terminal(current)) this.preloadSpeech();
+    });
+  }
+  /** Deepgram closes idle sockets, so finish at seal rather than when processing starts. */
+  private finishLiveSpeech(id: string) {
+    const live = this.liveSpeech.get(id);
+    if (!live || live.result) return;
+    live.result = live.session.finish();
+    void live.result.catch(() => {});
+  }
+  private discardLiveSpeech(id: string) {
+    const live = this.liveSpeech.get(id);
+    this.liveSpeech.delete(id);
+    this.deepgramKeyMissing.delete(id);
+    live?.session.abort();
+  }
+  private async recognize(
+    id: string,
+    settings: RecordPreferences,
+    live: LiveSpeech | undefined,
+    deepgramKeyMissing: boolean,
+    signal: AbortSignal,
+  ): Promise<{
+    text: string;
+    language: string;
+    hints?: ModelHintUsage;
+    provenance: ModelProvenance;
+  }> {
+    const path = join(this.directory(id), "inference.wav");
+    let fallbackReason: string | undefined;
+    if (live) {
+      const permanent: DeepgramFailureKind[] = ["offline", "auth", "rejected", "missingKey"];
+      let attempts = 0;
+      let failure: { kind: DeepgramFailureKind; message: string } = {
+        kind: "failed",
+        message: "Deepgram failed.",
+      };
+      while (attempts < 3) {
+        attempts += 1;
+        try {
+          const transcript =
+            attempts === 1
+              ? await abortable(live.result ?? live.session.finish(), signal)
+              : await transcribeFile(path, live.options, 15, signal);
+          signal.throwIfAborted();
+          return {
+            text: transcript.text,
+            language: transcript.language,
+            provenance: {
+              modelID: transcript.modelID,
+              backend: "Deepgram",
+              processingSeconds: transcript.processingSeconds,
+            },
+          };
+        } catch (error) {
+          signal.throwIfAborted();
+          const kind = error instanceof DeepgramError ? error.kind : "failed";
+          if (kind === "cancelled") throw new InferenceError("cancelled");
+          failure = { kind, message: error instanceof Error ? error.message : failure.message };
+          if (permanent.includes(kind)) break;
+          // Live already preloads on failure; a failed retry makes sure Whisper is warming.
+          if (attempts >= 2) this.preloadSpeech();
+        }
+      }
+      fallbackReason =
+        failure.kind === "offline"
+          ? "Deepgram unreachable (offline)."
+          : failure.kind === "auth"
+            ? "Deepgram rejected the API key."
+            : failure.kind === "rejected"
+              ? failure.message
+              : failure.kind === "missingKey"
+                ? "Deepgram API key not found."
+                : `Deepgram failed after ${attempts} attempts: ${failure.message.replace(/\.$/, "")}.`;
+    } else if (deepgramKeyMissing) fallbackReason = "Deepgram API key not found.";
+    this.localSpeechActive += 1;
+    try {
+      let speech;
+      try {
+        speech = await this.inference.transcribe(
+          path,
+          settings.language,
+          recognitionVocabularyTerms(settings.dictionary, settings.vocabulary),
+          (value) => {
+            void this.mutate(() => this.progress(id, value));
+          },
+          signal,
+        );
+      } catch (error) {
+        // Name both failures so a broken fallback is not hidden behind Deepgram's.
+        if (
+          !fallbackReason ||
+          signal.aborted ||
+          (error instanceof InferenceError && error.code === "cancelled")
+        )
+          throw error;
+        const detail = error instanceof Error && error.message ? error.message : "unknown error";
+        throw new Error(
+          `Deepgram failed (${fallbackReason.replace(/\.$/, "")}); local Whisper unavailable: ${detail.replace(/\.$/, "")}.`,
+          { cause: error },
+        );
+      }
+      return {
+        text: speech.text,
+        language: speech.language,
+        hints: speech.hints,
+        provenance: {
+          modelID: "whisper-large-v3-turbo",
+          modelSHA256: speech.modelSHA256,
+          backend: this.speechBackend,
+          engineVersion: speech.engineVersion,
+          processingSeconds: speech.processingSeconds,
+          fallbackReason,
+        },
+      };
+    } finally {
+      this.localSpeechActive -= 1;
+      this.lastLocalSpeech = Date.now();
+    }
+  }
+  /** Joins any in-flight Whisper load; independent of warmup's processing guard. */
+  private preloadSpeech() {
+    if (this.stopping || this.speechPreload) return;
+    this.lastLocalSpeech = Date.now();
+    this.speechPreload = this.inference
+      .warmUp(false, undefined, { speech: true })
+      .catch(() => {})
+      .finally(() => {
+        this.speechPreload = undefined;
+        this.lastLocalSpeech = Date.now();
+      });
+  }
+  /** Whisper is a fallback while Deepgram is usable; release it after an idle hour. */
+  private async unloadIdleSpeech() {
+    const busy = () =>
+      this.stopping || this.warming || this.localSpeechActive > 0 || Boolean(this.speechPreload);
+    if (busy() || Date.now() - this.lastLocalSpeech < LOCAL_SPEECH_IDLE_MS) return;
+    const [required, state] = await Promise.all([
+      this.localSpeechRequired(),
+      this.inference.readiness(false),
+    ]);
+    if (required || !state.speechLoaded) {
+      this.lastLocalSpeech = Date.now();
+      return;
+    }
+    // Readiness awaits above; a take may have used or begun loading Whisper meanwhile.
+    if (!busy() && Date.now() - this.lastLocalSpeech >= LOCAL_SPEECH_IDLE_MS)
+      await this.inference.unloadSpeech();
+  }
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal) {
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new InferenceError("cancelled"));
+    if (signal.aborted) abort();
+    else {
+      signal.addEventListener("abort", abort, { once: true });
+      void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    }
+  });
 }

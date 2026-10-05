@@ -630,6 +630,9 @@ components:
           "$ref": "#/components/schemas/PersonalDictionary"
         textCorrectionEnabled:
           type: "boolean"
+        deepgramSpeechEnabled:
+          type: "boolean"
+          description: "Transcribe with Deepgram first and fall back to local Whisper. Missing values keep the stored setting, which defaults to true."
         keepOriginalAudio:
           type: "boolean"
       required:
@@ -805,6 +808,9 @@ components:
         processingSeconds:
           type: "number"
           minimum: 0
+        fallbackReason:
+          type: "string"
+          description: "Why speech recognition fell back from Deepgram to local Whisper."
       required:
         - "modelID"
         - "backend"

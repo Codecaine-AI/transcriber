@@ -78,7 +78,14 @@ export interface ProofInferenceResult {
 
 export interface InferenceBackend {
   readiness(proofreadingEnabled?: boolean): Promise<InferenceReadiness>;
-  warmUp(proofreadingEnabled?: boolean, signal?: AbortSignal): Promise<void>;
+  /** `speech: false` leaves Whisper unloaded; it then loads on demand. */
+  warmUp(
+    proofreadingEnabled?: boolean,
+    signal?: AbortSignal,
+    options?: { speech: boolean },
+  ): Promise<void>;
+  /** Stops an idle Whisper helper; a busy or loading helper is left alone. */
+  unloadSpeech(): Promise<void>;
   transcribe(
     audioPath: string,
     language: string,
@@ -227,9 +234,11 @@ export class NativeInference implements InferenceBackend {
     };
   }
 
-  async warmUp(proofreadingEnabled = true, signal?: AbortSignal) {
-    await this.verifier.verify(this.configuration.speechModel, this.speechPin, signal);
-    await this.speech.ensureLoaded(signal);
+  async warmUp(proofreadingEnabled = true, signal?: AbortSignal, options = { speech: true }) {
+    if (options.speech) {
+      await this.verifier.verify(this.configuration.speechModel, this.speechPin, signal);
+      await this.speech.ensureLoaded(signal);
+    }
     if (proofreadingEnabled) {
       await this.verifier.verify(this.configuration.proofModel, this.proofPin, signal);
       await this.proof.ensureLoaded(signal);
@@ -380,6 +389,12 @@ export class NativeInference implements InferenceBackend {
       ...(state.engineVersion !== undefined ? { engineVersion: state.engineVersion } : {}),
       ...(modelSHA256 !== undefined ? { modelSHA256 } : {}),
     };
+  }
+
+  async unloadSpeech() {
+    const state = this.speech.snapshot();
+    if (state.busy || state.loading) return;
+    await this.speech.shutdown();
   }
 
   async cancel() {

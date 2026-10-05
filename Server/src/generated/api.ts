@@ -334,6 +334,8 @@ export interface components {
       vocabulary: string;
       dictionary: components["schemas"]["PersonalDictionary"];
       textCorrectionEnabled: boolean;
+      /** @description Transcribe with Deepgram first and fall back to local Whisper. Missing values keep the stored setting, which defaults to true. */
+      deepgramSpeechEnabled?: boolean;
       keepOriginalAudio: boolean;
     };
     PreferencesSnapshot: {
@@ -392,6 +394,8 @@ export interface components {
       backend: string;
       engineVersion?: string;
       processingSeconds?: number;
+      /** @description Why speech recognition fell back from Deepgram to local Whisper. */
+      fallbackReason?: string;
     };
     DeliveryReceipt: {
       status: string;

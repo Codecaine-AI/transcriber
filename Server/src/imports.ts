@@ -4,7 +4,7 @@ import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type {
   GenerationRecord,
-  PreferencesSnapshot,
+  RecordSettings,
   WisprFlowArtifactManifest,
   WisprFlowArtifactName,
   WisprFlowImportRequest,
@@ -365,7 +365,7 @@ function recordingConflict(
 
 type ImportContext = {
   dataDirectory: string;
-  getPreferences(): PreferencesSnapshot;
+  getPreferences(): RecordSettings;
   getRecord(id: string): GenerationRecord;
   publish(record: GenerationRecord): void;
   requireDiskSpace(): Promise<void>;

@@ -42,7 +42,14 @@
         "work-record-2026-09-30-cutover-heading",
         "work-record-2026-09-30-cutover-app",
         "work-record-2026-09-30-cutover-services",
-        "work-record-2026-09-30-cutover-backup"
+        "work-record-2026-09-30-cutover-backup",
+        "work-record-2026-10-05-heading",
+        "work-record-2026-10-05-install",
+        "work-record-2026-10-05-health",
+        "work-record-2026-10-05-dictation",
+        "work-record-2026-10-05-dev",
+        "work-record-2026-10-05-language",
+        "work-record-2026-10-05-unverified"
       ]
     },
     "b-10-work-record-this-record-captures-wor-1": {
@@ -1036,6 +1043,288 @@
         },
         {
           "insert": " points to it."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-heading": {
+      "id": "work-record-2026-10-05-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Deepgram Speech Install, 2026-10-05"
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-install": {
+      "id": "work-record-2026-10-05-install",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "On 2026-10-05 Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " speech with a local Whisper fallback was installed on this Mac. "
+        },
+        {
+          "insert": "./scripts/build-server.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " rebuilt the server, and launchd restarted "
+        },
+        {
+          "insert": "ai.codecaine.sotto.server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on "
+        },
+        {
+          "insert": "127.0.0.1:8391",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". At 14:12 local time, "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reinstalled "
+        },
+        {
+          "insert": "/Applications/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " without a reset of macOS permissions. The previous app is kept at "
+        },
+        {
+          "insert": ".local/install-backups/20261005-141222-687335/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-health": {
+      "id": "work-record-2026-10-05-health",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "/v1/health",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reported speech "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " through Deepgram as ready, with the message "
+        },
+        {
+          "insert": "Deepgram primary; local Whisper loads on demand.",
+          "attributes": {
+            "code": true
+          }
+        }
+      ],
+      "children": [
+        "work-record-2026-10-05-health-detail"
+      ]
+    },
+    "work-record-2026-10-05-health-detail": {
+      "id": "work-record-2026-10-05-health-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Qwen was ready, and "
+        },
+        {
+          "insert": "deepgramSpeechEnabled",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " was true."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-dictation": {
+      "id": "work-record-2026-10-05-dictation",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The first real dictation after the install, recorded at 2026-10-05T19:12:59Z, finished through Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with 0.14 s of speech processing and no fallback."
+        }
+      ],
+      "children": [
+        "work-record-2026-10-05-dictation-detail"
+      ]
+    },
+    "work-record-2026-10-05-dictation-detail": {
+      "id": "work-record-2026-10-05-dictation-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The dictation before it ran through local Whisper and took 1.05 s."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-dev": {
+      "id": "work-record-2026-10-05-dev",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Before the install, V07 Dev against an isolated dev server on port 8393 verified the Deepgram paths."
+        }
+      ],
+      "children": [
+        "work-record-2026-10-05-dev-dictation",
+        "work-record-2026-10-05-dev-fallback",
+        "work-record-2026-10-05-dev-health"
+      ]
+    },
+    "work-record-2026-10-05-dev-dictation": {
+      "id": "work-record-2026-10-05-dev-dictation",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Deepgram dictation worked, and the "
+        },
+        {
+          "insert": "Transcribe with Deepgram",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " toggle persisted in light and dark mode."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-dev-fallback": {
+      "id": "work-record-2026-10-05-dev-fallback",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "An invalid key fell back to local Whisper with a reason, and turning Deepgram off loaded Whisper at startup."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-dev-health": {
+      "id": "work-record-2026-10-05-dev-health",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Health showed a message for a missing key, and an unavailable fallback produced an error and a health note."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-language": {
+      "id": "work-record-2026-10-05-language",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "Language",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " picker was removed from Preferences because Transcriber dictates English only."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-05-unverified": {
+      "id": "work-record-2026-10-05-unverified",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fallback after a real network loss and the 1-hour Whisper idle unload were not verified."
         }
       ],
       "children": []

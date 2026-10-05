@@ -34,6 +34,7 @@
         "rollback-reload",
         "rollback-open",
         "open-work-carried-heading",
+        "open-work-deepgram",
         "open-work-carried-backup",
         "open-work-carried-wispr",
         "open-work-carried-port",
@@ -52,7 +53,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork's source is merged with upstream V07 through PR #23. The Transcriber cutover on this Mac is done. "
+          "insert": "The fork's source is merged with upstream V07 through PR #23. "
         },
         {
           "insert": "/Applications/Transcriber.app",
@@ -61,7 +62,16 @@
           }
         },
         {
-          "insert": " is installed, has its macOS permissions, and completed an end-to-end dictation on 2026-09-30. The server runs a build of the merged source. This page records the current handoff. Dated evidence is kept in "
+          "insert": " is installed with its macOS permissions, and speech recognition uses Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with local Whisper as the fallback. This page records the current handoff, and "
         },
         {
           "insert": "Work Record",
@@ -73,7 +83,7 @@
           }
         },
         {
-          "insert": "."
+          "insert": " keeps the dated evidence."
         }
       ],
       "children": []
@@ -103,7 +113,17 @@
         "rows": [
           [
             "Repository",
-            "Pushed",
+            [
+              {
+                "insert": "Committed to "
+              },
+              {
+                "insert": "main",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
             [
               {
                 "insert": "/Users/Ford/workspace/codecaine/utilities/sotto",
@@ -112,7 +132,7 @@
                 }
               },
               {
-                "insert": "; "
+                "insert": ". "
               },
               {
                 "insert": "main",
@@ -121,34 +141,7 @@
                 }
               },
               {
-                "insert": " and "
-              },
-              {
-                "insert": "transcriber-identity",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " are at "
-              },
-              {
-                "insert": "135acc9",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": ", and "
-              },
-              {
-                "insert": "origin/main",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " matches"
+                "insert": " includes the Deepgram speech routing"
               }
             ]
           ],
@@ -166,7 +159,7 @@
                 }
               },
               {
-                "insert": " on 2026-09-30; upstream "
+                "insert": " on 2026-09-30, with upstream "
               },
               {
                 "insert": "main",
@@ -208,7 +201,22 @@
                 }
               },
               {
-                "insert": ", signed with the pinned certificate Sotto.app used. The permissions log reports microphone, accessibility, inputMonitoring, and hotkey as true. An end-to-end dictation (hold fn, speak, text inserted) worked on 2026-09-30"
+                "insert": ", signed with the pinned certificate Sotto.app used. "
+              },
+              {
+                "insert": "./scripts/rebuild-local.sh",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " reinstalled it on 2026-10-05 and kept its macOS permissions. The rollback copy is "
+              },
+              {
+                "insert": ".local/install-backups/20261005-141222-687335/Transcriber.app",
+                "attributes": {
+                  "code": true
+                }
               }
             ]
           ],
@@ -276,8 +284,48 @@
             ]
           ],
           [
+            "Speech",
+            [
+              {
+                "insert": "Deepgram "
+              },
+              {
+                "insert": "nova-3",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " primary, local Whisper fallback"
+              }
+            ],
+            [
+              {
+                "insert": "Installed 2026-10-05. "
+              },
+              {
+                "insert": "/v1/health",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " reports the message "
+              },
+              {
+                "insert": "Deepgram primary; local Whisper loads on demand.",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " The first dictation after the install took 0.14 s through Deepgram with no fallback"
+              }
+            ]
+          ],
+          [
             "Archive",
-            "Migration verified; worker running",
+            "Migration verified, worker running",
             [
               {
                 "insert": "/Users/Ford/Transcripts",
@@ -286,7 +334,7 @@
                 }
               },
               {
-                "insert": "; launchd service "
+                "insert": ". launchd service "
               },
               {
                 "insert": "ai.codecaine.sotto.archive",
@@ -295,7 +343,7 @@
                 }
               },
               {
-                "insert": ", reinstalled with "
+                "insert": " was reinstalled with "
               },
               {
                 "insert": "scripts/archive/install.py",
@@ -304,7 +352,7 @@
                 }
               },
               {
-                "insert": "; the viewer answers on "
+                "insert": ". The viewer answers on "
               },
               {
                 "insert": "127.0.0.1:8392",
@@ -1005,6 +1053,74 @@
       "text": [
         {
           "insert": "Remaining Work"
+        }
+      ],
+      "children": []
+    },
+    "open-work-deepgram": {
+      "id": "open-work-deepgram",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Verify the two Deepgram fallback behaviors that no check has covered yet."
+        }
+      ],
+      "children": [
+        "open-work-deepgram-branch",
+        "open-work-deepgram-unverified",
+        "open-work-deepgram-design"
+      ]
+    },
+    "open-work-deepgram-branch": {
+      "id": "open-work-deepgram-branch",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fallback to local Whisper after a real network loss has not been tested."
+        }
+      ],
+      "children": []
+    },
+    "open-work-deepgram-unverified": {
+      "id": "open-work-deepgram-unverified",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The unload of local Whisper after 1 hour without local use has not been observed."
+        }
+      ],
+      "children": []
+    },
+    "open-work-deepgram-design": {
+      "id": "open-work-deepgram-design",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "Architecture",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/10-architecture"
+            }
+          }
+        },
+        {
+          "insert": " page describes both behaviors."
         }
       ],
       "children": []
