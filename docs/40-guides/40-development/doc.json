@@ -37,6 +37,13 @@
         "b-readme-keep-the-model-path-expo-20",
         "b-readme-the-dev-runner-stores-sh-21",
         "b-readme-all-connected-macs-share-22",
+        "dev-transcriber-heading",
+        "dev-transcriber-lead",
+        "dev-transcriber-commands",
+        "dev-transcriber-build",
+        "dev-transcriber-server",
+        "dev-transcriber-token",
+        "dev-transcriber-permissions",
         "local-signing-heading",
         "local-signing-purpose",
         "signing-everyday-command",
@@ -608,13 +615,31 @@
           "insert": " prohibits adding, restoring, or running automated tests and test harnesses. Verify behavior by using "
         },
         {
-          "insert": "V07 Dev",
+          "insert": "Transcriber Dev",
           "attributes": {
             "bold": true
           }
         },
         {
-          "insert": " on a Mac. The browser health endpoint alone cannot verify dictation or insertion. When you change Swift or the API, also run "
+          "insert": " on a Mac, in place of the V07 Dev that upstream's "
+        },
+        {
+          "insert": "AGENTS.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "CLAUDE.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " name. The browser health endpoint alone cannot verify dictation or insertion. When you change Swift or the API, also run "
         },
         {
           "insert": "bun run generate:api --check",
@@ -762,6 +787,176 @@
         },
         {
           "insert": " changes original retention for future takes. Back up the server data directory to preserve history."
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-heading": {
+      "id": "dev-transcriber-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Test With Transcriber Dev"
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-lead": {
+      "id": "dev-transcriber-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Transcriber Dev is the fork's development build. Its permissions, settings, and Keychain entries are separate from the installed Transcriber, so a test never touches daily dictation. Run it against an isolated source server."
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-commands": {
+      "id": "dev-transcriber-commands",
+      "type": "code",
+      "props": {
+        "language": "sh"
+      },
+      "text": [
+        {
+          "insert": "./scripts/rebuild-local.sh --dev   # Build and sign build/Transcriber Dev.app\n\n# In its own terminal:\nbun run dev --port 8393 \\\n  --speech-model \"$PWD/.local/models/ggml-large-v3-turbo.bin\" \\\n  --proof-model \"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n\nopen --env \"V07_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \\\n  --env \"V07_SERVER_URL=http://127.0.0.1:8393\" \"build/Transcriber Dev.app\""
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-build": {
+      "id": "dev-transcriber-build",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "--dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " builds upstream's development app and gives the copy the name Transcriber Dev and the bundle identifier "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "dev-transcriber-build-sign"
+      ]
+    },
+    "dev-transcriber-build-sign": {
+      "id": "dev-transcriber-build-sign",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The installer signs the copy with the pinned local certificate and installs nothing."
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-server": {
+      "id": "dev-transcriber-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Use a free port. On Ford's Mac the installed server uses 8391 and the archive viewer uses 8392."
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-token": {
+      "id": "dev-transcriber-token",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The source server requires the token in "
+        },
+        {
+          "insert": ".local/dev-server/token",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Enter it once under "
+        },
+        {
+          "insert": "This Mac",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " in Transcriber Dev."
+        }
+      ],
+      "children": [
+        "dev-transcriber-token-keychain"
+      ]
+    },
+    "dev-transcriber-token-keychain": {
+      "id": "dev-transcriber-token-keychain",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcriber Dev saves the token in the Keychain service "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev.server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The account is "
+        },
+        {
+          "insert": "<client data dir>|<server address>",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "dev-transcriber-permissions": {
+      "id": "dev-transcriber-permissions",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Grant Transcriber Dev Microphone and Accessibility the first time it asks."
         }
       ],
       "children": []

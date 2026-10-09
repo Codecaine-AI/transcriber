@@ -27,7 +27,10 @@
         "fork-diff-identity",
         "fork-diff-deepgram",
         "fork-diff-scripts",
+        "fork-diff-recording-lead",
         "fork-diff-single-tap",
+        "fork-diff-capture",
+        "fork-diff-durable",
         "b-10-product-direction-boundaries-8",
         "b-10-product-direction-the-archive-is-a-single-9",
         "b-10-product-direction-see-archive-design-doc-10"
@@ -445,7 +448,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork differs from upstream V07 in four areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
+          "insert": "The fork differs from upstream V07 in six areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
         }
       ],
       "children": []
@@ -462,7 +465,8 @@
         }
       ],
       "children": [
-        "fork-diff-identity-detail"
+        "fork-diff-identity-detail",
+        "fork-diff-identity-dev"
       ]
     },
     "fork-diff-identity-detail": {
@@ -474,6 +478,46 @@
       "text": [
         {
           "insert": "The Naming section lists the bundle identifier and the files that keep upstream's names."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-identity-dev": {
+      "id": "fork-diff-identity-dev",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The development build is "
+        },
+        {
+          "insert": "build/Transcriber Dev.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with the bundle identifier "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh --dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " builds it."
         }
       ],
       "children": []
@@ -491,7 +535,9 @@
       ],
       "children": [
         "fork-diff-deepgram-files",
-        "fork-diff-deepgram-new"
+        "fork-diff-deepgram-new",
+        "fork-diff-deepgram-key",
+        "fork-diff-deepgram-history"
       ]
     },
     "fork-diff-deepgram-files": {
@@ -619,6 +665,41 @@
       ],
       "children": []
     },
+    "fork-diff-deepgram-key": {
+      "id": "fork-diff-deepgram-key",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server keeps the Deepgram key in memory until "
+        },
+        {
+          "insert": "~/.config/codecaine/env",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " changes."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-deepgram-history": {
+      "id": "fork-diff-deepgram-history",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "History shows the cleanup model and backend for each take, after the speech provider."
+        }
+      ],
+      "children": []
+    },
     "fork-diff-scripts": {
       "id": "fork-diff-scripts",
       "type": "list-item",
@@ -674,6 +755,29 @@
       ],
       "children": []
     },
+    "fork-diff-recording-lead": {
+      "id": "fork-diff-recording-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Three of the six areas change how the Mac app records a take. The "
+        },
+        {
+          "insert": "Architecture",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/10-architecture"
+            }
+          }
+        },
+        {
+          "insert": " page describes their behavior."
+        }
+      ],
+      "children": []
+    },
     "fork-diff-single-tap": {
       "id": "fork-diff-single-tap",
       "type": "list-item",
@@ -685,7 +789,7 @@
           "insert": "The dictation key has a third activation mode, "
         },
         {
-          "insert": "Single tap to toggle",
+          "insert": "Press to start and stop",
           "attributes": {
             "bold": true
           }
@@ -705,6 +809,7 @@
       ],
       "children": [
         "fork-diff-single-tap-why",
+        "fork-diff-single-tap-down",
         "fork-diff-single-tap-upstream",
         "fork-diff-single-tap-files",
         "fork-diff-single-tap-merge"
@@ -718,7 +823,20 @@
       },
       "text": [
         {
-          "insert": "Ford dictates with one tap to start, then talks, then taps once to stop. Double tap did not fit that habit."
+          "insert": "Ford dictates with one press to start, then talks, then presses once more to stop. Double tap did not fit that habit."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-single-tap-down": {
+      "id": "fork-diff-single-tap-down",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The mode acts when the key goes down, and the key's release does nothing. Upstream's double tap acts on release."
         }
       ],
       "children": []
@@ -884,6 +1002,332 @@
         },
         {
           "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-capture": {
+      "id": "fork-diff-capture",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "Microphone",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " page adds "
+        },
+        {
+          "insert": "Keep microphone ready",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " and a per-device "
+        },
+        {
+          "insert": "Transcribe from",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " setting."
+        }
+      ],
+      "children": [
+        "fork-diff-capture-keys",
+        "fork-diff-capture-scarlett",
+        "fork-diff-capture-files",
+        "fork-diff-capture-merge"
+      ]
+    },
+    "fork-diff-capture-keys": {
+      "id": "fork-diff-capture-keys",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "config.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stores them as "
+        },
+        {
+          "insert": "keepMicrophoneReady",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", on by default, and "
+        },
+        {
+          "insert": "microphones.inferenceChannels",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", keyed by device UID."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-capture-scarlett": {
+      "id": "fork-diff-capture-scarlett",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A Scarlett Solo 4th Gen transcribes channel 2, its microphone input, unless a saved choice says otherwise. Other devices keep upstream's mix of every channel."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-capture-files": {
+      "id": "fork-diff-capture-files",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The change is mostly in "
+        },
+        {
+          "insert": "AudioCaptureSession.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "AudioRecorder.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "InputOnlyAudioUnit.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " under "
+        },
+        {
+          "insert": "Sources/V07/System",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It also touches "
+        },
+        {
+          "insert": "MicrophonePage.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "Sources/V07Core/MicrophonePreferences.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-capture-merge": {
+      "id": "fork-diff-capture-merge",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A sync that edits "
+        },
+        {
+          "insert": "AudioRecorder.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " or "
+        },
+        {
+          "insert": "AudioCaptureSession.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must keep the ready input and the per-device channel choice. An upstream build ignores both config keys."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-durable": {
+      "id": "fork-diff-durable",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Takes keep their audio when the server, the connection, or the app fails."
+        }
+      ],
+      "children": [
+        "fork-diff-durable-client",
+        "fork-diff-durable-server",
+        "fork-diff-durable-files",
+        "fork-diff-durable-merge"
+      ]
+    },
+    "fork-diff-durable-client": {
+      "id": "fork-diff-durable-client",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client deletes its local copy only after the server confirms the finished take, or after an explicit cancel."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-durable-server": {
+      "id": "fork-diff-durable-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server streams uploads into "
+        },
+        {
+          "insert": "<kind>.wav.upload",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " staging files and keeps acknowledged audio through a restart, a cancel, or a failed seal."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-durable-files": {
+      "id": "fork-diff-durable-files",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork adds "
+        },
+        {
+          "insert": "Server/src/take-storage.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and changes "
+        },
+        {
+          "insert": "Server/src/generation-service.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Sources/V07/ServerClient.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Sources/V07/V07Controller.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "AudioRecorder.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-durable-merge": {
+      "id": "fork-diff-durable-merge",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A sync that edits the upload, seal, or restart code in "
+        },
+        {
+          "insert": "generation-service.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must keep the staging files and the audio recovery. An older server neither reads nor deletes the staging files."
         }
       ],
       "children": []

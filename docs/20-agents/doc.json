@@ -133,7 +133,19 @@
           }
         },
         {
-          "insert": ". Assistants verify runtime behavior through the V07 Dev app against a development server, and run "
+          "insert": ". Assistants verify runtime behavior through Transcriber Dev against an isolated development server, as "
+        },
+        {
+          "insert": "Development",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/40-development"
+            }
+          }
+        },
+        {
+          "insert": " describes, and run "
         },
         {
           "insert": "bun run fmt",

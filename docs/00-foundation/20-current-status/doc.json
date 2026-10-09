@@ -12,6 +12,11 @@
         "b-20-current-status-the-codecaine-fork-inst-1",
         "b-20-current-status-installed-state-2",
         "b-20-current-status-area-state-evidenc-3-table",
+        "startup-heading",
+        "startup-lead",
+        "startup-before",
+        "startup-after",
+        "startup-logging",
         "b-20-current-status-data-coverage-4",
         "b-20-current-status-the-verified-migration-c-5",
         "b-20-current-status-the-archive-has-1-215-en-6",
@@ -154,9 +159,9 @@
                 "insert": " includes the Deepgram speech routing and the "
               },
               {
-                "insert": "Single tap to toggle",
+                "insert": "singleTap",
                 "attributes": {
-                  "bold": true
+                  "code": true
                 }
               },
               {
@@ -233,6 +238,45 @@
               },
               {
                 "insert": ".local/install-backups/20261008-220931-738918/Transcriber.app",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ]
+          ],
+          [
+            "Development build",
+            "Transcriber Dev built 2026-10-09 at 11:17",
+            [
+              {
+                "insert": "build/Transcriber Dev.app",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ", bundle identifier "
+              },
+              {
+                "insert": "ai.codecaine.transcriber.dev",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ", built from the "
+              },
+              {
+                "insert": "transcriber-identity",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " working tree. Not installed in "
+              },
+              {
+                "insert": "/Applications",
                 "attributes": {
                   "code": true
                 }
@@ -552,6 +596,173 @@
           ]
         ]
       },
+      "children": []
+    },
+    "startup-heading": {
+      "id": "startup-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Dictation Startup"
+        }
+      ],
+      "children": []
+    },
+    "startup-lead": {
+      "id": "startup-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Startup is the time from the dictation key going down to the app listening. Branch "
+        },
+        {
+          "insert": "transcriber-identity",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " cuts it to about 20 to 50 ms. The installed Transcriber is the 2026-10-08 build and does not have this change."
+        }
+      ],
+      "children": []
+    },
+    "startup-before": {
+      "id": "startup-before",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The installed build starts a take on key release."
+        }
+      ],
+      "children": [
+        "startup-before-numbers"
+      ]
+    },
+    "startup-before-numbers": {
+      "id": "startup-before-numbers",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Startup measured 260 to 350 ms on the MacBook microphone and 600 ms or more on the Scarlett Solo."
+        }
+      ],
+      "children": []
+    },
+    "startup-after": {
+      "id": "startup-after",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The branch starts a take on key down and keeps the microphone ready between takes."
+        }
+      ],
+      "children": [
+        "startup-after-numbers",
+        "startup-after-design"
+      ]
+    },
+    "startup-after-numbers": {
+      "id": "startup-after-numbers",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Startup measures about 20 to 50 ms on both microphones."
+        }
+      ],
+      "children": []
+    },
+    "startup-after-design": {
+      "id": "startup-after-design",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "Architecture",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/10-architecture"
+            }
+          }
+        },
+        {
+          "insert": " page describes the trigger and "
+        },
+        {
+          "insert": "Keep microphone ready",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "startup-logging": {
+      "id": "startup-logging",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Sources/V07/StartupTiming.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " logs each startup step under the "
+        },
+        {
+          "insert": "startup-timing",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " log category."
+        }
+      ],
+      "children": [
+        "startup-logging-temporary"
+      ]
+    },
+    "startup-logging-temporary": {
+      "id": "startup-logging-temporary",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The file is marked temporary, for removal after the investigation."
+        }
+      ],
       "children": []
     },
     "b-20-current-status-data-coverage-4": {
@@ -1255,16 +1466,25 @@
       },
       "text": [
         {
-          "insert": "Confirm one live dictation with the "
+          "insert": "Install the "
         },
         {
-          "insert": "Single tap to toggle",
+          "insert": "transcriber-identity",
           "attributes": {
-            "bold": true
+            "code": true
           }
         },
         {
-          "insert": " trigger in the installed Transcriber."
+          "insert": " changes with "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " after they pass in Transcriber Dev."
         }
       ],
       "children": [
@@ -1280,7 +1500,16 @@
       },
       "text": [
         {
-          "insert": "Tap Fn / Globe once, talk, and tap it once more. The text must arrive at the cursor."
+          "insert": "Then confirm one live dictation with "
+        },
+        {
+          "insert": "Press to start and stop",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ". Press Fn / Globe once, talk, and press it once more, and the text must arrive at the cursor."
         }
       ],
       "children": []
@@ -1293,7 +1522,16 @@
       },
       "text": [
         {
-          "insert": "The install and the setting are done, as the Installed State table shows. "
+          "insert": "The "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " setting is already saved, as the Installed State table shows. "
         },
         {
           "insert": "Product Direction",
@@ -1305,7 +1543,7 @@
           }
         },
         {
-          "insert": " lists the mode as a fork difference."
+          "insert": " lists the fork differences on the branch."
         }
       ],
       "children": []

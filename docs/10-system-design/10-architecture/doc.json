@@ -20,6 +20,10 @@
         "b-architecture-the-server-runs-whisper-9",
         "b-architecture-ndjson-events-carry-prog-10",
         "b-architecture-interrupted-partial-uplo-11",
+        "arch-durable-lead",
+        "arch-durable-client",
+        "arch-durable-server",
+        "arch-durable-text",
         "architecture-activation-modes",
         "architecture-mode-hold",
         "architecture-mode-double",
@@ -36,6 +40,10 @@
         "b-architecture-only-the-new-insertiont-13",
         "b-architecture-the-mac-rechecks-destina-14",
         "b-architecture-microphone-capture-uses-15",
+        "arch-ready-lead",
+        "arch-ready-discard",
+        "arch-ready-bluetooth",
+        "arch-ready-rebuild",
         "architecture-output-muting",
         "b-architecture-settings-16",
         "b-architecture-scope-where-to-edit-17-table",
@@ -210,6 +218,17 @@
           [
             [
               {
+                "insert": "Server/src/take-storage.ts",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Codecaine take storage. Uploads stream into WAV staging files, and sealing renames them."
+          ],
+          [
+            [
+              {
                 "insert": "TextEngine",
                 "attributes": {
                   "code": true
@@ -290,6 +309,21 @@
           "insert": "The client asks the server to create a generation with its device identity. The server freezes shared settings and accepts independent uploads from any connected client. Offline or unavailable speech recognition prevents capture. Other recordings in progress do not."
         }
       ],
+      "children": [
+        "arch-step1-overlap"
+      ]
+    },
+    "arch-step1-overlap": {
+      "id": "arch-step1-overlap",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork sends the create request while the microphone starts, not before it. The upload queue holds the audio captured before the server answers."
+        }
+      ],
       "children": []
     },
     "b-architecture-the-client-pins-its-micr-7": {
@@ -303,6 +337,87 @@
           "insert": "The client pins its microphone and uploads acknowledged, sequenced PCM chunks while recording. Inference audio is mono 16 kHz float32; optional original audio keeps the microphone rate/channels as float32."
         }
       ],
+      "children": [
+        "arch-step2-original",
+        "arch-step2-channels",
+        "arch-step2-default",
+        "arch-step2-spill"
+      ]
+    },
+    "arch-step2-original": {
+      "id": "arch-step2-original",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client always captures and saves the full multichannel original. The server's retention setting decides whether the client uploads it."
+        }
+      ],
+      "children": []
+    },
+    "arch-step2-channels": {
+      "id": "arch-step2-channels",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcribe from",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " on the "
+        },
+        {
+          "insert": "Microphone",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " page picks the channels mixed into each device's inference audio. Its config key is "
+        },
+        {
+          "insert": "microphones.inferenceChannels",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", keyed by device UID."
+        }
+      ],
+      "children": []
+    },
+    "arch-step2-default": {
+      "id": "arch-step2-default",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Without a saved choice, a Scarlett Solo 4th Gen uses channel 2, its microphone input. Other devices keep upstream's mix of every channel."
+        }
+      ],
+      "children": []
+    },
+    "arch-step2-spill": {
+      "id": "arch-step2-spill",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A slow server never ends a take. The client holds about 8 MiB of audio in memory, then spills to an unlinked temporary file until the upload catches up."
+        }
+      ],
       "children": []
     },
     "b-architecture-release-stops-capture-d-8": {
@@ -314,6 +429,44 @@
       "text": [
         {
           "insert": "Release stops capture, drains uploads, and sends final frame counts. The microphone is available for the next take while earlier uploads finish. The server checks the complete intervals and seals WAV files. Recordings must be 0.25–180 seconds."
+        }
+      ],
+      "children": [
+        "arch-step3-staging",
+        "arch-step3-rename"
+      ]
+    },
+    "arch-step3-staging": {
+      "id": "arch-step3-staging",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork's server writes each chunk straight into a staging WAV named "
+        },
+        {
+          "insert": "<kind>.wav.upload",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It updates the WAV header before it acknowledges the chunk."
+        }
+      ],
+      "children": []
+    },
+    "arch-step3-rename": {
+      "id": "arch-step3-rename",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Sealing renames the staging files instead of copying them, which saves about 0.7 s on a 22-second take. Deepgram's Finalize starts before the seal."
         }
       ],
       "children": []
@@ -407,7 +560,138 @@
       "props": {},
       "text": [
         {
-          "insert": "Interrupted partial uploads expire. A complete upload can finish after the client disconnects. Pending takes recover interrupted event streams by checking their saved generation and reconnecting. Opening history never pastes an old result. Restarting the server marks unfinished generations failed and keeps completed history. There is no offline capture queue or automatic audio-upload retry."
+          "insert": "Interrupted partial uploads expire. A complete upload can finish after the client disconnects. Pending takes recover interrupted event streams by checking their saved generation and reconnecting. Opening history never pastes an old result. There is no offline capture queue or automatic audio-upload retry."
+        }
+      ],
+      "children": []
+    },
+    "arch-durable-lead": {
+      "id": "arch-durable-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The fork keeps the audio of every take that does not finish."
+        }
+      ],
+      "children": []
+    },
+    "arch-durable-client": {
+      "id": "arch-durable-client",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client records each take under "
+        },
+        {
+          "insert": "Active Recordings",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " in its settings directory. It deletes the take only after the server confirms the finished take, or after an explicit cancel."
+        }
+      ],
+      "children": [
+        "arch-durable-client-recover"
+      ]
+    },
+    "arch-durable-client-recover": {
+      "id": "arch-durable-client-recover",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A failure or a quit moves the take to "
+        },
+        {
+          "insert": "Recovered Recordings/<timestamp>/",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with a "
+        },
+        {
+          "insert": "recovery.txt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " note. The next launch also recovers a take that a crash left in "
+        },
+        {
+          "insert": "Active Recordings",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-durable-server": {
+      "id": "arch-durable-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A server restart or a failed seal marks the record failed, and a cancel or an upload expiry marks it cancelled."
+        }
+      ],
+      "children": [
+        "arch-durable-server-audio"
+      ]
+    },
+    "arch-durable-server-audio": {
+      "id": "arch-durable-server-audio",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "In each case the server attaches the acknowledged audio to the record instead of deleting it. The archive worker imports these records with their audio."
+        }
+      ],
+      "children": []
+    },
+    "arch-durable-text": {
+      "id": "arch-durable-text",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server saves the raw transcript before cleanup, so a cleanup failure keeps it."
+        }
+      ],
+      "children": [
+        "arch-durable-text-order"
+      ]
+    },
+    "arch-durable-text-order": {
+      "id": "arch-durable-text-order",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server writes the transcript files in parallel and metadata last. A delivery receipt updates metadata only."
         }
       ],
       "children": []
@@ -487,18 +771,20 @@
       },
       "text": [
         {
-          "insert": "Single tap to toggle",
+          "insert": "Press to start and stop",
           "attributes": {
             "bold": true
           }
         },
         {
-          "insert": " starts recording on one tap, and the next tap stops it and delivers the text."
+          "insert": " starts recording when the key goes down, and the next press stops it and delivers the text."
         }
       ],
       "children": [
         "architecture-mode-single-fork",
-        "architecture-mode-single-chord"
+        "architecture-mode-single-chord",
+        "architecture-mode-single-release",
+        "architecture-mode-single-debounce"
       ]
     },
     "architecture-mode-single-fork": {
@@ -531,7 +817,33 @@
       },
       "text": [
         {
-          "insert": "As in double-tap mode, a chord of the key with another key, a modifier, or a click is not a tap. Escape cancels a latched take."
+          "insert": "A chord while the starting press is still held cancels the take that press started. A chord is the key with another key, a modifier, or a click."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-single-release": {
+      "id": "architecture-mode-single-release",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The key's release does nothing, and a stopping press always stops the take."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-single-debounce": {
+      "id": "architecture-mode-single-debounce",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A press within 200 ms of the previous press is ignored. Escape cancels a latched take."
         }
       ],
       "children": []
@@ -702,11 +1014,12 @@
           }
         },
         {
-          "insert": " for each recording."
+          "insert": "."
         }
       ],
       "children": [
-        "arch-speech-key-env"
+        "arch-speech-key-env",
+        "arch-speech-key-cache"
       ]
     },
     "arch-speech-key-env": {
@@ -718,6 +1031,19 @@
       "text": [
         {
           "insert": "A variable already set in the server's process environment wins over the file."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-key-cache": {
+      "id": "arch-speech-key-cache",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server keeps the key in memory until the file's size or modification time changes, so a rotated key applies to the next take."
         }
       ],
       "children": []
@@ -887,6 +1213,86 @@
       ],
       "children": []
     },
+    "arch-ready-lead": {
+      "id": "arch-ready-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Keep microphone ready",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " on the "
+        },
+        {
+          "insert": "Microphone",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " page keeps the input device running while the app is open. It is on by default. A take then starts in about 20 to 50 ms instead of about 600 ms on a Scarlett Solo."
+        }
+      ],
+      "children": []
+    },
+    "arch-ready-discard": {
+      "id": "arch-ready-discard",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client discards the audio between takes, and the macOS microphone indicator stays on."
+        }
+      ],
+      "children": []
+    },
+    "arch-ready-bluetooth": {
+      "id": "arch-ready-bluetooth",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Bluetooth inputs never stay running and open for each take."
+        }
+      ],
+      "children": []
+    },
+    "arch-ready-rebuild": {
+      "id": "arch-ready-rebuild",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client rebuilds the running input after a device or format change, sleep and wake, or an error."
+        }
+      ],
+      "children": [
+        "arch-ready-fallback"
+      ]
+    },
+    "arch-ready-fallback": {
+      "id": "arch-ready-fallback",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Until the rebuild succeeds, each take opens the device itself, as upstream does."
+        }
+      ],
+      "children": []
+    },
     "architecture-output-muting": {
       "id": "architecture-output-muting",
       "type": "paragraph",
@@ -958,7 +1364,7 @@
                 }
               }
             ],
-            "Endpoint/token, device name, shortcut and trigger mode, launch at login, output muting while recording, microphone priority/selection."
+            "Endpoint/token, device name, shortcut and trigger mode, launch at login, output muting while recording, microphone priority/selection, keep microphone ready, transcription channels per device."
           ],
           [
             "Shared server",
@@ -1093,6 +1499,24 @@
         },
         {
           "insert": "ai.codecaine.transcriber.server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and Transcriber Dev uses "
+        },
+        {
+          "insert": "~/Library/Application Support/Transcriber Dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev.server",
           "attributes": {
             "code": true
           }
@@ -1264,7 +1688,7 @@
       "props": {},
       "text": [
         {
-          "insert": "All clients read shared, paginated history. Deleting an inactive generation deletes its server artifacts. Failed takes can keep metadata and sealed audio; partial upload files are internal and cannot be downloaded. Client audio copies are temporary."
+          "insert": "All clients read shared, paginated history. Deleting an inactive generation deletes its server artifacts. Failed and cancelled takes keep their metadata and acknowledged audio. Partial upload files are internal and cannot be downloaded."
         }
       ],
       "children": []
