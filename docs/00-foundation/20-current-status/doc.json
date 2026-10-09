@@ -124,7 +124,7 @@
                 "insert": "Committed to "
               },
               {
-                "insert": "main",
+                "insert": "transcriber-identity",
                 "attributes": {
                   "code": true
                 }
@@ -138,7 +138,25 @@
                 }
               },
               {
-                "insert": ". "
+                "insert": ". Commits "
+              },
+              {
+                "insert": "deb2c36",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " to "
+              },
+              {
+                "insert": "695011e",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " add the Transcriber Dev build, the key-down trigger, the ready microphone, and kept takes. They are not on "
               },
               {
                 "insert": "main",
@@ -147,25 +165,7 @@
                 }
               },
               {
-                "insert": " on "
-              },
-              {
-                "insert": "Codecaine-AI/sotto",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " includes the Deepgram speech routing and the "
-              },
-              {
-                "insert": "singleTap",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " trigger mode"
+                "insert": " or pushed"
               }
             ]
           ],
@@ -207,7 +207,7 @@
           ],
           [
             "App",
-            "Transcriber installed and verified",
+            "Transcriber installed",
             [
               {
                 "insert": "/Applications/Transcriber.app",
@@ -234,10 +234,19 @@
                 }
               },
               {
-                "insert": " reinstalled it on 2026-10-08 at 22:09 and kept its macOS permissions. The rollback copy is "
+                "insert": " reinstalled it from "
               },
               {
-                "insert": ".local/install-backups/20261008-220931-738918/Transcriber.app",
+                "insert": "transcriber-identity",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " on 2026-10-09 at 11:36. The rollback copy is "
+              },
+              {
+                "insert": ".local/install-backups/20261009-113647-769849/Transcriber.app",
                 "attributes": {
                   "code": true
                 }
@@ -246,7 +255,7 @@
           ],
           [
             "Development build",
-            "Transcriber Dev built 2026-10-09 at 11:17",
+            "Transcriber Dev built 2026-10-09 at 11:35",
             [
               {
                 "insert": "build/Transcriber Dev.app",
@@ -264,22 +273,7 @@
                 }
               },
               {
-                "insert": ", built from the "
-              },
-              {
-                "insert": "transcriber-identity",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " working tree. Not installed in "
-              },
-              {
-                "insert": "/Applications",
-                "attributes": {
-                  "code": true
-                }
+                "insert": ". 5 of 5 synthetic Right Option takes completed, each kept its 4-channel original, and no recordings were left behind"
               }
             ]
           ],
@@ -287,7 +281,7 @@
             "Trigger",
             [
               {
-                "insert": "Single tap to toggle",
+                "insert": "Press to start and stop",
                 "attributes": {
                   "bold": true
                 }
@@ -298,16 +292,7 @@
             ],
             [
               {
-                "insert": "Installed 2026-10-08 with the 22:09 rebuild, rollback copy "
-              },
-              {
-                "insert": ".local/install-backups/20261008-220931-738918/Transcriber.app",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": ". Set under "
+                "insert": "Set under "
               },
               {
                 "insert": "This Mac",
@@ -334,7 +319,7 @@
                 }
               },
               {
-                "insert": ". A live dictation with fn taps is not confirmed"
+                "insert": ". No real Fn take is confirmed in the installed app"
               }
             ]
           ],
@@ -388,7 +373,7 @@
                 }
               },
               {
-                "insert": ". "
+                "insert": ". The service restarted on the new build on 2026-10-09 at 11:26, and "
               },
               {
                 "insert": "/v1/health",
@@ -617,16 +602,7 @@
       "props": {},
       "text": [
         {
-          "insert": "Startup is the time from the dictation key going down to the app listening. Branch "
-        },
-        {
-          "insert": "transcriber-identity",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " cuts it to about 20 to 50 ms. The installed Transcriber is the 2026-10-08 build and does not have this change."
+          "insert": "Startup is the time from the dictation key going down to the app listening. The installed Transcriber starts a take in about 20 to 50 ms."
         }
       ],
       "children": []
@@ -639,7 +615,7 @@
       },
       "text": [
         {
-          "insert": "The installed build starts a take on key release."
+          "insert": "The 2026-10-08 build started a take on key release."
         }
       ],
       "children": [
@@ -667,7 +643,7 @@
       },
       "text": [
         {
-          "insert": "The branch starts a take on key down and keeps the microphone ready between takes."
+          "insert": "The installed build starts a take on key down and keeps the microphone ready between takes."
         }
       ],
       "children": [
@@ -1466,25 +1442,7 @@
       },
       "text": [
         {
-          "insert": "Install the "
-        },
-        {
-          "insert": "transcriber-identity",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " changes with "
-        },
-        {
-          "insert": "./scripts/rebuild-local.sh",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " after they pass in Transcriber Dev."
+          "insert": "Confirm one real Fn dictation in the installed app."
         }
       ],
       "children": [
@@ -1500,16 +1458,7 @@
       },
       "text": [
         {
-          "insert": "Then confirm one live dictation with "
-        },
-        {
-          "insert": "Press to start and stop",
-          "attributes": {
-            "bold": true
-          }
-        },
-        {
-          "insert": ". Press Fn / Globe once, talk, and press it once more, and the text must arrive at the cursor."
+          "insert": "Press Fn / Globe once, talk, and press it once more. The text must arrive at the cursor."
         }
       ],
       "children": []
@@ -1522,28 +1471,7 @@
       },
       "text": [
         {
-          "insert": "The "
-        },
-        {
-          "insert": "singleTap",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " setting is already saved, as the Installed State table shows. "
-        },
-        {
-          "insert": "Product Direction",
-          "attributes": {
-            "reference": {
-              "kind": "doc",
-              "path": "00-foundation/10-product-direction"
-            }
-          }
-        },
-        {
-          "insert": " lists the fork differences on the branch."
+          "insert": "Transcriber Dev passed 5 of 5 synthetic takes with Right Option, so only the Fn key is untested."
         }
       ],
       "children": []
