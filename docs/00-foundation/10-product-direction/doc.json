@@ -132,7 +132,7 @@
           "insert": "The fork's GitHub repository is "
         },
         {
-          "insert": "Codecaine-AI/sotto",
+          "insert": "Codecaine-AI/transcriber",
           "attributes": {
             "code": true
           }
@@ -397,7 +397,7 @@
           }
         },
         {
-          "insert": " flag, the launchd labels "
+          "insert": " flag, and the launchd labels "
         },
         {
           "insert": "ai.codecaine.sotto.server",
@@ -410,15 +410,6 @@
         },
         {
           "insert": "ai.codecaine.sotto.archive",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": ", and the repository name "
-        },
-        {
-          "insert": "Codecaine-AI/sotto",
           "attributes": {
             "code": true
           }

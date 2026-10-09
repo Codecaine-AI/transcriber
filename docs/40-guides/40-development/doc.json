@@ -203,7 +203,7 @@
       },
       "text": [
         {
-          "insert": "git clone --recurse-submodules https://github.com/Codecaine-AI/sotto.git\ncd sotto"
+          "insert": "git clone --recurse-submodules https://github.com/Codecaine-AI/transcriber.git\ncd transcriber"
         }
       ],
       "children": []

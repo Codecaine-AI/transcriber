@@ -340,7 +340,16 @@
       },
       "text": [
         {
-          "insert": "Fork: https://github.com/Codecaine-AI/sotto"
+          "insert": "The fork's GitHub repository is "
+        },
+        {
+          "insert": "Codecaine-AI/transcriber",
+          "attributes": {
+            "link": "https://github.com/Codecaine-AI/transcriber"
+          }
+        },
+        {
+          "insert": "."
         }
       ],
       "children": []

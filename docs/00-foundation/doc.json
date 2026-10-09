@@ -23,7 +23,7 @@
           "insert": "Transcriber is Codecaine's local dictation product. It is built from the "
         },
         {
-          "insert": "Codecaine-AI/sotto",
+          "insert": "Codecaine-AI/transcriber",
           "attributes": {
             "code": true
           }

@@ -102,7 +102,16 @@
           }
         },
         {
-          "insert": " and cloned it under "
+          "insert": " (now "
+        },
+        {
+          "insert": "Codecaine-AI/transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ") and cloned it under "
         },
         {
           "insert": "Codecaine/tools/sotto",
@@ -838,7 +847,16 @@
           }
         },
         {
-          "insert": "."
+          "insert": " (now "
+        },
+        {
+          "insert": "Codecaine-AI/transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ")."
         }
       ],
       "children": []

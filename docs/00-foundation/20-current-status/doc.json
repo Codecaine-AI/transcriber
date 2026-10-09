@@ -165,7 +165,16 @@
                 }
               },
               {
-                "insert": " or pushed"
+                "insert": " or pushed. The GitHub repository was renamed to "
+              },
+              {
+                "insert": "Codecaine-AI/transcriber",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " on 2026-10-09"
               }
             ]
           ],
