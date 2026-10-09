@@ -50,6 +50,15 @@ import {
 } from "./storage.ts";
 import { WisprFlowImports } from "./imports.ts";
 import {
+  appendStagedAudio,
+  readStagedAudio,
+  recoverStagedAudio,
+  sealStagedAudio,
+  sealedAudioExists,
+  syncDirectory,
+  writePrivateFiles,
+} from "./take-storage.ts";
+import {
   applyDictionary,
   defaultDictionary,
   dictionaryValidationError,
@@ -320,12 +329,10 @@ export class GenerationService {
         record.error = "Server restarted before this generation completed.";
         record.updatedAt = now();
         delete record.progress;
-        await this.cleanPartial(id);
+        // Fork: acknowledged audio is recovered and attached instead of deleted.
+        await this.preserveAudio(record);
         if (Buffer.byteLength(JSON.stringify(record)) <= MAX_METADATA_BYTES)
-          await atomicPrivateWrite(
-            join(this.directory(id), "metadata.json"),
-            JSON.stringify(record),
-          );
+          await this.save(record);
       }
       this.records.set(id, record);
       this.imports.indexRecord(record);
@@ -609,33 +616,24 @@ export class GenerationService {
           "format_changed",
           "An audio stream cannot change format during recording.",
         );
-      await requireRegularDirectory(this.directory(id));
-      const path = join(this.directory(id), `${kind}.raw`);
+      const directory = this.directory(id);
+      await requireRegularDirectory(directory);
       if (sequence < upload.chunks.length) {
         const chunk = upload.chunks[sequence]!;
-        const file = await open(
-          path,
-          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+        // Fork: chunks live in the WAV staging file (take-storage.ts), after its header.
+        const replay = await readStagedAudio(
+          directory,
+          kind,
+          upload.bytes,
+          chunk.offset,
+          chunk.count,
         );
-        try {
-          const info = await file.stat();
-          if (!info.isFile() || info.size !== upload.bytes)
-            throw new ServiceError(500, "invalid_archive", "An audio upload changed unexpectedly.");
-          const replay = Buffer.alloc(chunk.count);
-          const result = await file.read(replay, 0, replay.length, chunk.offset);
-          if (
-            chunk.count !== bytes.length ||
-            result.bytesRead !== replay.length ||
-            !replay.equals(bytes)
-          )
-            throw new ServiceError(
-              409,
-              "conflicting_chunk",
-              "A repeated audio chunk did not match the original.",
-            );
-        } finally {
-          await file.close();
-        }
+        if (chunk.count !== bytes.length || !replay.equals(bytes))
+          throw new ServiceError(
+            409,
+            "conflicting_chunk",
+            "A repeated audio chunk did not match the original.",
+          );
         return {
           nextSequence: upload.chunks.length,
           frameCount: upload.bytes / (format.channels * 4),
@@ -651,33 +649,8 @@ export class GenerationService {
           "Recordings are limited to 180 seconds and 256 MiB per audio stream.",
         );
       await requireDiskSpace(this.configuration.dataDirectory);
-      const file = await open(
-        path,
-        constants.O_WRONLY |
-          constants.O_NOFOLLOW |
-          constants.O_NONBLOCK |
-          (upload.bytes ? 0 : constants.O_CREAT | constants.O_EXCL),
-        0o600,
-      );
-      try {
-        const info = await file.stat();
-        if (!info.isFile() || info.size !== upload.bytes)
-          throw new ServiceError(500, "invalid_archive", "An audio upload changed unexpectedly.");
-        let written = 0;
-        while (written < bytes.length) {
-          const result = await file.write(
-            bytes,
-            written,
-            bytes.length - written,
-            upload.bytes + written,
-          );
-          if (!result.bytesWritten) throw new Error("Audio write failed.");
-          written += result.bytesWritten;
-        }
-        await file.sync();
-      } finally {
-        await file.close();
-      }
+      // Fork: append into a WAV whose header covers every acknowledged frame; synced before the ack.
+      await appendStagedAudio(directory, kind, upload.format, upload.bytes, bytes);
       upload.chunks.push({ offset: upload.bytes, count: bytes.length });
       upload.bytes = nextBytes;
       streams[kind] = upload;
@@ -748,9 +721,24 @@ export class GenerationService {
           "This recording does not retain original audio.",
         );
       const previous = this.continuation(request.continuationID, record);
+      // Fork: no append can run inside this mutation and the record leaves `receiving`
+      // below, so Deepgram's Finalize overlaps sealing. A failed seal aborts it.
+      this.finishLiveSpeech(id);
       try {
-        record.inferenceAudio = await this.seal(id, "inference", speech);
-        if (original) record.originalAudio = await this.seal(id, "original", original);
+        // Fork: sealing renames the synced WAV staging files; both run together, and
+        // one directory sync makes the renames durable before metadata references them.
+        const sealed = await Promise.allSettled([
+          this.seal(id, "inference", speech),
+          original ? this.seal(id, "original", original) : undefined,
+        ]);
+        const [inference, originalAudio] = sealed.map((result) =>
+          result.status === "fulfilled" ? result.value : undefined,
+        );
+        if (!inference || sealed.some((result) => result.status === "rejected"))
+          throw new Error("The recording could not be sealed.");
+        await syncDirectory(this.directory(id));
+        record.inferenceAudio = inference;
+        if (originalAudio) record.originalAudio = originalAudio;
         record.status = "queued";
         record.updatedAt = now();
         record.progress = 0;
@@ -759,14 +747,15 @@ export class GenerationService {
         record.status = "failed";
         record.error = "The server could not preserve the complete recording.";
         record.updatedAt = now();
+        delete record.progress;
+        // Fork: keep and attach whatever audio reached disk instead of deleting it.
+        await this.preserveAudio(record);
         await this.save(record).catch(() => this.publish(record));
-        await this.cleanPartial(id);
         this.discardLiveSpeech(id);
         this.beginWarmup();
         throw new ServiceError(500, "audio_storage_failed", record.error);
       }
       this.uploads.delete(id);
-      this.finishLiveSpeech(id);
       this.enqueueProcessing(id, previous);
       return copy(record);
     });
@@ -871,8 +860,10 @@ export class GenerationService {
     record.updatedAt = now();
     this.processingControllers.get(record.id)?.abort();
     this.discardLiveSpeech(record.id);
+    // Fork: the client, expiry and shutdown all cancel through here, and none of them
+    // can tell a discarded take from a lost one, so acknowledged audio is kept.
+    await this.preserveAudio(record);
     await this.save(record).catch(() => this.publish(record));
-    await this.cleanPartial(record.id);
     return copy(record);
   }
   recordDelivery(id: string, receipt: DeliveryReceipt) {
@@ -917,7 +908,8 @@ export class GenerationService {
       }
       record.delivery = { status: receipt.status, message: receipt.message, reportedAt: now() };
       record.updatedAt = now();
-      await this.save(record);
+      // Fork: a delivery receipt changes metadata only; the text files stay as completed.
+      await this.save(record, false);
       return copy(record);
     });
   }
@@ -996,72 +988,31 @@ export class GenerationService {
   archiveWisprFlowDictionary(data: Uint8Array) {
     return this.mutate(() => this.imports.archiveWisprFlowDictionary(data));
   }
-  private async seal(id: string, kind: AudioKind, upload: Upload): Promise<AudioArtifact> {
-    const directory = this.directory(id);
-    await requireRegularDirectory(directory);
-    const source = await open(
-      join(directory, `${kind}.raw`),
-      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-    );
-    const partial = join(directory, `${kind}.wav.partial`);
-    try {
-      const info = await source.stat();
-      if (!info.isFile() || info.size !== upload.bytes)
-        throw new Error("Audio changed before sealing.");
-      const output = await open(
-        partial,
-        constants.O_WRONLY |
-          constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_NOFOLLOW |
-          constants.O_NONBLOCK,
-        0o600,
-      );
+  // Fork: the upload already wrote a synced WAV (take-storage.ts); sealing renames it.
+  private seal(id: string, kind: AudioKind, upload: Upload): Promise<AudioArtifact> {
+    return sealStagedAudio(this.directory(id), kind, upload.format, upload.bytes);
+  }
+  /**
+   * Fork: attaches every stream's acknowledged audio to a record that is about to
+   * become terminal, and drops references to files that are missing. Never deletes
+   * audio and never throws; a stream that cannot be recovered stays on disk as is.
+   */
+  private async preserveAudio(record: GenerationRecord) {
+    this.uploads.delete(record.id);
+    const directory = this.directory(record.id);
+    for (const kind of ["inference", "original"] as const) {
+      const field = kind === "inference" ? "inferenceAudio" : "originalAudio";
       try {
-        const header = Buffer.alloc(44);
-        header.write("RIFF");
-        header.writeUInt32LE(upload.bytes + 36, 4);
-        header.write("WAVEfmt ", 8);
-        header.writeUInt32LE(16, 16);
-        header.writeUInt16LE(3, 20);
-        header.writeUInt16LE(upload.format.channels, 22);
-        header.writeUInt32LE(upload.format.sampleRate, 24);
-        header.writeUInt32LE(upload.format.sampleRate * upload.format.channels * 4, 28);
-        header.writeUInt16LE(upload.format.channels * 4, 32);
-        header.writeUInt16LE(32, 34);
-        header.write("data", 36);
-        header.writeUInt32LE(upload.bytes, 40);
-        await output.writeFile(header);
-        const buffer = Buffer.alloc(MAX_CHUNK_BYTES);
-        let offset = 0;
-        while (offset < upload.bytes) {
-          const result = await source.read(
-            buffer,
-            0,
-            Math.min(buffer.length, upload.bytes - offset),
-            offset,
-          );
-          if (!result.bytesRead) throw new Error("Audio ended before sealing.");
-          await output.writeFile(buffer.subarray(0, result.bytesRead));
-          offset += result.bytesRead;
+        if (record[field]) {
+          if (!(await sealedAudioExists(directory, kind))) delete record[field];
+          continue;
         }
-        await output.sync();
-      } finally {
-        await output.close();
+        const recovered = await recoverStagedAudio(directory, kind);
+        if (recovered) record[field] = recovered;
+      } catch {
+        // Leave the stream's files exactly as they are.
       }
-    } finally {
-      await source.close();
     }
-    await rename(partial, join(directory, `${kind}.wav`));
-    await rm(join(directory, `${kind}.raw`));
-    return {
-      filename: `${kind}.wav`,
-      sampleRate: upload.format.sampleRate,
-      channels: upload.format.channels,
-      frameCount: upload.bytes / (upload.format.channels * 4),
-      byteCount: upload.bytes + 44,
-      encoding: "pcm_f32le",
-    };
   }
   private continuation(
     id: string | undefined,
@@ -1108,16 +1059,20 @@ export class GenerationService {
     const live = this.liveSpeech.get(id);
     this.liveSpeech.delete(id);
     const deepgramKeyMissing = this.deepgramKeyMissing.delete(id);
+    // Fork: the newest working copy, so a failure keeps every text already produced.
+    let working: GenerationRecord | undefined;
     try {
-      let record = await this.mutate(async () => {
+      let record = await this.mutate(() => {
         const record = this.getInternal(id);
         signal.throwIfAborted();
         if (terminal(record)) return undefined;
         record.status = "transcribing";
-        await this.save(record);
+        // Fork: `transcribing` is memory-only; the sealed `queued` record is the durable state.
+        this.publish(record);
         return record;
       });
       if (!record) return;
+      working = record;
       const settings = record.settings.preferences;
       const speech = await this.recognize(id, settings, live, deepgramKeyMissing, signal);
       signal.throwIfAborted();
@@ -1131,16 +1086,19 @@ export class GenerationService {
       record.formattingRejectionReason = structured.formattingRejectionReason;
       record.consumedListControls = structured.consumedControls;
       if (settings.textCorrectionEnabled && structured.text) {
-        const updated = await this.mutate(async () => {
-          signal.throwIfAborted();
-          if (terminal(this.getInternal(id))) return false;
-          record!.status = "proofreading";
-          delete record!.progress;
-          await this.save(record!);
-          return true;
-        });
-        if (!updated) return;
+        record.status = "proofreading";
+        delete record.progress;
       }
+      // Fork: checkpoint the recognized text durably whether or not proofreading runs.
+      // The checkpoint overlaps proofreading and must land before completion.
+      const snapshot = copy(record);
+      const checkpoint = this.mutate(async () => {
+        signal.throwIfAborted();
+        if (terminal(this.getInternal(id))) return false;
+        await this.save(snapshot);
+        return true;
+      });
+      void checkpoint.catch(() => {});
       const processing = await this.proofread(
         structured.text,
         settings,
@@ -1149,6 +1107,7 @@ export class GenerationService {
         signal,
       );
       signal.throwIfAborted();
+      if (!(await checkpoint)) return;
       record.textProcessing = processing;
       if (["applied", "unchanged", "rejected"].includes(processing.status)) {
         const all = dictionaryVocabularyTerms(settings.dictionary),
@@ -1178,14 +1137,16 @@ export class GenerationService {
       await this.mutate(async () => {
         signal.throwIfAborted();
         if (terminal(this.getInternal(id))) return;
-        await atomicPrivateWrite(join(this.directory(id), "transcript.txt"), record!.finalText);
+        // Fork: save() stages transcript.txt with raw.txt and clean.txt.
         await this.save(record!);
       });
     } catch (error) {
       await this.mutate(async () => {
         const record = this.records.get(id);
         if (!record || terminal(record)) return;
-        const failed = copy(record);
+        // Fork: fail from the working copy, never an older snapshot, so a failed
+        // completion cannot replace saved text with less.
+        const failed = copy(working ?? record);
         failed.status = signal.aborted ? "cancelled" : "failed";
         failed.error = signal.aborted
           ? "Recording cancelled."
@@ -1258,7 +1219,7 @@ export class GenerationService {
       });
     }
   }
-  private async save(record: GenerationRecord) {
+  private async save(record: GenerationRecord, textFiles = terminal(record)) {
     const data = JSON.stringify(record);
     if (Buffer.byteLength(data) > MAX_METADATA_BYTES)
       throw new ServiceError(
@@ -1267,10 +1228,15 @@ export class GenerationService {
         "The generation metadata exceeded its 1 MiB storage limit.",
       );
     // The archive worker treats metadata.json as the commit marker.
-    if (terminal(record)) {
-      await atomicPrivateWrite(join(this.directory(record.id), "raw.txt"), record.rawText);
-      await atomicPrivateWrite(join(this.directory(record.id), "clean.txt"), record.finalText);
-    }
+    // Fork: the text files are written together behind one directory sync, then metadata.
+    if (textFiles)
+      await writePrivateFiles(this.directory(record.id), [
+        ...(record.status === "completed"
+          ? [["transcript.txt", record.finalText] as [string, string]]
+          : []),
+        ["raw.txt", record.rawText],
+        ["clean.txt", record.finalText],
+      ]);
     await atomicPrivateWrite(join(this.directory(record.id), "metadata.json"), data);
     this.publish(record);
   }
@@ -1297,16 +1263,6 @@ export class GenerationService {
     if (!record || record.status !== "transcribing" || !Number.isFinite(value)) return;
     record.progress = Math.max(0, Math.min(1, value));
     for (const watcher of this.subscribers.get(id) ?? []) this.yieldTo(watcher, record);
-  }
-  private async cleanPartial(id: string) {
-    this.uploads.delete(id);
-    for (const name of [
-      "inference.raw",
-      "original.raw",
-      "inference.wav.partial",
-      "original.wav.partial",
-    ])
-      await rm(join(this.directory(id), name), { force: true }).catch(() => {});
   }
   private beginWarmup() {
     if (this.stopping || this.warming || this.processingControllers.size) return;

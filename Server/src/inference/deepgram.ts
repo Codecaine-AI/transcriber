@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -43,14 +43,22 @@ function unquote(value: string) {
     : value;
 }
 
-/** process.env.DEEPGRAM_API_KEY wins; otherwise read ~/.config/codecaine/env. Re-reads the file on every call (cheap; picks up key rotation). Returns undefined when absent. */
+const ENV_FILE = join(homedir(), ".config", "codecaine", "env");
+let cachedKey: { stamp: string; key: string | undefined } | undefined;
+
+/** process.env.DEEPGRAM_API_KEY wins; otherwise read ~/.config/codecaine/env. The parsed key stays in memory until the file's size or modification time changes, so key rotation still applies to the next take. Returns undefined when absent. */
 export async function deepgramApiKey(): Promise<string | undefined> {
   const environment = process.env.DEEPGRAM_API_KEY?.trim();
   if (environment) return environment;
+  let stamp: string;
   let contents: string;
   try {
-    contents = await readFile(join(homedir(), ".config", "codecaine", "env"), "utf8");
+    const info = await stat(ENV_FILE);
+    stamp = `${info.mtimeMs}:${info.size}`;
+    if (cachedKey?.stamp === stamp) return cachedKey.key;
+    contents = await readFile(ENV_FILE, "utf8");
   } catch {
+    cachedKey = undefined;
     return;
   }
   let key: string | undefined;
@@ -61,6 +69,7 @@ export async function deepgramApiKey(): Promise<string | undefined> {
     if (separator < 0 || line.slice(0, separator).trim() !== "DEEPGRAM_API_KEY") continue;
     key = unquote(line.slice(separator + 1).trim()).trim() || undefined;
   }
+  cachedKey = { stamp, key };
   return key;
 }
 
