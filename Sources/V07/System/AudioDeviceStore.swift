@@ -223,6 +223,42 @@ enum AudioInputHardware {
         return UnsafeMutableAudioBufferListPointer(list).reduce(0) { $0 + Int($1.mNumberChannels) }
     }
 
+    /// Fork: input channels of a connected device by stable UID; 0 when it is gone.
+    static func inputChannelCount(uid: String) -> Int {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslateUIDToDevice,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        let qualifier = uid as CFString
+        var id = AudioDeviceID(kAudioObjectUnknown)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = withUnsafePointer(to: qualifier) { pointer in
+            AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address,
+                                       UInt32(MemoryLayout<CFString>.size), pointer, &size, &id)
+        }
+        guard status == noErr, id != kAudioObjectUnknown else { return 0 }
+        return channelCount(id, scope: kAudioObjectPropertyScopeInput)
+    }
+
+    /// Fork: the device's stable UID, or nil when it is gone.
+    static func uid(_ id: AudioDeviceID) -> String? {
+        string(id, kAudioDevicePropertyDeviceUID)
+    }
+
+    /// Fork: Bluetooth and Bluetooth LE inputs. An open headset microphone
+    /// forces call-quality output, so these are never kept running.
+    static func isBluetooth(_ id: AudioDeviceID) -> Bool {
+        transport(uint32(id, kAudioDevicePropertyTransportType)) == .bluetooth
+    }
+
+    /// Fork: whether this process's running audio IO lets the Mac idle-sleep.
+    /// A per-process HAL setting; no device property is written.
+    static func setIdleSleepAllowed(_ allowed: Bool) {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertySleepingIsAllowed,
+                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+        var value: UInt32 = allowed ? 1 : 0
+        AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil,
+                                   UInt32(MemoryLayout<UInt32>.size), &value)
+    }
+
     private static func transport(_ rawValue: UInt32?) -> AudioInputTransport {
         switch rawValue {
         case kAudioDeviceTransportTypeBuiltIn: .builtIn

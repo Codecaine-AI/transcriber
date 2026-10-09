@@ -95,13 +95,104 @@ public enum MicrophoneSelection: Equatable, Hashable, Codable, Sendable {
     }
 }
 
+/// Fork: which captured channels feed transcription for one input device. The
+/// original recording always keeps every channel; this shapes only inference audio.
+public enum InferenceChannelSelection: Equatable, Hashable, Codable, Sendable {
+    /// V07's own mix of every channel.
+    case allChannels
+    /// Zero-based capture channels, averaged equally when more than one.
+    case channels([Int])
+
+    /// Generous sanity bound for saved indices; each take validates against the device.
+    public static let channelIndexLimit = 256
+
+    /// Sorted unique in-range indices, or nil when nothing usable remains.
+    public var normalized: Self? {
+        guard case .channels(let indices) = self else { return self }
+        let valid = Set(indices.filter { (0..<Self.channelIndexLimit).contains($0) }).sorted()
+        return valid.isEmpty ? nil : .channels(valid)
+    }
+
+    private enum CodingKeys: String, CodingKey { case mode, channelIndices }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        switch try values.decode(String.self, forKey: .mode) {
+        case "all": self = .allChannels
+        case "channels":
+            guard let selection = Self.channels(try values.decode([Int].self, forKey: .channelIndices)).normalized else {
+                throw DecodingError.dataCorruptedError(forKey: .channelIndices, in: values,
+                                                       debugDescription: "Provide at least one channel index.")
+            }
+            self = selection
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .mode, in: values, debugDescription: "Use all or channels.")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .allChannels: try values.encode("all", forKey: .mode)
+        case .channels(let indices):
+            try values.encode("channels", forKey: .mode)
+            try values.encode(indices, forKey: .channelIndices)
+        }
+    }
+}
+
+/// Fork: the inference-channel inputs frozen when a take starts.
+public struct InferenceChannelRequest: Equatable, Sendable {
+    public let device: AudioInputDevice
+    public let selection: InferenceChannelSelection?
+
+    public init(device: AudioInputDevice, selection: InferenceChannelSelection?) {
+        self.device = device
+        self.selection = selection
+    }
+
+    /// Zero-based channels to mix into inference audio, or nil for V07's own mix
+    /// (Apple's converter for one or two channels, an equal average above that).
+    /// A saved choice wins while the device still has those channels. Otherwise a
+    /// known interface uses its documented microphone channel, and any other
+    /// device keeps V07's mix rather than guessing a channel.
+    public func channels(channelCount: Int) -> [Int]? {
+        guard channelCount > 0 else { return nil }
+        switch selection?.normalized {
+        case .allChannels: return nil
+        case .channels(let indices) where indices.allSatisfy({ $0 < channelCount }): return indices
+        case .channels, nil: break
+        }
+        return Self.knownMicrophoneChannels.first { known in
+            known.channelCount == channelCount
+                && (device.name.localizedCaseInsensitiveContains(known.name)
+                    || device.uid.localizedCaseInsensitiveContains(known.name))
+        }?.channels
+    }
+
+    // Focusrite documents the Solo 4th Gen inputs as 1 instrument/line, 2 XLR
+    // microphone, 3-4 loopback. Its HAL UID also carries the model name.
+    private static let knownMicrophoneChannels: [(name: String, channelCount: Int, channels: [Int])] = [
+        ("Scarlett Solo 4th Gen", 4, [1]),
+    ]
+}
+
 public struct MicrophonePreferences: Codable, Equatable, Sendable {
     public var profiles: [MicrophoneProfile]
     public var activeProfileID: String
     public var selection: MicrophoneSelection
+    /// Fork: inference-channel choice keyed by stable device UID, never by profile,
+    /// because fallback can resolve a profile to a different device.
+    public var inferenceChannels: [String: InferenceChannelSelection]
 
     public init(profiles: [MicrophoneProfile] = [.defaultProfile], activeProfileID: String? = nil,
-                selection: MicrophoneSelection = .automatic) {
+                selection: MicrophoneSelection = .automatic,
+                inferenceChannels: [String: InferenceChannelSelection] = [:]) {
+        self.inferenceChannels = inferenceChannels.reduce(into: [:]) { result, entry in
+            guard !entry.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  let selection = entry.value.normalized else { return }
+            result[entry.key] = selection
+        }
         var profileIDs = Set<String>()
         let validProfiles = profiles.compactMap { profile -> MicrophoneProfile? in
             guard !profile.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -125,10 +216,11 @@ public struct MicrophonePreferences: Codable, Equatable, Sendable {
 
     /// Apply after preference edits; disconnected favorites remain in their original order.
     public func normalized() -> Self {
-        Self(profiles: profiles, activeProfileID: activeProfileID, selection: selection)
+        Self(profiles: profiles, activeProfileID: activeProfileID, selection: selection,
+             inferenceChannels: inferenceChannels)
     }
 
-    private enum CodingKeys: String, CodingKey { case profiles, activeProfileID, selection }
+    private enum CodingKeys: String, CodingKey { case profiles, activeProfileID, selection, inferenceChannels }
 
     public init(from decoder: Decoder) throws {
         guard let values = try? decoder.container(keyedBy: CodingKeys.self) else {
@@ -137,7 +229,18 @@ public struct MicrophonePreferences: Codable, Equatable, Sendable {
         }
         self.init(profiles: (try? values.decode(LossyArray<MicrophoneProfile>.self, forKey: .profiles))?.values ?? [],
                   activeProfileID: try? values.decode(String.self, forKey: .activeProfileID),
-                  selection: (try? values.decode(MicrophoneSelection.self, forKey: .selection)) ?? .automatic)
+                  selection: (try? values.decode(MicrophoneSelection.self, forKey: .selection)) ?? .automatic,
+                  inferenceChannels: (try? values.decode(LossyDictionary<InferenceChannelSelection>.self,
+                                                         forKey: .inferenceChannels))?.values ?? [:])
+    }
+
+    // Fork: omit an empty channel map so existing config files stay unchanged.
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(profiles, forKey: .profiles)
+        try values.encode(activeProfileID, forKey: .activeProfileID)
+        try values.encode(selection, forKey: .selection)
+        if !inferenceChannels.isEmpty { try values.encode(inferenceChannels, forKey: .inferenceChannels) }
     }
 
     fileprivate static func uniqueDevices(_ devices: [AudioInputDevice]) -> [AudioInputDevice] {
@@ -206,6 +309,27 @@ private struct LossyArray<Element: Decodable>: Decodable {
         while !items.isAtEnd {
             let item = try items.superDecoder()
             if let value = try? Element(from: item) { decoded.append(value) }
+        }
+        values = decoded
+    }
+}
+
+/// Fork: the keyed counterpart of LossyArray, for UID-keyed settings.
+private struct LossyDictionary<Value: Decodable>: Decodable {
+    let values: [String: Value]
+
+    private struct Key: CodingKey {
+        let stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+    }
+
+    init(from decoder: Decoder) throws {
+        let entries = try decoder.container(keyedBy: Key.self)
+        var decoded: [String: Value] = [:]
+        for key in entries.allKeys {
+            if let value = try? entries.decode(Value.self, forKey: key) { decoded[key.stringValue] = value }
         }
         values = decoded
     }

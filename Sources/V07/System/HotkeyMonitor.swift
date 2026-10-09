@@ -79,7 +79,8 @@ enum HoldKey: String, CaseIterable, Identifiable {
 
 /// How dictation starts and stops. Holding requires a sustained press; double
 /// tap latches recording on and a second double tap turns it off; single tap
-/// (a Transcriber fork addition) latches on one tap and stops on the next. Raw
+/// (a Transcriber fork addition) starts recording when the key goes down and
+/// stops it when the key next goes down, never waiting for a release. Raw
 /// values are the tokens persisted in the configuration file.
 enum HotkeyActivationMode: String, CaseIterable, Identifiable {
     case hold
@@ -92,7 +93,7 @@ enum HotkeyActivationMode: String, CaseIterable, Identifiable {
         switch self {
         case .hold: "Hold to talk"
         case .doubleTapToggle: "Double tap to toggle"
-        case .singleTapToggle: "Single tap to toggle"
+        case .singleTapToggle: "Press to start and stop"
         }
     }
 
@@ -100,11 +101,12 @@ enum HotkeyActivationMode: String, CaseIterable, Identifiable {
         switch self {
         case .hold: "Hold to dictate."
         case .doubleTapToggle: "Double tap to dictate."
-        case .singleTapToggle: "Tap to dictate."
+        case .singleTapToggle: "Press to start and stop."
         }
     }
 
-    /// Tap modes latch a take on release instead of tracking a physical hold.
+    /// Tap modes latch a take instead of tracking a physical hold. Double tap
+    /// decides on release; single tap acts on the press.
     var isToggle: Bool { self != .hold }
 }
 
@@ -151,7 +153,8 @@ struct HotkeyMonitorEnvironment {
             flags: { CGEventSource.flagsState(.hidSystemState) },
             now: { ProcessInfo.processInfo.systemUptime },
             createTap: { monitor in
-                let mask = [CGEventType.flagsChanged, .keyDown, .keyUp, .leftMouseDown, .rightMouseDown]
+                // Fork: otherMouseDown lets a middle click count as a chord too.
+                let mask = [CGEventType.flagsChanged, .keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .otherMouseDown]
                     .reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
                 guard let tap = CGEvent.tapCreate(
                     tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
@@ -262,6 +265,23 @@ final class HotkeyMonitor {
     private var blockedUntilRelease = false
     private var awaitingObservedRelease = false
     private var lastTapAt: TimeInterval?
+    /// Fork: the current single-tap press started the latched take, so a chord
+    /// before its release cancels that take. Cleared on release.
+    private var pressStartedTake = false
+    /// Fork: the down-edge event types seen for the current physical press;
+    /// empty when the hold is known only from a hardware poll. Single tap uses
+    /// them to tell a companion edge from a new press whose previous release
+    /// was missed.
+    private var pressEdges: Set<CGEventType> = []
+    /// Fork: when the last single-tap press went down (delivery time).
+    private var lastPressAt: TimeInterval?
+    /// Fork: listening permissions from the last tap refresh. The 2 s health
+    /// check keeps this current, so a press does not query TCC every time.
+    private var listeningAccess: HotkeyListeningAccess?
+
+    /// Fork: no key goes up and down again this fast, so a single-tap down
+    /// edge inside this interval belongs to the previous press.
+    private static let minimumPressInterval: TimeInterval = 0.2
 
     init(environment: HotkeyMonitorEnvironment = .live) {
         self.environment = environment
@@ -295,6 +315,7 @@ final class HotkeyMonitor {
         wantsMonitoring = false
         healthCheck?.cancel()
         healthCheck = nil
+        listeningAccess = nil
         discardTap()
         if let sleepObserver {
             NSWorkspace.shared.notificationCenter.removeObserver(sleepObserver)
@@ -348,7 +369,7 @@ final class HotkeyMonitor {
         case .flagsChanged:
             if code == key.keyCode {
                 if key.isDown(in: event.flags) {
-                    beginHold(flags: event.flags)
+                    beginHold(flags: event.flags, edge: type)
                 } else {
                     release()
                 }
@@ -364,28 +385,61 @@ final class HotkeyMonitor {
                 // Flag-less or repeated companion events cannot start a hold.
                 if key == .fn, key.isDown(in: event.flags),
                    event.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-                    beginHold(flags: event.flags)
+                    beginHold(flags: event.flags, edge: type)
                 }
             } else if physicalDown {
                 blockCurrentHold()
             }
         case .keyUp:
             if key == .fn, code == key.keyCode { release() }
-        case .leftMouseDown, .rightMouseDown:
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
             // In particular, Option+letter shortcuts during the debounce window
             // remain ordinary shortcuts, not surprise microphone activations.
+            // Fork: a middle click is a chord like the other buttons.
             if physicalDown { blockCurrentHold() }
         default:
             break
         }
     }
 
-    private func beginHold(flags: CGEventFlags) {
-        guard !physicalDown else { return }
+    private func beginHold(flags: CGEventFlags, edge: CGEventType) {
+        let now = environment.now()
+        if mode == .singleTapToggle, let lastPressAt, now - lastPressAt < Self.minimumPressInterval {
+            // Fork: no key goes up and down again this fast, so this edge is the
+            // last press's companion or a duplicate, even after its release.
+            // One press toggles at most once: a stop never also starts.
+            if physicalDown { pressEdges.insert(edge) }
+            return
+        }
+        if physicalDown {
+            guard isRepress(edge) else {
+                pressEdges.insert(edge)
+                return
+            }
+            // Fork: this press's previous release was never seen. Close that
+            // press here so this one still starts or stops the take.
+            onDiagnostic?("Press arrived before the last release was seen; counting it as a new press.")
+            release()
+        }
         physicalDown = true
+        pressEdges = [edge]
+        if mode == .singleTapToggle { lastPressAt = now }
         armWatchdog()
+        if mode == .singleTapToggle, active {
+            // Fork: stopping a latched take is always safe, so another held
+            // modifier cannot swallow the stopping press.
+            togglePress()
+            return
+        }
         guard !blockedUntilRelease, !key.hasOtherModifiers(in: flags) else {
             blockCurrentHold()
+            return
+        }
+        if mode == .singleTapToggle {
+            // Fork: single tap toggles on the down edge. A held key toggles
+            // again only after its release, or after a later press proves
+            // that release was missed.
+            togglePress()
             return
         }
         if mode.isToggle {
@@ -400,6 +454,22 @@ final class HotkeyMonitor {
         } else {
             schedulePress()
         }
+    }
+
+    /// Fork: in single-tap mode a down edge while the key is already down
+    /// means its release was missed, unless it is the same press's companion.
+    /// A press yields at most one non-repeating edge per type (Fn can send a
+    /// keyDown and a flagsChanged), so an unseen type is a companion and a
+    /// repeated type is a new press. A hold known only from a hardware poll
+    /// has no observed edge, so any edge after it is a new press. Edges inside
+    /// the minimum press interval never get here.
+    private func isRepress(_ edge: CGEventType) -> Bool {
+        guard mode == .singleTapToggle else { return false }
+        return pressEdges.isEmpty || pressEdges.contains(edge)
+    }
+
+    private func forgetPressEdges() {
+        pressEdges = []
     }
 
     private func schedulePress() {
@@ -442,7 +512,9 @@ final class HotkeyMonitor {
     }
 
     private func ensureListeningAccess() -> Bool {
-        let access = HotkeyListeningAccess(environment.permissions())
+        // Fork: read the cached permissions; only a cache miss queries TCC.
+        // The tap checks stay live because they are cheap.
+        let access = listeningAccess ?? HotkeyListeningAccess(environment.permissions())
         guard access.isGranted, access == tapAccess, let tap, tap.isValid(), tap.isEnabled() else {
             onDiagnostic?("Hold rejected: shortcut access changed; refreshing listener.")
             _ = refreshTap()
@@ -459,7 +531,11 @@ final class HotkeyMonitor {
         pendingPressID = nil
         // A chord only interrupts a physical hold. A latched double-tap take
         // keeps recording; the blocked press just doesn't count as a tap.
-        if active, mode == .hold {
+        // Fork: a single-tap press that just started the take was a shortcut,
+        // so that take is cancelled. A press that stopped a take does nothing.
+        let startedByThisPress = pressStartedTake
+        pressStartedTake = false
+        if active, mode == .hold || startedByThisPress {
             active = false
             onCancel?()
         }
@@ -477,8 +553,12 @@ final class HotkeyMonitor {
         physicalDown = false
         blockedUntilRelease = false
         awaitingObservedRelease = false
+        pressStartedTake = false
+        forgetPressEdges()
         watchdog?.cancel()
         watchdog = nil
+        // Fork: single tap already acted on the press; its release does nothing.
+        if mode == .singleTapToggle { return }
         if mode.isToggle {
             guard wantsMonitoring, wasDown, !wasBlocked else { return }
             registerToggleTap()
@@ -490,30 +570,45 @@ final class HotkeyMonitor {
         }
     }
 
-    private func registerToggleTap() {
-        let gesture = mode == .singleTapToggle ? "Tap" : "Double tap"
-        if mode == .doubleTapToggle {
-            let now = environment.now()
-            guard let previousTap = lastTapAt, now - previousTap <= Self.doubleTapWindow else {
-                lastTapAt = now
-                onDiagnostic?("Tap ignored: double tap to toggle recording.")
-                return
-            }
-            lastTapAt = nil
-        }
+    /// Fork: single tap starts or stops the take on the key's down edge.
+    private func togglePress() {
         if active {
             active = false
-            onDiagnostic?("\(gesture) ended the recording.")
+            onDiagnostic?("Press ended the recording.")
             onRelease?()
             return
         }
         guard ensureListeningAccess() else { return }
         guard onPress?() ?? true else {
-            onDiagnostic?("\(gesture) ignored: recording did not start.")
+            onDiagnostic?("Press ignored: recording did not start.")
             return
         }
         active = true
-        onDiagnostic?("\(gesture) accepted; recording stays on after release.")
+        pressStartedTake = true
+        onDiagnostic?("Press accepted; recording stays on until the next press.")
+    }
+
+    private func registerToggleTap() {
+        let now = environment.now()
+        guard let previousTap = lastTapAt, now - previousTap <= Self.doubleTapWindow else {
+            lastTapAt = now
+            onDiagnostic?("Tap ignored: double tap to toggle recording.")
+            return
+        }
+        lastTapAt = nil
+        if active {
+            active = false
+            onDiagnostic?("Double tap ended the recording.")
+            onRelease?()
+            return
+        }
+        guard ensureListeningAccess() else { return }
+        guard onPress?() ?? true else {
+            onDiagnostic?("Double tap ignored: recording did not start.")
+            return
+        }
+        active = true
+        onDiagnostic?("Double tap accepted; recording stays on after release.")
     }
 
     /// A take that failed or was cancelled after starting must not leave a
@@ -572,6 +667,7 @@ final class HotkeyMonitor {
 
     private func refreshTap(resetHold: Bool = false) -> Bool {
         let access = HotkeyListeningAccess(environment.permissions())
+        listeningAccess = access
         if access.isGranted, !resetHold, let tap, tap.isValid(), tapAccess == access, tap.isEnabled() {
             reportStatus(true)
             return true
@@ -588,6 +684,9 @@ final class HotkeyMonitor {
             // All recovery paths cancel an in-flight hold and require a fresh
             // release. start() used to re-enable blindly, retaining stale state.
             // A latched take survives: the rebuilt listener can still end it.
+            // Fork: in single tap the next down edge ends it, even while a
+            // polled hold is blocked (see isRepress). Recovery never infers a
+            // stop from a hardware poll, which can misreport a key.
             reset(cancelActive: true, keepLatch: true)
             blockAlreadyHeldKey()
             tap.setEnabled(true)
@@ -617,6 +716,9 @@ final class HotkeyMonitor {
     private func blockAlreadyHeldKey() {
         physicalDown = awaitingObservedRelease || environment.isKeyDown(key)
         blockedUntilRelease = physicalDown
+        // Fork: an observed hold awaiting its release keeps its edges, so a
+        // late companion is not a new press. A polled hold has none.
+        if !awaitingObservedRelease { forgetPressEdges() }
         if physicalDown, tap != nil, !awaitingObservedRelease { armWatchdog() }
     }
 
@@ -643,6 +745,7 @@ final class HotkeyMonitor {
         active = latched
         physicalDown = false
         blockedUntilRelease = false
+        pressStartedTake = false
         lastTapAt = nil
         watchdog?.cancel()
         watchdog = nil

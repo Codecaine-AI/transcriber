@@ -9,21 +9,27 @@ public struct V07Configuration: Codable, Equatable, Sendable {
     public var launchAtLogin: Bool
     public var muteOutputWhileRecording: Bool
     public var microphones: MicrophonePreferences
+    /// Fork: keep the resolved microphone running between takes, so dictation
+    /// starts without opening the device. A missing key means on.
+    public var keepMicrophoneReady: Bool
 
     public static let `default` = V07Configuration()
 
     public init(holdKey: String = "rightOption", activationMode: String = "hold", launchAtLogin: Bool = false,
-                muteOutputWhileRecording: Bool = false, microphones: MicrophonePreferences = MicrophonePreferences()) {
+                muteOutputWhileRecording: Bool = false, microphones: MicrophonePreferences = MicrophonePreferences(),
+                keepMicrophoneReady: Bool = true) {
         schemaVersion = 1
         self.holdKey = holdKey
         self.activationMode = activationMode
         self.launchAtLogin = launchAtLogin
         self.muteOutputWhileRecording = muteOutputWhileRecording
         self.microphones = microphones
+        self.keepMicrophoneReady = keepMicrophoneReady
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, holdKey, activationMode, launchAtLogin, muteOutputWhileRecording, microphones
+        case keepMicrophoneReady // Fork
     }
 
     public init(from decoder: Decoder) throws {
@@ -46,14 +52,15 @@ public struct V07Configuration: Codable, Equatable, Sendable {
                   muteOutputWhileRecording: try values.value(Bool.self, for: .muteOutputWhileRecording, default: false),
                   microphones: values.contains(.microphones)
                     ? try values.decode(StrictMicrophones.self, forKey: .microphones).preferences
-                    : MicrophonePreferences())
+                    : MicrophonePreferences(),
+                  keepMicrophoneReady: try values.value(Bool.self, for: .keepMicrophoneReady, default: true))
     }
 }
 
 // Reject invalid manual edits without silently losing a microphone priority list.
 private struct StrictMicrophones: Decodable {
     let preferences: MicrophonePreferences
-    private enum CodingKeys: String, CodingKey { case profiles, activeProfileID, selection }
+    private enum CodingKeys: String, CodingKey { case profiles, activeProfileID, selection, inferenceChannels }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -69,11 +76,41 @@ private struct StrictMicrophones: Decodable {
         }
         let selection = values.contains(.selection)
             ? try values.decode(StrictSelection.self, forKey: .selection).selection : .automatic
+        // Fork: optional per-device inference channels, keyed by stable UID.
+        let inferenceChannels = values.contains(.inferenceChannels)
+            ? try values.decode([String: StrictInferenceChannels].self, forKey: .inferenceChannels).mapValues(\.selection)
+            : [:]
+        guard inferenceChannels.keys.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            throw values.invalid(.inferenceChannels, "Microphone UIDs must not be empty.")
+        }
         var preferences = MicrophonePreferences()
         preferences.profiles = profiles
         preferences.activeProfileID = activeID
         preferences.selection = selection
+        preferences.inferenceChannels = inferenceChannels
         self.preferences = preferences
+    }
+}
+
+// Fork: `{"mode": "all"}` or `{"mode": "channels", "channelIndices": [1]}` (zero-based).
+private struct StrictInferenceChannels: Decodable {
+    let selection: InferenceChannelSelection
+    private enum CodingKeys: String, CodingKey { case mode, channelIndices }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        switch try values.decode(String.self, forKey: .mode) {
+        case "all": selection = .allChannels
+        case "channels":
+            let indices = try values.decode([Int].self, forKey: .channelIndices)
+            guard !indices.isEmpty, Set(indices).count == indices.count,
+                  indices.allSatisfy({ (0..<InferenceChannelSelection.channelIndexLimit).contains($0) }) else {
+                throw values.invalid(.channelIndices,
+                    "List unique zero-based channel indices below \(InferenceChannelSelection.channelIndexLimit).")
+            }
+            selection = .channels(indices.sorted())
+        default: throw values.invalid(.mode, "Use all or channels.")
+        }
     }
 }
 

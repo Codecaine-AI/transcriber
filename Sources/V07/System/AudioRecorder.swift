@@ -26,22 +26,112 @@ struct CapturedAudio: Sendable {
     fileprivate let directory: URL
 
     /// The caller owns the recording after stop() succeeds, including its deletion.
+    /// Fork: delete only after the server confirms the seal, or on an explicit cancel.
     func cleanup() {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    /// Only this development client's generated capture names qualify.
-    /// Other V07 builds and server archives are untouched.
-    static func cleanupOrphans(in temporaryDirectory: URL = FileManager.default.temporaryDirectory) {
-        let files = FileManager.default
-        guard let entries = try? files.contentsOfDirectory(at: temporaryDirectory, includingPropertiesForKeys: nil) else { return }
-        for entry in entries {
-            let name = entry.lastPathComponent
-            let isCapture = ["V07-Dev-recording-"].contains { prefix in
-                name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
-            }
-            if isCapture { try? files.removeItem(at: entry) }
+    /// Fork: moves this take's files to Recovered Recordings and returns where
+    /// they are. Blocking file I/O; call it off the main actor.
+    func retain(note: String) -> URL {
+        RecordingStorage.recover(directory, note: note)
+    }
+}
+
+/// Fork: takes are written under the client data directory instead of the
+/// temporary directory, so a crash or restart cannot purge them. Audio that the
+/// server has not confirmed moves to Recovered Recordings, which is never
+/// deleted automatically.
+enum RecordingStorage {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var clientDataDirectory: URL?
+    private static let log = Logger(subsystem: "dev.davis.v07", category: "audio-capture")
+    /// An AVAudioFile WAV header is padded to 4 KiB; a larger file holds audio.
+    private static let headerBytes = 4_096
+
+    /// Call before the first take. Until then, takes use the temporary directory.
+    static func configure(clientDataDirectory directory: URL) {
+        lock.withLock { clientDataDirectory = directory }
+        // Create both folders now, so a take never changes the watched settings folder.
+        for root in [activeRoot, recoveryRoot] {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true,
+                                                     attributes: [.posixPermissions: 0o700])
         }
+    }
+
+    static var activeRoot: URL { root.appendingPathComponent("Active Recordings", isDirectory: true) }
+    static var recoveryRoot: URL { root.appendingPathComponent("Recovered Recordings", isDirectory: true) }
+    private static var root: URL { lock.withLock { clientDataDirectory } ?? FileManager.default.temporaryDirectory }
+
+    static func newTakeDirectory() -> URL {
+        activeRoot.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    /// Flushes a take's files to disk, writes a note saying why it was kept, and
+    /// moves it to Recovered Recordings/<timestamp>/. Returns where the files
+    /// are; if the move fails they stay put and the next launch recovers them.
+    @discardableResult
+    static func recover(_ directory: URL, note: String) -> URL {
+        let files = FileManager.default
+        do {
+            let text = "Kept on \(Date().formatted(date: .abbreviated, time: .standard)).\n\(note)\n"
+                + "microphone.wav is the 16 kHz mono transcription audio; original.wav holds every input channel, unmixed.\n"
+            try Data(text.utf8).write(to: directory.appendingPathComponent("recovery.txt"))
+            for entry in (try? files.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [] {
+                synchronize(entry)
+            }
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyy-MM-dd HH.mm.ss"
+            let stamp = formatter.string(from: Date())
+            try files.createDirectory(at: recoveryRoot, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            for attempt in 1...100 {
+                let destination = recoveryRoot.appendingPathComponent(attempt == 1 ? stamp : "\(stamp) \(attempt)", isDirectory: true)
+                guard !files.fileExists(atPath: destination.path) else { continue }
+                try files.moveItem(at: directory, to: destination)
+                synchronize(recoveryRoot)
+                log.notice("Kept a recording at \(destination.path, privacy: .public): \(note, privacy: .public)")
+                return destination
+            }
+            throw CocoaError(.fileWriteFileExists)
+        } catch {
+            log.error("Could not move a kept recording from \(directory.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            return directory
+        }
+    }
+
+    /// A take left behind by a crash or a forced quit is kept, not deleted.
+    /// The listing runs synchronously, before any new take can start; the moves
+    /// run in the background. Earlier builds wrote takes to the temporary
+    /// directory under this prefix.
+    static func recoverRemnants() {
+        let files = FileManager.default
+        var remnants = (try? files.contentsOfDirectory(at: activeRoot, includingPropertiesForKeys: nil)) ?? []
+        let prefix = "V07-Dev-recording-"
+        remnants += ((try? files.contentsOfDirectory(at: files.temporaryDirectory, includingPropertiesForKeys: nil)) ?? []).filter {
+            let name = $0.lastPathComponent
+            return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
+        }
+        guard !remnants.isEmpty else { return }
+        Task.detached(priority: .utility) {
+            for remnant in remnants {
+                let sizes = ((try? files.contentsOfDirectory(at: remnant, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
+                    .map { (try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
+                if sizes.contains(where: { $0 > headerBytes }) {
+                    recover(remnant, note: "The app stopped during this take, before the server confirmed it. "
+                        + "The WAV headers may not record the full length.")
+                } else {
+                    try? files.removeItem(at: remnant)
+                }
+            }
+        }
+    }
+
+    private static func synchronize(_ url: URL) {
+        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC)
+        guard descriptor >= 0 else { return }
+        if fcntl(descriptor, F_FULLFSYNC) != 0 { fsync(descriptor) }
+        close(descriptor)
     }
 }
 
@@ -81,6 +171,7 @@ enum AudioRecordingError: LocalizedError {
 }
 
 /// Owns the hardware only between explicit start() and stop()/cancel() calls.
+/// Fork: or, with keepReady(_:), keeps one input running between takes.
 @MainActor
 final class AudioRecorder {
     var onLevel: ((Float) -> Void)?
@@ -94,20 +185,25 @@ final class AudioRecorder {
     private let sleepNotifications: NotificationCenter
     private var request: AudioCaptureRequest?
     private var sleepObserver: NSObjectProtocol?
+    // Fork: the input kept running between takes; see keepReady(_:).
+    private var readyTarget: WarmInputTarget?
+    private var readyObservers: [NSObjectProtocol] = []
+    private var readyClosed = false
 
     init(worker: AudioCaptureWorker? = nil,
          microphoneAuthorized: @escaping () -> Bool = { AVCaptureDevice.authorizationStatus(for: .audio) == .authorized },
          sleepNotifications: NotificationCenter? = nil) {
-        self.worker = worker ?? AudioCaptureWorker(makeHardware: { QueuedAudioHardware(queue: $0) })
+        self.worker = worker ?? AudioCaptureWorker(makeHardware: { QueuedAudioHardware(queue: $0, warm: $1) })
         self.microphoneAuthorized = microphoneAuthorized
         self.sleepNotifications = sleepNotifications ?? NSWorkspace.shared.notificationCenter
     }
 
-    func start(deviceID: AudioDeviceID? = nil, preserveOriginalAudio: Bool = false) async throws {
+    func start(deviceID: AudioDeviceID? = nil, preserveOriginalAudio: Bool = false,
+               inferenceChannels: InferenceChannelRequest? = nil) async throws {
         guard request == nil else { throw AudioRecordingError.alreadyRecording }
         guard microphoneAuthorized() else { throw AudioRecordingError.permissionRequired }
         guard !Task.isCancelled else { throw AudioRecordingError.cancelled }
-        let current = AudioCaptureRequest(onChunk: onChunk)
+        let current = AudioCaptureRequest(onChunk: onChunk, inferenceChannels: inferenceChannels)
         request = current
         sleepObserver = sleepNotifications.addObserver(
             forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
@@ -187,10 +283,55 @@ final class AudioRecorder {
         if let current { worker.cancel(request: current) }
     }
 
+    /// Fork: keeps `target`'s input running between takes, so start() only
+    /// attaches this take to it; `.off` releases it. Cheap to call on every
+    /// preference, device, or permission change. Sleep and an inactive user
+    /// session release it too, and waking rebuilds it.
+    func keepReady(_ target: WarmInputTarget) {
+        guard !readyClosed, target != readyTarget else { return }
+        readyTarget = target
+        if readyObservers.isEmpty { observeReadySystemStates() }
+        worker.setWarmTarget(target)
+    }
+
+    /// Fork: stops and disposes the ready input. Call once, when the app quits.
+    func closeReadyInput() {
+        guard !readyClosed else { return }
+        readyClosed = true
+        readyObservers.forEach { sleepNotifications.removeObserver($0) }
+        readyObservers.removeAll()
+        worker.closeWarm(timeout: 0.5)
+    }
+
+    private func observeReadySystemStates() {
+        let worker = worker
+        let changes: [(Notification.Name, @Sendable () -> Void)] = [
+            (NSWorkspace.willSleepNotification, {
+                worker.suspendWarm(.sleep, reason: "the Mac is going to sleep",
+                                   message: "Recording stopped because your Mac is going to sleep.")
+            }),
+            (NSWorkspace.didWakeNotification, { worker.resumeWarm(.sleep, reason: "the Mac woke", after: 1.5) }),
+            (NSWorkspace.sessionDidResignActiveNotification, {
+                worker.suspendWarm(.session, reason: "this user session became inactive",
+                                   message: "Recording stopped because this user session became inactive.")
+            }),
+            (NSWorkspace.sessionDidBecomeActiveNotification, {
+                worker.resumeWarm(.session, reason: "this user session became active", after: 0.5)
+            }),
+        ]
+        readyObservers = changes.map { name, action in
+            sleepNotifications.addObserver(forName: name, object: nil, queue: .main) { _ in action() }
+        }
+    }
+
+    /// Fork: an interruption is not a user cancel. The owner ends the take with
+    /// stopCapture() and keeps its audio; without one, this recorder keeps it.
     private func interrupt(id: UUID, message: String) {
         guard request?.id == id else { return }
-        cancel()
         onInterruption?(message)
+        guard request?.id == id else { return }
+        let stopped = stopCapture()
+        Task.detached(priority: .utility) { _ = (try? await stopped.value)?.retain(note: message) }
     }
 
     private func removeSleepObserver() {
@@ -201,12 +342,17 @@ final class AudioRecorder {
     deinit {
         if let request { worker.cancel(request: request) }
         if let sleepObserver { sleepNotifications.removeObserver(sleepObserver) }
+        readyObservers.forEach { sleepNotifications.removeObserver($0) }
     }
 }
 
 /// Capture queue ownership is independent of the Mac's default output route.
 private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendable {
     private let queue: DispatchQueue
+    /// Fork: the running input this take attaches to. Nil opens the device for
+    /// this take only, as upstream does.
+    private let warm: WarmInput?
+    private var sink: InputAudioSink?
     private var inputUnit: InputOnlyAudioUnit?
     private var writer: RecordingWriter?
     private var request: AudioCaptureRequest?
@@ -214,15 +360,23 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
     private var selectedDevice: AudioDeviceID?
     private var deviceObservers: [AudioDeviceObservation] = []
 
-    init(queue: DispatchQueue) { self.queue = queue }
+    init(queue: DispatchQueue, warm: WarmInput? = nil) {
+        self.queue = queue
+        self.warm = warm
+    }
 
     func start(request: AudioCaptureRequest, deviceID: AudioDeviceID?, preserveOriginalAudio: Bool,
                onLevel: @escaping @Sendable (Float) -> Void,
                onInterruption: @escaping @Sendable (String) -> Void) throws {
         try request.requireOpen()
-        guard inputUnit == nil else { throw AudioRecordingError.alreadyRecording }
+        guard inputUnit == nil, sink == nil else { throw AudioRecordingError.alreadyRecording }
         guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
             throw AudioRecordingError.permissionRequired
+        }
+        if let warm {
+            try startWarm(warm, request: request, preserveOriginalAudio: preserveOriginalAudio,
+                          onLevel: onLevel, onInterruption: onInterruption)
+            return
         }
         guard let selectedDevice = deviceID ?? AudioInputHardware.defaultInputID(),
               AudioInputHardware.isAvailable(selectedDevice) else { throw AudioRecordingError.microphoneUnavailable }
@@ -237,7 +391,9 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
         let writer = try RecordingWriter(
             inputFormat: format, preserveOriginalAudio: preserveOriginalAudio, onLevel: onLevel,
             onError: { [weak self] message in self?.enqueueInterruption(id: id, message: message) },
-            onChunk: request.onChunk
+            onChunk: request.onChunk,
+            // Fork: validated against the channel count this take actually opened.
+            inferenceChannels: request.inferenceChannels?.channels(channelCount: Int(format.channelCount))
         )
         self.writer = writer
         deviceObservers = [
@@ -260,11 +416,39 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
         guard AudioInputHardware.isAvailable(selectedDevice) else { throw AudioRecordingError.microphoneUnavailable }
     }
 
+    /// Fork: attaches this take to the running input, which the worker has just
+    /// validated against the take's device and format. The writer is built
+    /// from that format; the device's route observers belong to the worker.
+    private func startWarm(_ warm: WarmInput, request: AudioCaptureRequest, preserveOriginalAudio: Bool,
+                           onLevel: @escaping @Sendable (Float) -> Void,
+                           onInterruption: @escaping @Sendable (String) -> Void) throws {
+        self.request = request
+        self.onInterruption = onInterruption
+        selectedDevice = warm.deviceID
+        let id = request.id
+        let writer = try RecordingWriter(
+            inputFormat: warm.format, preserveOriginalAudio: preserveOriginalAudio, onLevel: onLevel,
+            onError: { [weak self] message in self?.enqueueInterruption(id: id, message: message) },
+            onChunk: request.onChunk,
+            inferenceChannels: request.inferenceChannels?.channels(channelCount: Int(warm.format.channelCount))
+        )
+        self.writer = writer
+        try request.requireOpen()
+        let sink = InputAudioSink(request: request, onAudio: { buffer in writer.append(buffer) })
+        try warm.attach(sink)
+        self.sink = sink
+    }
+
     func stop() -> RecordingWriter? {
         request?.release()
         let currentWriter = writer
         detachMicrophone()
         return currentWriter
+    }
+
+    func interruptInput(message: String) {
+        guard let id = request?.id else { return }
+        interrupt(id: id, message: message)
     }
 
     func cancel() {
@@ -296,16 +480,28 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
         Logger(subsystem: "dev.davis.v07", category: "audio-capture")
             .error("Capture interrupted: \(message, privacy: .public)")
         let callback = onInterruption
-        request?.cancel()
-        cancel()
+        // Fork: release instead of cancel, and keep the writer. Stopping the take
+        // then finishes the audio captured so far for recovery, not deletion.
+        request?.release()
+        releaseInput()
         callback?(message)
     }
 
-    private func detachMicrophone() {
+    /// Fork: detaches from a ready input, which keeps running, or stops this
+    /// take's own unit.
+    private func releaseInput() {
         deviceObservers.forEach { $0.cancel() }
         deviceObservers.removeAll()
+        if let sink {
+            warm?.detach(sink)
+            self.sink = nil
+        }
         inputUnit?.stop()
         inputUnit = nil
+    }
+
+    private func detachMicrophone() {
+        releaseInput()
         writer = nil
         request = nil
         selectedDevice = nil
@@ -328,6 +524,8 @@ final class RecordingWriter: @unchecked Sendable {
     private let format: AVAudioFormat
     private let inputFormat: AVAudioFormat
     private let converter: AVAudioConverter
+    /// Fork: input channels averaged into the mono inference buffer; nil lets the converter downmix.
+    private let mixChannels: [Int]?
     private let onLevel: (Float) -> Void
     private let onError: (String) -> Void
     private let onChunk: (@Sendable (CapturedAudioChunk) -> Void)?
@@ -344,15 +542,25 @@ final class RecordingWriter: @unchecked Sendable {
 
     init(inputFormat: AVAudioFormat, preserveOriginalAudio: Bool = false,
          onLevel: @escaping (Float) -> Void, onError: @escaping (String) -> Void,
-         onChunk: (@Sendable (CapturedAudioChunk) -> Void)? = nil) throws {
+         onChunk: (@Sendable (CapturedAudioChunk) -> Void)? = nil,
+         inferenceChannels: [Int]? = nil) throws {
         // InputOnlyAudioUnit negotiates float32 PCM. Keep non-streaming callers
         // free to archive other PCM formats, but never label their bytes float32.
         guard !preserveOriginalAudio || onChunk == nil || inputFormat.commonFormat == .pcmFormatFloat32 else {
             throw AudioRecordingError.conversionUnavailable
         }
+        // Fork: inference audio mixes only the selected channels. A selection
+        // that does not fit this format falls back to V07's own mix.
+        let channelCount = Int(inputFormat.channelCount)
+        let isPlanarFloat = inputFormat.commonFormat == .pcmFormatFloat32 && !inputFormat.isInterleaved
+        let selected = inferenceChannels.flatMap { channels in
+            isPlanarFloat && !channels.isEmpty && Set(channels).count == channels.count
+                && channels.allSatisfy { (0..<channelCount).contains($0) } ? channels : nil
+        }
+        let mixChannels = selected ?? (channelCount > 2 ? Array(0..<channelCount) : nil)
         let conversionInput: AVAudioFormat
-        if inputFormat.channelCount > 2 {
-            guard inputFormat.commonFormat == .pcmFormatFloat32, !inputFormat.isInterleaved,
+        if mixChannels != nil {
+            guard isPlanarFloat,
                   let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inputFormat.sampleRate,
                                            channels: 1, interleaved: false) else {
                 throw AudioRecordingError.conversionUnavailable
@@ -368,16 +576,18 @@ final class RecordingWriter: @unchecked Sendable {
         self.format = format
         self.inputFormat = inputFormat
         self.converter = converter
+        self.mixChannels = mixChannels
         self.onLevel = onLevel
         self.onError = onError
         self.onChunk = onChunk
         converter.downmix = true
         converter.sampleRateConverterQuality = AVAudioQuality.high.rawValue
 
-        directory = FileManager.default.temporaryDirectory.appendingPathComponent("V07-Dev-recording-\(UUID().uuidString)", isDirectory: true)
+        // Fork: under the client data directory; see RecordingStorage.
+        directory = RecordingStorage.newTakeDirectory()
         url = directory.appendingPathComponent("microphone.wav")
         originalURL = preserveOriginalAudio ? directory.appendingPathComponent("original.wav") : nil
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         do {
             try queue.sync {
                 file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
@@ -453,7 +663,16 @@ final class RecordingWriter: @unchecked Sendable {
                         original: original, directory: directory
                     ))
                 } catch {
-                    discardFile()
+                    // Fork: a failed take keeps whatever audio reached its files.
+                    if case AudioRecordingError.noAudio = error {
+                        discardFile()
+                    } else if frames > 0 || inputFrames > 0 {
+                        file = nil
+                        originalFile = nil
+                        RecordingStorage.recover(directory, note: "Saving the take failed: \(error.localizedDescription)")
+                    } else {
+                        discardFile()
+                    }
                     continuation.resume(throwing: error)
                 }
             }
@@ -495,21 +714,29 @@ final class RecordingWriter: @unchecked Sendable {
             return
         }
         // AVAudioConverter's speaker downmix produces silence for discrete
-        // interface layouts. Mix every input equally before resampling, while
-        // retaining the untouched channels in the original recording.
+        // interface layouts. Mix the inference channels equally into a separate
+        // mono buffer before resampling; `input`, already written to the
+        // original recording, is only read here.
+        // Fork: `mixChannels` is the take's selected channels, or every channel
+        // above two, so a loopback pair is not transcribed with the microphone.
         let conversionBuffer: AVAudioPCMBuffer
-        if input.format.channelCount > 2 {
+        if let mixChannels {
             guard let mono = AVAudioPCMBuffer(pcmFormat: converter.inputFormat, frameCapacity: input.frameLength),
                   let source = input.floatChannelData, let destination = mono.floatChannelData else {
                 fail(AudioRecordingError.conversionUnavailable)
                 return
             }
             mono.frameLength = input.frameLength
-            let count = Int(input.format.channelCount)
-            for frame in 0..<Int(input.frameLength) {
-                var sample: Float = 0
-                for channel in 0..<count { sample += source[channel][frame] / Float(count) }
-                destination[0][frame] = sample
+            let frameCount = Int(input.frameLength)
+            if mixChannels.count == 1 {
+                destination[0].update(from: source[mixChannels[0]], count: frameCount)
+            } else {
+                let count = Float(mixChannels.count)
+                for frame in 0..<frameCount {
+                    var sample: Float = 0
+                    for channel in mixChannels { sample += source[channel][frame] / count }
+                    destination[0][frame] = sample
+                }
             }
             conversionBuffer = mono
         } else {

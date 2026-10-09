@@ -1,3 +1,4 @@
+import AppKit
 import CoreAudio
 import Foundation
 
@@ -11,29 +12,75 @@ struct SystemOutputClient {
     let setMuted: (AudioDeviceID, AudioObjectPropertyElement, Bool) -> Bool
 }
 
+/// Fork: mute and restore return at once. Their HAL reads and writes run in
+/// call order on one serial queue, off the dictation start and stop path, so a
+/// take's mute always lands before its restore. Each muted element records the
+/// mute call that owns it, and a restore only unmutes elements owned by mutes
+/// issued before it: an older take's restore never unmutes a newer take.
 @MainActor
 final class SystemOutputMuter {
-    private let client: SystemOutputClient
-    private var muted: [(AudioDeviceID, AudioObjectPropertyElement)] = []
+    private let worker: SystemOutputMuteWorker
+    private let terminationObserver: NSObjectProtocol
+    private var generation: UInt64 = 0
 
     init(client: SystemOutputClient = .live) {
-        self.client = client
+        let worker = SystemOutputMuteWorker(client: client)
+        self.worker = worker
+        // Quitting must not outrun a queued restore and leave the Mac muted.
+        terminationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification, object: nil, queue: nil
+        ) { _ in worker.drain() }
     }
 
     func mute() {
+        generation &+= 1
+        let owner = generation
+        let worker = worker
+        worker.queue.async { worker.mute(owner: owner) }
+    }
+
+    func restore() {
+        let owner = generation
+        let worker = worker
+        worker.queue.async { worker.restore(through: owner) }
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(terminationObserver)
+    }
+}
+
+/// The muted-element ledger. Its state is touched only on `queue`.
+private final class SystemOutputMuteWorker: @unchecked Sendable {
+    let queue = DispatchQueue(label: "dev.davis.v07.output-muter", qos: .userInitiated)
+    private let client: SystemOutputClient
+    private var muted: [(device: AudioDeviceID, element: AudioObjectPropertyElement, owner: UInt64)] = []
+
+    init(client: SystemOutputClient) {
+        self.client = client
+    }
+
+    func mute(owner: UInt64) {
         guard let device = client.defaultOutputDevice() else { return }
         // Only elements this muter silenced are restored; anything the user had
         // already muted stays muted.
         for element in client.muteElements(device)
         where client.isMuted(device, element) == false && client.setMuted(device, element, true) {
-            muted.append((device, element))
+            muted.append((device, element, owner))
         }
     }
 
-    func restore() {
+    func restore(through owner: UInt64) {
         // An unmute that fails (e.g. the output dropped mid-take) stays pending
         // so the next restore retries it instead of leaving the Mac muted.
-        muted = muted.filter { device, element in !client.setMuted(device, element, false) }
+        muted = muted.filter { entry in
+            entry.owner > owner || !client.setMuted(entry.device, entry.element, false)
+        }
+    }
+
+    /// Waits for every queued mute and restore to finish.
+    func drain() {
+        queue.sync {}
     }
 }
 

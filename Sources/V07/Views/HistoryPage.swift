@@ -263,6 +263,20 @@ struct HistoryPage: View {
                             .help(reason)
                     }
                 }
+                // Fork: name the model that cleaned up the take, next to speech.
+                if let cleanup = selected.proofreading {
+                    Text("Cleanup: \(cleanup.modelID) · \(cleanup.backend)")
+                        .font(.caption2)
+                        .foregroundStyle(V07Palette.muted)
+                        .lineLimit(1)
+                    if let reason = cleanup.fallbackReason, !reason.isEmpty {
+                        Text("Cleanup fallback: \(reason)")
+                            .font(.caption2)
+                            .foregroundStyle(V07Palette.muted)
+                            .lineLimit(2)
+                            .help(reason)
+                    }
+                }
             }
             .padding(.leading, 20)
             .padding(.top, 8)

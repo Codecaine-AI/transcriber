@@ -113,6 +113,15 @@ private struct MicrophoneSettingsView: View {
                     }
                     .frame(height: 48)
                     .accessibilityIdentifier("microphone.resolved")
+
+                    if let device = resolution.device, let channelCount = store.inputChannelCounts[device.uid],
+                       channelCount > 1 {
+                        Divider()
+                        inferenceChannelRow(device: device, channelCount: channelCount)
+                    }
+
+                    Divider()
+                    keepReadyRow
                 }
                 .padding(.horizontal, 16)
             }
@@ -125,6 +134,55 @@ private struct MicrophoneSettingsView: View {
                 .padding(.horizontal, 10)
                 .help(detail)
         }
+    }
+
+    // Fork: which of this device's channels are transcribed. The original
+    // recording keeps every channel either way.
+    private func inferenceChannelRow(device: AudioInputDevice, channelCount: Int) -> some View {
+        let current = store.inferenceChannelRequest(for: device).channels(channelCount: channelCount)
+            .map(InferenceChannelSelection.channels) ?? .allChannels
+        return HStack {
+            Text("Transcribe from")
+            Spacer(minLength: 16)
+            Picker("Transcribe from", selection: Binding(get: { current },
+                                                         set: { store.setInferenceChannels($0, for: device.uid) })) {
+                ForEach(0..<channelCount, id: \.self) { index in
+                    Text("Channel \(index + 1)").tag(InferenceChannelSelection.channels([index]))
+                }
+                if case .channels(let indices) = current, indices.count > 1 {
+                    Text("Channels \(indices.map { String($0 + 1) }.joined(separator: " + ")) (mixed)").tag(current)
+                }
+                Divider()
+                Text("All channels (mixed)").tag(InferenceChannelSelection.allChannels)
+            }
+            .labelsHidden()
+            .frame(maxWidth: 350, alignment: .trailing)
+            .help("Only these channels are transcribed. The original recording keeps every channel.")
+            .accessibilityIdentifier("microphone.inferenceChannels")
+        }
+        .frame(height: 48)
+    }
+
+    // Fork: keeps the microphone running between takes. Bluetooth inputs still
+    // open for each take.
+    private var keepReadyRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Keep microphone ready")
+                Text("Starts dictation instantly. The microphone indicator stays on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 16)
+            Toggle("Keep microphone ready", isOn: Binding(get: { store.keepMicrophoneReady },
+                                                          set: store.setKeepMicrophoneReady))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .help("Bluetooth microphones still open for each dictation.")
+                .accessibilityIdentifier("microphone.keepReady")
+        }
+        .frame(minHeight: 56)
     }
 
     private func profileToolbar(_ profile: MicrophoneProfile) -> some View {

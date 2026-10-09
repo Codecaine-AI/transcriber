@@ -21,11 +21,15 @@ final class ClientPreferencesStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     private let url: URL
     private let credentialAccount: String
+    // Fork: the Keychain account whose token loadCredential() has not read yet.
+    private let readCredential: ((String) -> String)?
+    private var unreadCredentialAccount: String?
 
     init(root: URL, environment: [String: String] = ProcessInfo.processInfo.environment,
          readCredential: ((String) -> String)? = nil) {
         url = root.appendingPathComponent("client.json")
         credentialAccount = root.standardizedFileURL.path
+        self.readCredential = readCredential
         let saved = (try? Data(contentsOf: url)).flatMap { try? JSONDecoder().decode(Settings.self, from: $0) }
         let resolvedEndpoint = environment["V07_SERVER_URL"] ?? saved?.endpoint ?? "http://127.0.0.1:8391"
         endpoint = resolvedEndpoint
@@ -35,12 +39,21 @@ final class ClientPreferencesStore: ObservableObject {
         do {
             let validated = try ServerEndpoint(resolvedEndpoint)
             endpoint = validated.address
-            let account = credentialAccount + "|" + validated.address
-            token = readCredential?(account) ?? Self.readToken(account: account)
+            unreadCredentialAccount = credentialAccount + "|" + validated.address // Fork
             if saved == nil { persist() }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Fork: reads the saved server token. Call once, before the first server
+    /// request. The read can wait on the user: Keychain asks before an app
+    /// whose signature changed, such as a new build, reads the item. So the
+    /// owner calls this after starting the shortcut and the ready microphone.
+    func loadCredential() {
+        guard let account = unreadCredentialAccount else { return }
+        unreadCredentialAccount = nil
+        token = readCredential?(account) ?? Self.readToken(account: account)
     }
 
     @discardableResult
@@ -75,6 +88,7 @@ final class ClientPreferencesStore: ObservableObject {
             (self.endpoint, self.deviceName, self.token) = previous
             return false
         }
+        unreadCredentialAccount = nil // Fork: the saved token replaces any unread one.
         return true
     }
 

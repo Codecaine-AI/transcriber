@@ -24,6 +24,10 @@ final class MicrophonePreferencesStore: ObservableObject {
     @Published private(set) var preferences: MicrophonePreferences
     @Published private(set) var availableDevices: [AudioInputDevice] = []
     @Published private(set) var systemDefaultUID: String?
+    /// Fork: connected input channel counts by UID, read when the device list changes.
+    @Published private(set) var inputChannelCounts: [String: Int] = [:]
+    /// Fork: keep the resolved microphone running between takes.
+    @Published private(set) var keepMicrophoneReady: Bool
     @Published private(set) var storageError: String?
     private let configuration: ConfigurationStore
     private var subscriptions: Set<AnyCancellable> = []
@@ -31,11 +35,17 @@ final class MicrophonePreferencesStore: ObservableObject {
     init(configuration: ConfigurationStore) {
         self.configuration = configuration
         preferences = configuration.configuration.microphones
+        keepMicrophoneReady = configuration.configuration.keepMicrophoneReady
         storageError = configuration.errorMessage
         configuration.$configuration
             .map(\.microphones)
             .removeDuplicates()
             .sink { [weak self] value in self?.preferences = value }
+            .store(in: &subscriptions)
+        configuration.$configuration
+            .map(\.keepMicrophoneReady)
+            .removeDuplicates()
+            .sink { [weak self] value in self?.keepMicrophoneReady = value }
             .store(in: &subscriptions)
         configuration.$errorMessage
             .removeDuplicates()
@@ -56,9 +66,27 @@ final class MicrophonePreferencesStore: ObservableObject {
         availableDevices.first { $0.uid == uid }
     }
 
+    /// Fork: the saved choice for this device, frozen by the recorder at take start.
+    func inferenceChannelRequest(for device: AudioInputDevice) -> InferenceChannelRequest {
+        InferenceChannelRequest(device: device, selection: preferences.inferenceChannels[device.uid])
+    }
+
+    func setInferenceChannels(_ selection: InferenceChannelSelection, for uid: String) {
+        var next = preferences
+        next.inferenceChannels[uid] = selection
+        save(next)
+    }
+
+    func setKeepMicrophoneReady(_ value: Bool) {
+        configuration.update { $0.keepMicrophoneReady = value }
+    }
+
     func update(devices: [AudioInputDevice], systemDefaultUID: String?) {
         if availableDevices != devices { availableDevices = devices }
         if self.systemDefaultUID != systemDefaultUID { self.systemDefaultUID = systemDefaultUID }
+        let channelCounts = Dictionary(devices.map { ($0.uid, AudioInputHardware.inputChannelCount(uid: $0.uid)) },
+                                       uniquingKeysWith: { first, _ in first })
+        if inputChannelCounts != channelCounts { inputChannelCounts = channelCounts }
         guard configuration.isLoaded else { return }
         // Refresh names/transport without forgetting offline favorites or order.
         var next = preferences

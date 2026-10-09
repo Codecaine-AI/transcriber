@@ -120,29 +120,150 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
-/// The callback never blocks the capture queue. Its bounded queue fails the take
-/// if a connection falls behind, instead of building a hidden offline backlog.
-final class AudioChunkPipe: @unchecked Sendable {
-    let stream: AsyncThrowingStream<CapturedAudioChunk, Error>
-    private let continuation: AsyncThrowingStream<CapturedAudioChunk, Error>.Continuation
+/// The callback never blocks the capture queue.
+/// Fork: a slow server or connection never ends the take. Chunks wait in memory
+/// up to a bound, then in an unlinked spill file, and the upload catches up from
+/// there. This also holds the audio captured before the server create returns.
+/// The take's local WAVs stay the durable copy; the spill only feeds the upload.
+final class AudioChunkPipe: AsyncSequence, @unchecked Sendable {
+    typealias Element = CapturedAudioChunk
+
+    fileprivate enum Entry: Sendable {
+        case memory(CapturedAudioChunk)
+        case spilled(kind: CapturedAudioChunk.Kind, sampleRate: Double, channels: Int, offset: Int64, count: Int)
+    }
+
+    /// About ten seconds of a four-channel 48 kHz original plus its inference audio.
+    private static let memoryLimit = 8 * 1_048_576
+    private let entries: AsyncThrowingStream<Entry, Error>
+    private let continuation: AsyncThrowingStream<Entry, Error>.Continuation
     private let onFailure: (@Sendable (Error) -> Void)?
+    /// Guards the counters and the spill descriptor. Spill I/O uses explicit
+    /// offsets, so a read never waits for a write.
+    private let lock = NSLock()
+    private var memoryBytes = 0
+    private var spill: Int32 = -1
+    private var spillBytes: Int64 = 0
+    /// Set once the stream ends, so trailing chunks are not spilled for nothing.
+    private var closed = false
 
     init(onFailure: (@Sendable (Error) -> Void)? = nil) {
         self.onFailure = onFailure
-        let pair = AsyncThrowingStream<CapturedAudioChunk, Error>.makeStream(bufferingPolicy: .bufferingOldest(512))
-        stream = pair.stream
+        let pair = AsyncThrowingStream<Entry, Error>.makeStream(bufferingPolicy: .unbounded)
+        entries = pair.stream
         continuation = pair.continuation
     }
 
+    deinit { if spill >= 0 { close(spill) } }
+
+    /// Runs on the serial audio-writer queue.
     func append(_ chunk: CapturedAudioChunk) {
-        if case .dropped = continuation.yield(chunk) {
-            continuation.finish(throwing: ServerClientError.uploadBacklog)
-            onFailure?(ServerClientError.uploadBacklog)
+        let result: Result<Entry, Error>? = lock.withLock {
+            guard !closed else { return nil }
+            if memoryBytes + chunk.data.count <= Self.memoryLimit {
+                memoryBytes += chunk.data.count
+                return .success(.memory(chunk))
+            }
+            do {
+                let offset = try writeSpill(chunk.data)
+                return .success(.spilled(kind: chunk.kind, sampleRate: chunk.sampleRate, channels: chunk.channels,
+                                         offset: offset, count: chunk.data.count))
+            } catch {
+                closed = true
+                return .failure(error)
+            }
+        }
+        switch result {
+        case .success(let entry): continuation.yield(entry)
+        case .failure(let error):
+            continuation.finish(throwing: error)
+            onFailure?(error)
+        case nil: break
         }
     }
 
-    func finish() { continuation.finish() }
-    func cancel() { continuation.finish(throwing: CancellationError()) }
+    func finish() {
+        lock.withLock { closed = true }
+        continuation.finish()
+    }
+
+    func cancel() {
+        lock.withLock { closed = true }
+        continuation.finish(throwing: CancellationError())
+    }
+
+    func makeAsyncIterator() -> AsyncIterator { AsyncIterator(pipe: self, entries: entries.makeAsyncIterator()) }
+
+    struct AsyncIterator: AsyncIteratorProtocol {
+        private let pipe: AudioChunkPipe
+        private var entries: AsyncThrowingStream<Entry, Error>.AsyncIterator
+
+        fileprivate init(pipe: AudioChunkPipe, entries: AsyncThrowingStream<Entry, Error>.AsyncIterator) {
+            self.pipe = pipe
+            self.entries = entries
+        }
+
+        mutating func next() async throws -> CapturedAudioChunk? {
+            switch try await entries.next() {
+            case nil: return nil
+            case .memory(let chunk)?:
+                pipe.lock.withLock { pipe.memoryBytes -= chunk.data.count }
+                return chunk
+            case .spilled(let kind, let sampleRate, let channels, let offset, let count)?:
+                return CapturedAudioChunk(kind: kind, data: try pipe.readSpill(at: offset, count: count),
+                                          sampleRate: sampleRate, channels: channels)
+            }
+        }
+    }
+
+    /// Called with the lock held. The file is unlinked at once, so it lives only
+    /// as long as this pipe and never outlasts a crash.
+    private func writeSpill(_ data: Data) throws -> Int64 {
+        if spill < 0 {
+            let path = FileManager.default.temporaryDirectory.appendingPathComponent("V07-upload-spill-\(UUID().uuidString)").path
+            let descriptor = open(path, O_RDWR | O_CREAT | O_EXCL | O_CLOEXEC, 0o600)
+            guard descriptor >= 0 else { throw Self.posixError() }
+            unlink(path)
+            spill = descriptor
+        }
+        let offset = spillBytes
+        try data.withUnsafeBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var written = 0
+            while written < bytes.count {
+                let count = pwrite(spill, base + written, bytes.count - written, off_t(offset) + off_t(written))
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    throw Self.posixError()
+                }
+                written += count
+            }
+        }
+        spillBytes += Int64(data.count)
+        return offset
+    }
+
+    private func readSpill(at offset: Int64, count: Int) throws -> Data {
+        // The descriptor is set before the first spilled entry is yielded.
+        let descriptor = lock.withLock { spill }
+        var data = Data(count: count)
+        try data.withUnsafeMutableBytes { bytes in
+            guard let base = bytes.baseAddress else { return }
+            var read = 0
+            while read < count {
+                let result = pread(descriptor, base + read, count - read, off_t(offset) + off_t(read))
+                if result < 0 {
+                    if errno == EINTR { continue }
+                    throw Self.posixError()
+                }
+                guard result > 0 else { throw POSIXError(.EIO) }
+                read += result
+            }
+        }
+        return data
+    }
+
+    private static func posixError() -> Error { POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 }
 
 extension ServerClient {
@@ -353,16 +474,18 @@ extension ServerClient {
         throw ServerClientError.disconnected
     }
 
-    func upload(_ stream: AsyncThrowingStream<CapturedAudioChunk, Error>, to id: UUID,
+    func upload(_ pipe: AudioChunkPipe, to id: UUID,
                 preserveOriginal: Bool) async throws -> FinishGenerationRequest {
         var inference = UploadBuffer(kind: .inference)
         var original = UploadBuffer(kind: .original)
-        for try await chunk in stream {
+        for try await chunk in pipe {
             try Task.checkCancellation()
             switch chunk.kind {
             case .normalized: try inference.append(chunk)
             case .original:
-                guard preserveOriginal else { throw ServerClientError.invalidResponse }
+                // Fork: the microphone starts before the server says whether this
+                // take keeps original audio. Drop originals the take does not keep.
+                guard preserveOriginal else { continue }
                 try original.append(chunk)
             }
             // Batch about half a second of samples, overlapping transfer with the
@@ -373,6 +496,8 @@ extension ServerClient {
             }
             if original.data.count >= 768_000 { try await flush(&original, to: id) }
         }
+        // The stream also ends when this task is cancelled; never report a partial take as complete.
+        try Task.checkCancellation()
         try await flush(&inference, to: id)
         try await flush(&original, to: id)
         return FinishGenerationRequest(inferenceFrames: inference.frames,

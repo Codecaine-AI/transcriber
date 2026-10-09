@@ -181,30 +181,58 @@ final class V07Controller: ObservableObject {
     private var shortcutCheckStarted: TimeInterval = 0
     private var shortcutCheckEntries: [String] = []
     private var sessionID = UUID()
-    private var activeGenerationID: UUID?
-    private var activeClient: ServerClient?
+    /// Fork: the server record a take uploads into. The microphone starts while
+    /// its create request is in flight, so every consumer awaits this task
+    /// instead of reading a generation ID that is known synchronously.
+    private struct StartedGeneration: Sendable {
+        let id: UUID
+        let client: ServerClient
+        let preserveOriginal: Bool
+    }
+    private var activeGeneration: Task<StartedGeneration, Error>?
     @MainActor
     private final class PendingDictation {
         let session: UUID
-        let id: UUID
-        let client: ServerClient
+        let generation: Task<StartedGeneration, Error>
         let upload: Task<FinishGenerationRequest, Error>
         let pipe: AudioChunkPipe
         let destination: InsertionDestinationCapture?
         var task: Task<Void, Never>?
         var sealed = false
+        /// Fork: only an explicit user cancel deletes the take's local audio.
+        var discardsAudio = false
+        /// Fork: set once the take may touch the clipboard or the focused field.
+        var delivering = false
         /// Nil until the destination resolves; list continuation keys off its anchor.
         var target: (destination: InsertionDestination, anchor: DictationDestination?)?
+        /// Fork: later takes deliver after this opens, not after the task ends,
+        /// so a cancelled take's background create and cleanup never delay them.
+        private let settled: AsyncStream<Void>
+        private let settledContinuation: AsyncStream<Void>.Continuation
 
-        init(session: UUID, id: UUID, client: ServerClient, upload: Task<FinishGenerationRequest, Error>,
+        init(session: UUID, generation: Task<StartedGeneration, Error>, upload: Task<FinishGenerationRequest, Error>,
              pipe: AudioChunkPipe, destination: InsertionDestinationCapture?) {
-            self.session = session; self.id = id; self.client = client; self.upload = upload
+            self.session = session; self.generation = generation; self.upload = upload
             self.pipe = pipe; self.destination = destination
+            (settled, settledContinuation) = AsyncStream<Void>.makeStream()
         }
 
         func cancel() {
             task?.cancel(); upload.cancel(); pipe.cancel(); destination?.cancel()
+            // A take already delivering keeps later takes waiting until it stops.
+            if !delivering { settle() }
         }
+
+        func settle() { settledContinuation.finish() }
+        func waitUntilSettled() async { for await _ in settled {} }
+
+        func cancelOnServer() { V07Controller.cancelOnServer(generation) }
+    }
+
+    /// Fork: a take can end while its create request is in flight. Cancel the
+    /// server record once it exists, instead of leaving it receiving.
+    private static func cancelOnServer(_ generation: Task<StartedGeneration, Error>) {
+        Task { if let started = try? await generation.value { try? await started.client.cancel(started.id) } }
     }
     @Published private var insertionDestination: InsertionDestination?
     private var destinationTask: InsertionDestinationCapture?
@@ -232,6 +260,8 @@ final class V07Controller: ObservableObject {
         self.audioDevices = audioDevices ?? AudioDeviceStore()
         self.serverClientFactory = serverClient
         preferences = ClientPreferencesStore(root: configuration.url.deletingLastPathComponent())
+        // Fork: takes are written beside the client settings, not in the temporary directory.
+        RecordingStorage.configure(clientDataDirectory: configuration.url.deletingLastPathComponent())
         microphones = MicrophonePreferencesStore(configuration: configuration)
         permissions = startServices ? PermissionSnapshot.capture()
             : PermissionSnapshot(microphone: false, accessibility: false, inputMonitoring: false)
@@ -240,13 +270,20 @@ final class V07Controller: ObservableObject {
         microphones.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
         preferences.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &subscriptions)
         configuration.$configuration.removeDuplicates().sink { [weak self] in self?.applyConfiguration($0) }.store(in: &subscriptions)
-        guard startServices else { return }
+        guard startServices else { preferences.loadCredential(); return }
         bindServices()
+        // Fork: the first device list also starts the ready microphone, on the
+        // capture queue. The token is read after it: Keychain can hold this
+        // thread on an access prompt after an update. The shortcut listener
+        // starts after the read, so a press made during that prompt is never
+        // delivered late.
         self.audioDevices.start()
+        preferences.loadCredential()
         installLifecycleObservers()
         refreshPermissions()
-        // Capture files are temporary only; server history is never examined here.
-        CapturedAudio.cleanupOrphans()
+        // Fork: a take left behind by a crash is kept for recovery, not deleted.
+        // Server history is never examined here.
+        RecordingStorage.recoverRemnants()
         try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("V07-remote-preview"))
         hasInitialized = true
         updateLoginItem()
@@ -704,14 +741,14 @@ final class V07Controller: ObservableObject {
     func cancelDictation() {
         guard isBusy else { return }
         if isCapturing {
-            let generation = activeGenerationID
-            let connection = activeClient
+            let generation = activeGeneration
             resetSession()
-            if let generation, let connection { Task { try? await connection.cancel(generation) } }
+            if let generation { Self.cancelOnServer(generation) }
         } else if activity.isBusy, let index = pendingDictations.lastIndex(where: { $0.session == sessionID }) {
             let pending = pendingDictations.remove(at: index)
+            pending.discardsAudio = true // Fork: an explicit cancel deletes the local audio.
             pending.cancel()
-            Task { try? await pending.client.cancel(pending.id) }
+            pending.cancelOnServer()
         } else if let earlier = pendingDictations.last {
             // The HUD shows a settled result or error. Dismissing it must not
             // cancel older work that the HUD does not show.
@@ -736,7 +773,9 @@ final class V07Controller: ObservableObject {
         onHUDVisibility?(true)
     }
 
-    private func resetSession() {
+    /// Fork: `keepingAudio` stops a failed take instead of cancelling it and keeps
+    /// the audio captured so far. Only an explicit cancel deletes it.
+    private func resetSession(keepingAudio reason: String? = nil) {
         sessionID = UUID()
         hotkey.clearLatchedTake()
         microphoneStartTask?.cancel(); microphoneStartTask = nil
@@ -744,24 +783,64 @@ final class V07Controller: ObservableObject {
         uploadTask?.cancel(); uploadTask = nil
         destinationTask?.cancel(); destinationTask = nil
         stopRecordingTimer()
-        recorder.cancel()
+        if let reason { keepCapture(recorder.stopCapture(), reason: reason) } else { recorder.cancel() }
         outputMuter.restore()
         recorder.onChunk = nil
         insertionDestination = nil
         recordingListHint = nil
         recordingInputName = nil
-        activeGenerationID = nil
-        activeClient = nil
+        activeGeneration = nil
         recordingFeedback.reset()
     }
 
     private func failSession(_ message: String, cancelServer: Bool) {
-        let generation = activeGenerationID
-        let connection = activeClient
-        resetSession()
+        let generation = activeGeneration
+        resetSession(keepingAudio: message)
         showError(message)
-        if cancelServer, let generation, let connection { Task { try? await connection.cancel(generation) } }
+        if cancelServer, let generation { Self.cancelOnServer(generation) }
         refreshHistory()
+    }
+
+    /// Fork: finishes a failed take's files and keeps them. The next take's
+    /// microphone waits for this teardown, as it does after a release.
+    private func keepCapture(_ stopped: Task<CapturedAudio, Error>, reason: String) {
+        let previous = recorderStopTask
+        recorderStopTask = Task {
+            _ = try? await previous?.value
+            return try await stopped.value
+        }
+        Task { [weak self] in
+            guard let audio = try? await stopped.value else { return }
+            self?.keep(audio, reason: reason, generationID: nil)
+        }
+    }
+
+    /// Fork: moves unconfirmed audio to Recovered Recordings off the main actor,
+    /// then adds where it went to the error that `reason` is showing.
+    private func keep(_ audio: CapturedAudio, reason: String, generationID: UUID?) {
+        let note = generationID.map { "\(reason)\nServer take: \($0.uuidString)" } ?? reason
+        Task { [weak self] in
+            let location = await Task.detached(priority: .utility) { audio.retain(note: note) }.value
+            guard let self else { return }
+            let separator = reason.hasSuffix(".") ? " " : ". "
+            let kept = "\(reason)\(separator)Recording kept in \((location.path as NSString).abbreviatingWithTildeInPath)."
+            if errorMessage == reason { errorMessage = kept }
+            if statusMessage == reason { statusMessage = kept }
+            if lastDelivery == reason { lastDelivery = kept }
+        }
+    }
+
+    /// Fork: deletes local audio off the main actor once it is no longer needed.
+    private nonisolated static func discard(_ audio: CapturedAudio) {
+        Task.detached(priority: .utility) { audio.cleanup() }
+    }
+
+    /// A create or microphone failure ends the take and rechecks the server.
+    private func failStartup(_ error: Error) {
+        serverHealth = nil
+        serverStatusMessage = Self.connectionMessage(error)
+        failSession(serverStatusMessage, cancelServer: true)
+        refreshServer()
     }
 
     func copyLastTranscript() {
@@ -802,10 +881,12 @@ final class V07Controller: ObservableObject {
         stopShortcutCheck()
         // Quitting the client cancels an incomplete recording. A sealed server
         // generation remains independently owned and may complete in history.
-        let generation = activeGenerationID
-        let connection = activeClient
-        resetSession()
-        if let generation, let connection { Task { try? await connection.cancel(generation) } }
+        // Fork: its local audio is kept; if quitting outruns the move, the next
+        // launch recovers it from Active Recordings.
+        let generation = activeGeneration
+        resetSession(keepingAudio: "The app quit during this take.")
+        if let generation { Self.cancelOnServer(generation) }
+        recorder.closeReadyInput() // Fork
         stopPendingDictations()
         monitorTask?.cancel(); refreshTask?.cancel(); hudTask?.cancel(); permissionTask?.cancel()
         configuration.stopWatching()
@@ -818,8 +899,17 @@ final class V07Controller: ObservableObject {
     }
 
     private func bindServices() {
-        audioDevices.onChange = { [weak self] devices, defaultUID in self?.microphones.update(devices: devices, systemDefaultUID: defaultUID) }
-        recorder.onLevel = { [weak self] level in guard let self, isCapturing else { return }; recordingFeedback.append(level) }
+        audioDevices.onChange = { [weak self] devices, defaultUID in
+            self?.microphones.update(devices: devices, systemDefaultUID: defaultUID)
+            self?.updateReadyMicrophone() // Fork: a reconnected device can keep its UID but not its ID.
+        }
+        // Fork: preferences publish before they change; read them on the next turn.
+        microphones.objectWillChange.receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.updateReadyMicrophone() }.store(in: &subscriptions)
+        recorder.onLevel = { [weak self] level in
+            guard let self, isCapturing else { return }
+            recordingFeedback.append(level)
+        }
         recorder.onInterruption = { [weak self] message in self?.failSession(message, cancelServer: true) }
         hotkey.onStatusChange = { [weak self] in self?.isHotkeyActive = $0 }
         hotkey.onPress = { [weak self] in
@@ -866,8 +956,6 @@ final class V07Controller: ObservableObject {
         recordingInputName = input.name
         recordingFeedback.reset()
         activity = .starting
-        statusMessage = "Connecting recording…"
-        onHUDVisibility?(true)
         if muteOutputWhileRecording { outputMuter.mute() }
         if !isTest {
             let capture = TextInserter.beginDestinationCapture()
@@ -879,47 +967,39 @@ final class V07Controller: ObservableObject {
                 prepareContinuation(for: destination.target.map(DictationDestination.field))
             }
         } else { prepareContinuation(for: .test) }
+        // Fork: the press-time snapshots above stay synchronous. The microphone
+        // start and then the server create are queued next, and the HUD and its
+        // status text wait for a later main-actor turn. The server creates the
+        // take while the microphone starts, not before it; the pipe holds the
+        // audio captured until the upload knows the generation ID.
+        let pipe = AudioChunkPipe { [weak self] error in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if sessionID == current, isCapturing {
+                    failSession(error.localizedDescription, cancelServer: true)
+                }
+            }
+        }
+        uploadPipe = pipe
+        recorder.onChunk = { pipe.append($0) }
         microphoneStartTask = Task { [weak self] in
             guard let self else { return }
             defer { if sessionID == current { microphoneStartTask = nil } }
             do {
-                let connection = try client()
-                let created = try await connection.create(.init(requestID: current,
-                    device: .init(id: preferences.deviceID, name: preferences.deviceName), mode: isTest ? .test : .dictation))
-                guard sessionID == current, activity == .starting, !Task.isCancelled else {
-                    Task { try? await connection.cancel(created.id) }; return
-                }
-                guard created.status == .receiving else { throw ServerClientError.invalidResponse }
-                activeGenerationID = created.id
-                activeClient = connection
-                sharedPreferences = created.settings
-                let pipe = AudioChunkPipe { [weak self] error in
-                    Task { @MainActor [weak self] in
-                        guard let self else { return }
-                        if sessionID == current, isCapturing {
-                            failSession(error.localizedDescription, cancelServer: true)
-                        }
-                    }
-                }
-                uploadPipe = pipe
-                recorder.onChunk = { pipe.append($0) }
-                uploadTask = Task { [weak self] in
-                    do { return try await connection.upload(pipe.stream, to: created.id, preserveOriginal: created.settings.preferences.keepOriginalAudio) }
-                    catch {
-                        if let self, sessionID == current, isCapturing, !Task.isCancelled {
-                            failSession(Self.connectionMessage(error), cancelServer: true)
-                        }
-                        throw error
-                    }
-                }
                 // A released take owns its teardown. Never let its asynchronous
                 // stop consume the new microphone request.
                 if let recorderStopTask { _ = try? await recorderStopTask.value }
                 guard sessionID == current, activity == .starting, !Task.isCancelled else { return }
-                recordingStart = ProcessInfo.processInfo.systemUptime
-                statusMessage = "Starting microphone…"
-                try await recorder.start(deviceID: deviceID, preserveOriginalAudio: created.settings.preferences.keepOriginalAudio)
+                // Fork: always capture the original audio. The created record's
+                // own setting decides whether the upload sends it.
+                try await recorder.start(deviceID: deviceID, preserveOriginalAudio: true,
+                                         inferenceChannels: microphones.inferenceChannelRequest(for: input)) // Fork
                 guard sessionID == current, activity == .starting, !Task.isCancelled else { return }
+                // Fork: the minimum-length check and the timer count from here,
+                // the captured audio, not from the microphone's startup.
+                recordingStart = ProcessInfo.processInfo.systemUptime
+                // Listening means the microphone is live, even if the create
+                // has not returned. Finishing waits for it.
                 activity = .recording
                 statusMessage = "Listening"
                 startRecordingTimer()
@@ -927,11 +1007,44 @@ final class V07Controller: ObservableObject {
             } catch AudioRecordingError.cancelled {
             } catch {
                 guard sessionID == current, !Task.isCancelled else { return }
-                serverHealth = nil
-                serverStatusMessage = Self.connectionMessage(error)
-                failSession(serverStatusMessage, cancelServer: true)
-                refreshServer()
+                failStartup(error)
             }
+        }
+        let generation = Task { [weak self] () async throws -> StartedGeneration in
+            guard let self else { throw CancellationError() }
+            let connection = try client()
+            let created = try await connection.create(.init(requestID: current,
+                device: .init(id: preferences.deviceID, name: preferences.deviceName), mode: isTest ? .test : .dictation))
+            guard created.status == .receiving else { throw ServerClientError.invalidResponse }
+            if sessionID == current { sharedPreferences = created.settings }
+            return StartedGeneration(id: created.id, client: connection,
+                                     preserveOriginal: created.settings.preferences.keepOriginalAudio)
+        }
+        activeGeneration = generation
+        uploadTask = Task { [weak self] in
+            let started: StartedGeneration
+            do { started = try await generation.value }
+            catch {
+                // The microphone may already be live, so fail as a startup error.
+                if !(error is CancellationError), let self, sessionID == current, isCapturing, !Task.isCancelled {
+                    failStartup(error)
+                }
+                throw error
+            }
+            try Task.checkCancellation()
+            do {
+                return try await started.client.upload(pipe, to: started.id, preserveOriginal: started.preserveOriginal)
+            } catch {
+                if let self, sessionID == current, isCapturing, !Task.isCancelled {
+                    failSession(Self.connectionMessage(error), cancelServer: true)
+                }
+                throw error
+            }
+        }
+        Task { [weak self] in
+            guard let self, sessionID == current, isCapturing else { return }
+            if activity == .starting { statusMessage = "Starting microphone…" }
+            onHUDVisibility?(true)
         }
         return true
     }
@@ -947,7 +1060,7 @@ final class V07Controller: ObservableObject {
         let releasedAt = ProcessInfo.processInfo.systemUptime
         destinationTask?.finish()
         guard releasedAt - recordingStart >= 0.25 else { cancelDictation(); return }
-        guard let id = activeGenerationID, let connection = activeClient, let uploadTask, let uploadPipe else {
+        guard let generation = activeGeneration, let uploadTask, let uploadPipe else {
             failSession("This recording has no server session.", cancelServer: true); return
         }
         stopRecordingTimer(); resetLevels()
@@ -958,13 +1071,13 @@ final class V07Controller: ObservableObject {
         let test = isTestSession
         let capturedDestination = insertionDestination
         let clipboardCount = recordingClipboardChangeCount
-        let pending = PendingDictation(session: current, id: id, client: connection, upload: uploadTask,
+        let pending = PendingDictation(session: current, generation: generation, upload: uploadTask,
                                        pipe: uploadPipe, destination: destinationTask)
         // Usually known at release, so a later take can continue a list in another field.
         let knownDestination: InsertionDestination? = test ? .clipboard : capturedDestination
         pending.target = knownDestination.map { Self.resolve($0, isTest: test, releasedAt: releasedAt) }
         pendingDictations.append(pending)
-        activeGenerationID = nil; activeClient = nil; self.uploadTask = nil; self.uploadPipe = nil
+        activeGeneration = nil; self.uploadTask = nil; self.uploadPipe = nil
         destinationTask = nil; insertionDestination = nil; recordingListHint = nil; recordingInputName = nil
         recorder.onChunk = nil
         let stopped = recorder.stopCapture()
@@ -972,9 +1085,11 @@ final class V07Controller: ObservableObject {
         let precedingDelivery = deliveryTail
         let task = Task { [weak self] in
             guard let self else { return }
+            // Fork: the local audio lives until the server confirms the seal.
             var capturedAudio: CapturedAudio?
+            var generationID: UUID?
             defer {
-                capturedAudio?.cleanup()
+                pending.settle()
                 pendingDictations.removeAll { $0 === pending }
                 if pendingDictations.isEmpty {
                     deliveryTail = nil
@@ -986,10 +1101,13 @@ final class V07Controller: ObservableObject {
                 capturedAudio = audio
                 try Task.checkCancellation()
                 pending.pipe.finish()
+                // Fork: the upload waits for the create, so a take finished
+                // while connecting still seals once its server record exists.
                 var finish = try await pending.upload.value
+                let started = try await pending.generation.value
+                let id = started.id, connection = started.client
+                generationID = id
                 try Task.checkCancellation()
-                audio.cleanup()
-                capturedAudio = nil
                 let target: (destination: InsertionDestination, anchor: DictationDestination?)
                 if let known = pending.target { target = known }
                 else {
@@ -1010,6 +1128,10 @@ final class V07Controller: ObservableObject {
                     pending.sealed = false // The server answered without sealing, so cancel promptly.
                     throw ServerClientError.rejected(status, message)
                 }
+                // Fork: the server confirmed the seal, so its copy is durable.
+                // Only now delete the local copy, off the main actor.
+                Self.discard(audio)
+                capturedAudio = nil
                 try Task.checkCancellation()
                 if !result.status.isTerminal {
                     result = try await connection.events(id) { [weak self] record in
@@ -1025,6 +1147,7 @@ final class V07Controller: ObservableObject {
                 await precedingDelivery?.value
                 await waitForCaptureRelease()
                 try Task.checkCancellation()
+                pending.delivering = true
                 let deliveryDestination = rebasedDestination(resolved)
                 let receipt = await deliver(result, to: deliveryDestination, anchor: anchor, isTest: test,
                                             clipboardCount: clipboardCount, session: current)
@@ -1044,13 +1167,24 @@ final class V07Controller: ObservableObject {
                 refreshServer()
             } catch {
                 pending.upload.cancel(); pending.pipe.cancel(); pending.destination?.cancel()
-                if !pending.sealed { Task { try? await connection.cancel(id) } }
-                guard !Task.isCancelled else { return }
+                if !pending.sealed { pending.cancelOnServer() }
+                // Fork: audio the server has not confirmed is kept, unless the
+                // user explicitly cancelled this take.
+                let unconfirmed = capturedAudio
+                capturedAudio = nil
+                if let unconfirmed, pending.discardsAudio { Self.discard(unconfirmed) }
+                let kept = pending.discardsAudio ? nil : unconfirmed
+                guard !Task.isCancelled else {
+                    if let kept { keep(kept, reason: "The take stopped before the server confirmed it.", generationID: generationID) }
+                    return
+                }
+                let message: String
                 if sessionID == current {
                     if error is URLError { serverHealth = nil; serverStatusMessage = Self.connectionMessage(error) }
-                    showError(Self.connectionMessage(error))
+                    message = Self.connectionMessage(error)
+                    showError(message)
                 } else {
-                    let message = "Earlier dictation failed: \(Self.connectionMessage(error))"
+                    message = "Earlier dictation failed: \(Self.connectionMessage(error))"
                     errorMessage = message
                     lastDelivery = message
                     lastDeliveryStatus = .failed
@@ -1058,15 +1192,18 @@ final class V07Controller: ObservableObject {
                     // result owns the HUD. Keep that live activity intact.
                     if !activity.isBusy { showError(message) }
                 }
+                if let kept { keep(kept, reason: message, generationID: generationID) }
                 refreshHistory()
             }
         }
         pending.task = task
         // Even a failed/cancelled middle take must preserve the ordering link
         // to earlier deliveries for every later take.
+        // Fork: wait for this take to settle rather than for its task, so a
+        // cancelled take still awaiting its create does not hold later takes.
         deliveryTail = Task {
             await precedingDelivery?.value
-            await task.value
+            await pending.waitUntilSettled()
         }
     }
 
@@ -1166,7 +1303,7 @@ final class V07Controller: ObservableObject {
     private func stopPendingDictations() {
         for pending in pendingDictations {
             pending.cancel()
-            if !pending.sealed { Task { try? await pending.client.cancel(pending.id) } }
+            if !pending.sealed { pending.cancelOnServer() }
         }
         pendingDictations.removeAll()
         deliveryTail = nil
@@ -1243,6 +1380,7 @@ final class V07Controller: ObservableObject {
         let current = PermissionSnapshot.capture()
         if current != permissions { permissions = current }
         audioDevices.refresh()
+        updateReadyMicrophone() // Fork
         if permissions.canListenForHotkey {
             isHotkeyActive = hotkey.start()
         } else {
@@ -1252,6 +1390,23 @@ final class V07Controller: ObservableObject {
         Logger(subsystem: Bundle.main.bundleIdentifier ?? "transcriber", category: "permissions").notice(
             "Permissions refreshed: microphone=\(current.microphone), accessibility=\(current.accessibility), inputMonitoring=\(current.inputMonitoring), hotkey=\(self.isHotkeyActive)"
         )
+    }
+
+    /// Fork: keeps the next take's microphone running between takes while
+    /// "Keep microphone ready" is on. The recorder ignores repeated targets.
+    private func updateReadyMicrophone() {
+        guard !isShuttingDown else { return }
+        let target: WarmInputTarget
+        if !microphones.keepMicrophoneReady {
+            target = .off("Keep microphone ready is off")
+        } else if !permissions.microphone {
+            target = .off("microphone access is not allowed")
+        } else if let device = microphones.resolution.device, let id = audioDevices.deviceID(for: device.uid) {
+            target = .input(id, device)
+        } else {
+            target = .off("no microphone is available")
+        }
+        recorder.keepReady(target)
     }
 
     func requestMicrophone() {

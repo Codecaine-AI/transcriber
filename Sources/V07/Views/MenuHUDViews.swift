@@ -9,12 +9,11 @@ struct V07MenuView: View {
 
     private var idleDictationHint: String {
         let key = controller.shortcut == .fn ? "fn" : controller.shortcut.title
-        let verb = switch controller.activationMode {
-        case .hold: "Press"
-        case .doubleTapToggle: "Double tap"
-        case .singleTapToggle: "Tap"
+        return switch controller.activationMode {
+        case .hold: "Press \(key) to dictate"
+        case .doubleTapToggle: "Double tap \(key) to dictate"
+        case .singleTapToggle: "Press \(key) to start or stop"
         }
-        return "\(verb) \(key) to dictate"
     }
 
     var body: some View {
