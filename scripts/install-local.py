@@ -19,6 +19,11 @@ ROOT = Path(__file__).resolve().parents[1]
 APP_NAME = 'Transcriber'
 BUNDLE_ID = 'ai.codecaine.transcriber'
 BUILT = ROOT / 'build' / f'{APP_NAME}.app'
+# The development build gets the same rebrand under its own name and identifier,
+# so its permissions, settings, and Keychain entries stay apart from the real app.
+DEV_APP_NAME = 'Transcriber Dev'
+DEV_BUNDLE_ID = 'ai.codecaine.transcriber.dev'
+DEV_BUILT = ROOT / 'build' / f'{DEV_APP_NAME}.app'
 TARGET = Path('/Applications') / f'{APP_NAME}.app'
 CONFIG = Path.home() / '.config/transcriber/signing.json'
 
@@ -39,24 +44,28 @@ def installed_pids():
     return [int(parts[0]) for line in result.splitlines() if len(parts := line.strip().split(None, 1)) == 2 and parts[1] == executable]
 
 
-def build(identity, keychain):
+def build(identity, keychain, dev=False):
     """Build upstream's app unchanged, then give a copy the Transcriber identity."""
+    app_name, bundle_id, built = (DEV_APP_NAME, DEV_BUNDLE_ID, DEV_BUILT) if dev else (APP_NAME, BUNDLE_ID, BUILT)
     with ROOT.joinpath('Resources/Info.plist').open('rb') as file:
+        base_name = plistlib.load(file)['CFBundleName']
+    with ROOT.joinpath('Resources/Info-Dev.plist' if dev else 'Resources/Info.plist').open('rb') as file:
         upstream_name = plistlib.load(file)['CFBundleName']
-    run(str(ROOT / 'scripts/build-app.sh'), cwd=ROOT)
+    run(str(ROOT / 'scripts/build-app.sh'), *(['--dev'] if dev else []), cwd=ROOT)
     upstream_app = ROOT / 'build' / f'{upstream_name}.app'
     stage = Path(tempfile.mkdtemp(prefix='.transcriber.', dir=ROOT / 'build'))
     try:
-        app = stage / BUILT.name
+        app = stage / built.name
         run('ditto', str(upstream_app), str(app))
         info_path = app / 'Contents/Info.plist'
         info = plistlib.loads(info_path.read_bytes())
         app.joinpath('Contents/MacOS', info['CFBundleExecutable']).rename(app / 'Contents/MacOS' / APP_NAME)
-        info.update(CFBundleExecutable=APP_NAME, CFBundleIdentifier=BUNDLE_ID,
-                    CFBundleName=APP_NAME, CFBundleDisplayName=APP_NAME)
+        info.update(CFBundleExecutable=APP_NAME, CFBundleIdentifier=bundle_id,
+                    CFBundleName=app_name, CFBundleDisplayName=app_name)
+        # Permission prompts name the app and its server ("V07 Dev ... your V07 server").
         for key, value in info.items():
             if key.endswith('UsageDescription'):
-                info[key] = value.replace(upstream_name, APP_NAME)
+                info[key] = value.replace(upstream_name, app_name).replace(base_name, APP_NAME)
         info_path.write_bytes(plistlib.dumps(info))
         # Upstream's own signature carries the entitlements its build chose.
         entitlements = stage / 'entitlements.plist'
@@ -67,12 +76,12 @@ def build(identity, keychain):
             raise SystemExit('The upstream build carries no entitlements. No app was changed.')
         # The pinned certificate must succeed; never fall back to ad-hoc signing.
         run('codesign', '--force', '--sign', identity, '--keychain', keychain, '--options', 'runtime',
-            '--requirements', f'=designated => identifier "{BUNDLE_ID}" and certificate leaf = H"{identity}"',
-            '--entitlements', str(entitlements), '--identifier', BUNDLE_ID, str(app))
+            '--requirements', f'=designated => identifier "{bundle_id}" and certificate leaf = H"{identity}"',
+            '--entitlements', str(entitlements), '--identifier', bundle_id, str(app))
         run('codesign', '--verify', '--deep', '--strict', str(app))
-        if BUILT.exists():
-            shutil.rmtree(BUILT)
-        app.rename(BUILT)
+        if built.exists():
+            shutil.rmtree(built)
+        app.rename(built)
     finally:
         shutil.rmtree(stage)
 
@@ -83,6 +92,8 @@ def main():
                         help=f'Build and sign build/{BUILT.name} without touching the installed app.')
     parser.add_argument('--adopt-identity', action='store_true',
                         help='Allow the one-time switch from the installed identity; permissions need reapproval.')
+    parser.add_argument('--dev', action='store_true',
+                        help=f'Build and sign build/{DEV_BUILT.name} from the development build. Nothing is installed.')
     args = parser.parse_args()
     if not CONFIG.is_file():
         raise SystemExit('Run python3 scripts/setup-local-signing.py first. No app was changed.')
@@ -96,6 +107,12 @@ def main():
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             raise SystemExit('Another local install is running.')
+        if args.dev:
+            build(identity, config['keychain'], dev=True)
+            expected = f'=identifier "{DEV_BUNDLE_ID}" and certificate leaf = H"{identity}"'
+            run('codesign', '--verify', '--strict', '-R', expected, str(DEV_BUILT))
+            print('Built and signed:', DEV_BUILT)
+            return
         build(identity, config['keychain'])
         expected = f'=identifier "{BUNDLE_ID}" and certificate leaf = H"{identity}"'
         run('codesign', '--verify', '--strict', '-R', expected, str(BUILT))
