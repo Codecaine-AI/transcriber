@@ -49,7 +49,11 @@ enum V07Brand {
         case .delivering: description = "\(V07Build.current.displayName) — delivering your words"
         case .failed: description = "\(V07Build.current.displayName) — dictation needs attention"
         case .idle, .success:
-            let verb = activationMode == .doubleTapToggle ? "double tap" : "hold"
+            let verb = switch activationMode {
+            case .hold: "hold"
+            case .doubleTapToggle: "double tap"
+            case .singleTapToggle: "tap"
+            }
             description = "\(V07Build.current.displayName) — \(verb) \(shortcut.title) to dictate"
         }
         button.toolTip = description

@@ -37,8 +37,8 @@ public struct V07Configuration: Codable, Equatable, Sendable {
             throw values.invalid(.holdKey, "Use rightOption, rightControl, or fn.")
         }
         let activationMode = try values.value(String.self, for: .activationMode, default: "hold")
-        guard ["hold", "doubleTap"].contains(activationMode) else {
-            throw values.invalid(.activationMode, "Use hold or doubleTap.")
+        guard ["hold", "doubleTap", "singleTap"].contains(activationMode) else {
+            throw values.invalid(.activationMode, "Use hold, doubleTap, or singleTap.")
         }
         self.init(holdKey: holdKey,
                   activationMode: activationMode,

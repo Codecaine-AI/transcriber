@@ -21,6 +21,9 @@
         "b-architecture-ndjson-events-carry-prog-10",
         "b-architecture-interrupted-partial-uplo-11",
         "architecture-activation-modes",
+        "architecture-mode-hold",
+        "architecture-mode-double",
+        "architecture-mode-single",
         "arch-speech-heading",
         "arch-speech-lead",
         "arch-speech-stream",
@@ -433,8 +436,18 @@
           }
         },
         {
-          "insert": " selects how the dictation key starts a take. "
-        },
+          "insert": " selects one of three ways for the dictation key to start and end a take."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-hold": {
+      "id": "architecture-mode-hold",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
         {
           "insert": "Hold to talk",
           "attributes": {
@@ -442,8 +455,18 @@
           }
         },
         {
-          "insert": " records while the key is held. "
-        },
+          "insert": " records while the key is held."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-double": {
+      "id": "architecture-mode-double",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
         {
           "insert": "Double tap to toggle",
           "attributes": {
@@ -452,6 +475,63 @@
         },
         {
           "insert": " starts recording on a double tap and ends it on a second double tap."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-single": {
+      "id": "architecture-mode-single",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Single tap to toggle",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " starts recording on one tap, and the next tap stops it and delivers the text."
+        }
+      ],
+      "children": [
+        "architecture-mode-single-fork",
+        "architecture-mode-single-chord"
+      ]
+    },
+    "architecture-mode-single-fork": {
+      "id": "architecture-mode-single-fork",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "This mode is a fork addition with the config token "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Upstream V07 has only the first two modes."
+        }
+      ],
+      "children": []
+    },
+    "architecture-mode-single-chord": {
+      "id": "architecture-mode-single-chord",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "As in double-tap mode, a chord of the key with another key, a modifier, or a click is not a tap. Escape cancels a latched take."
         }
       ],
       "children": []

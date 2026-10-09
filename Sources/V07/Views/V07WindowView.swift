@@ -144,7 +144,7 @@ struct DictationPage: View {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 20) {
                     V07HoldKeyCap(key: controller.shortcut, isPressed: controller.isRecording)
-                    Text(controller.activationMode == .doubleTapToggle ? "Double tap to dictate." : "Hold to dictate.")
+                    Text(controller.activationMode.dictationPrompt)
                         .font(.system(size: 28, weight: .medium))
                         .tracking(-0.7)
                     Spacer()

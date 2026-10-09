@@ -38,6 +38,7 @@
         "open-work-carried-backup",
         "open-work-carried-wispr",
         "open-work-carried-port",
+        "open-work-single-tap",
         "open-decisions-heading",
         "open-work-carried-tests",
         "open-decision-display-name",
@@ -141,7 +142,25 @@
                 }
               },
               {
-                "insert": " includes the Deepgram speech routing"
+                "insert": " on "
+              },
+              {
+                "insert": "Codecaine-AI/sotto",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " includes the Deepgram speech routing and the "
+              },
+              {
+                "insert": "Single tap to toggle",
+                "attributes": {
+                  "bold": true
+                }
+              },
+              {
+                "insert": " trigger mode"
               }
             ]
           ],
@@ -210,13 +229,68 @@
                 }
               },
               {
-                "insert": " reinstalled it on 2026-10-05 and kept its macOS permissions. The rollback copy is "
+                "insert": " reinstalled it on 2026-10-08 at 22:09 and kept its macOS permissions. The rollback copy is "
               },
               {
-                "insert": ".local/install-backups/20261005-141222-687335/Transcriber.app",
+                "insert": ".local/install-backups/20261008-220931-738918/Transcriber.app",
                 "attributes": {
                   "code": true
                 }
+              }
+            ]
+          ],
+          [
+            "Trigger",
+            [
+              {
+                "insert": "Single tap to toggle",
+                "attributes": {
+                  "bold": true
+                }
+              },
+              {
+                "insert": ", key Fn / Globe"
+              }
+            ],
+            [
+              {
+                "insert": "Installed 2026-10-08 with the 22:09 rebuild, rollback copy "
+              },
+              {
+                "insert": ".local/install-backups/20261008-220931-738918/Transcriber.app",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ". Set under "
+              },
+              {
+                "insert": "This Mac",
+                "attributes": {
+                  "bold": true
+                }
+              },
+              {
+                "insert": ", and "
+              },
+              {
+                "insert": "~/Library/Application Support/Transcriber/config.json",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " has "
+              },
+              {
+                "insert": "\"activationMode\" : \"singleTap\"",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ". A live dictation with fn taps is not confirmed"
               }
             ]
           ],
@@ -1169,6 +1243,69 @@
         },
         {
           "insert": " defaults to port 8392, the port the archive viewer uses."
+        }
+      ],
+      "children": []
+    },
+    "open-work-single-tap": {
+      "id": "open-work-single-tap",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Confirm one live dictation with the "
+        },
+        {
+          "insert": "Single tap to toggle",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " trigger in the installed Transcriber."
+        }
+      ],
+      "children": [
+        "open-work-single-tap-check",
+        "open-work-single-tap-done"
+      ]
+    },
+    "open-work-single-tap-check": {
+      "id": "open-work-single-tap-check",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Tap Fn / Globe once, talk, and tap it once more. The text must arrive at the cursor."
+        }
+      ],
+      "children": []
+    },
+    "open-work-single-tap-done": {
+      "id": "open-work-single-tap-done",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The install and the setting are done, as the Installed State table shows. "
+        },
+        {
+          "insert": "Product Direction",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "00-foundation/10-product-direction"
+            }
+          }
+        },
+        {
+          "insert": " lists the mode as a fork difference."
         }
       ],
       "children": []

@@ -78,11 +78,13 @@ enum HoldKey: String, CaseIterable, Identifiable {
 }
 
 /// How dictation starts and stops. Holding requires a sustained press; double
-/// tap latches recording on and a second double tap turns it off. Raw values
-/// are the tokens persisted in the configuration file.
+/// tap latches recording on and a second double tap turns it off; single tap
+/// (a Transcriber fork addition) latches on one tap and stops on the next. Raw
+/// values are the tokens persisted in the configuration file.
 enum HotkeyActivationMode: String, CaseIterable, Identifiable {
     case hold
     case doubleTapToggle = "doubleTap"
+    case singleTapToggle = "singleTap"
 
     var id: String { rawValue }
 
@@ -90,8 +92,20 @@ enum HotkeyActivationMode: String, CaseIterable, Identifiable {
         switch self {
         case .hold: "Hold to talk"
         case .doubleTapToggle: "Double tap to toggle"
+        case .singleTapToggle: "Single tap to toggle"
         }
     }
+
+    var dictationPrompt: String {
+        switch self {
+        case .hold: "Hold to dictate."
+        case .doubleTapToggle: "Double tap to dictate."
+        case .singleTapToggle: "Tap to dictate."
+        }
+    }
+
+    /// Tap modes latch a take on release instead of tracking a physical hold.
+    var isToggle: Bool { self != .hold }
 }
 
 /// An idempotent lifetime for a scheduled callback or native event-tap resource.
@@ -209,7 +223,7 @@ final class HotkeyMonitor {
 
     /// An accepted Fn hold is dedicated push-to-talk, not a modifier chord.
     /// Views use this same state to leave Escape available to the focused app.
-    /// A double-tap take is latched, so Fn shortcuts during it stay ordinary.
+    /// A tap-toggled take is latched, so Fn shortcuts during it stay ordinary.
     var isHoldingFn: Bool { mode == .hold && key == .fn && physicalDown && active }
     /// An accepted hold or a press still inside its acceptance delay.
     var isHoldInProgress: Bool { active || pendingPressID != nil }
@@ -374,7 +388,7 @@ final class HotkeyMonitor {
             blockCurrentHold()
             return
         }
-        if mode == .doubleTapToggle {
+        if mode.isToggle {
             // A tap's meaning is decided when it ends: two taps inside the
             // window toggle recording, so no hold debounce applies.
             return
@@ -465,7 +479,7 @@ final class HotkeyMonitor {
         awaitingObservedRelease = false
         watchdog?.cancel()
         watchdog = nil
-        if mode == .doubleTapToggle {
+        if mode.isToggle {
             guard wantsMonitoring, wasDown, !wasBlocked else { return }
             registerToggleTap()
             return
@@ -477,32 +491,35 @@ final class HotkeyMonitor {
     }
 
     private func registerToggleTap() {
-        let now = environment.now()
-        guard let previousTap = lastTapAt, now - previousTap <= Self.doubleTapWindow else {
-            lastTapAt = now
-            onDiagnostic?("Tap ignored: double tap to toggle recording.")
-            return
+        let gesture = mode == .singleTapToggle ? "Tap" : "Double tap"
+        if mode == .doubleTapToggle {
+            let now = environment.now()
+            guard let previousTap = lastTapAt, now - previousTap <= Self.doubleTapWindow else {
+                lastTapAt = now
+                onDiagnostic?("Tap ignored: double tap to toggle recording.")
+                return
+            }
+            lastTapAt = nil
         }
-        lastTapAt = nil
         if active {
             active = false
-            onDiagnostic?("Double tap ended the recording.")
+            onDiagnostic?("\(gesture) ended the recording.")
             onRelease?()
             return
         }
         guard ensureListeningAccess() else { return }
         guard onPress?() ?? true else {
-            onDiagnostic?("Double tap ignored: recording did not start.")
+            onDiagnostic?("\(gesture) ignored: recording did not start.")
             return
         }
         active = true
-        onDiagnostic?("Double tap accepted; recording stays on after release.")
+        onDiagnostic?("\(gesture) accepted; recording stays on after release.")
     }
 
     /// A take that failed or was cancelled after starting must not leave a
     /// double-tap latch behind; the next double tap should start a new take.
     func clearLatchedTake() {
-        guard mode == .doubleTapToggle, active else { return }
+        guard mode.isToggle, active else { return }
         active = false
     }
 
@@ -622,7 +639,7 @@ final class HotkeyMonitor {
         pendingPress = nil
         pendingPressID = nil
         let wasActive = active
-        let latched = keepLatch && mode == .doubleTapToggle && active
+        let latched = keepLatch && mode.isToggle && active
         active = latched
         physicalDown = false
         blockedUntilRelease = false

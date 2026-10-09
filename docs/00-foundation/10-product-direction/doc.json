@@ -27,6 +27,7 @@
         "fork-diff-identity",
         "fork-diff-deepgram",
         "fork-diff-scripts",
+        "fork-diff-single-tap",
         "b-10-product-direction-boundaries-8",
         "b-10-product-direction-the-archive-is-a-single-9",
         "b-10-product-direction-see-archive-design-doc-10"
@@ -444,7 +445,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork differs from upstream V07 in three areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
+          "insert": "The fork differs from upstream V07 in four areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
         }
       ],
       "children": []
@@ -663,6 +664,220 @@
         },
         {
           "insert": "scripts/run-server-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-single-tap": {
+      "id": "fork-diff-single-tap",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The dictation key has a third activation mode, "
+        },
+        {
+          "insert": "Single tap to toggle",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ", with the config token "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "fork-diff-single-tap-why",
+        "fork-diff-single-tap-upstream",
+        "fork-diff-single-tap-files",
+        "fork-diff-single-tap-merge"
+      ]
+    },
+    "fork-diff-single-tap-why": {
+      "id": "fork-diff-single-tap-why",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Ford dictates with one tap to start, then talks, then taps once to stop. Double tap did not fit that habit."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-single-tap-upstream": {
+      "id": "fork-diff-single-tap-upstream",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Upstream V07 has only "
+        },
+        {
+          "insert": "hold",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "doubleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". This was checked against upstream "
+        },
+        {
+          "insert": "main",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " at "
+        },
+        {
+          "insert": "b6d6815",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on 2026-10-08."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-single-tap-files": {
+      "id": "fork-diff-single-tap-files",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The change touches "
+        },
+        {
+          "insert": "Sources/V07/System/HotkeyMonitor.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "Sources/V07Core/V07Configuration.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and the idle hints in "
+        },
+        {
+          "insert": "V07Brand.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "V07WindowView.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "MenuHUDViews.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " under "
+        },
+        {
+          "insert": "Sources/V07/Views",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-single-tap-merge": {
+      "id": "fork-diff-single-tap-merge",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A sync that edits "
+        },
+        {
+          "insert": "HotkeyMonitor.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " or the "
+        },
+        {
+          "insert": "activationMode",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " validation must keep the "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " case. An unmodified upstream build rejects a config file that contains "
+        },
+        {
+          "insert": "singleTap",
           "attributes": {
             "code": true
           }
