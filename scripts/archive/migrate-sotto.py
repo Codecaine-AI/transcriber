@@ -240,6 +240,13 @@ OWN_NAMES = {'cache': (f'{OLD}-state.json', f'{NEW}-state.json', 'index.sqlite')
              'migration': ('journal.json', 'backup.json', 'inventory-before.json', 'temp-files.log')}
 
 
+def same_hard_link(a, b):
+    """True only when both paths are regular files (not symlinks) sharing one inode, so removing one keeps the bytes."""
+    sa, sb = os.lstat(a), os.lstat(b)
+    return (stat.S_ISREG(sa.st_mode) and stat.S_ISREG(sb.st_mode)
+            and (sa.st_dev, sa.st_ino) == (sb.st_dev, sb.st_ino) and sa.st_nlink >= 2)
+
+
 def quarantine_temp_files(ctx, known, dest):
     """Move every leftover temp-looking file (ours from a crash or anyone else's) into DIR/quarantine/<where>/<path>.
     Nothing is deleted; an existing quarantine entry is never replaced. Returns the moved paths."""
@@ -263,7 +270,7 @@ def quarantine_temp_files(ctx, known, dest):
     moved = []
     for src, dst in found:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        if dst.exists() and os.path.samefile(src, dst):
+        if os.path.lexists(dst) and same_hard_link(src, dst):
             pass  # an interrupted earlier run linked it but did not unlink the source: finish that move
         else:
             base, n = dst, 0
