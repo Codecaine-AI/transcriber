@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Swap the repository path in the files Phase 2 moves: rewrite-repo-paths.py OLD NEW FILE...
 
-Handles launchd plists, Start Transcriber.command, archive-config.json, transcriber-state.json and the
-archive's installation.json. Every file is rewritten atomically with its mode kept. Exits non-zero if a
+Handles launchd plists, Start Transcriber.command, archive-config.json and transcriber-state.json (and an
+installation.json, whose paths get the same prefix swap). Every file is rewritten atomically with its mode kept. Exits non-zero if a
 file is missing or still names OLD afterwards. Run with OLD and NEW swapped to undo.
 """
 import difflib
@@ -48,10 +48,11 @@ def main():
             after = encode(moved)
         elif p.name == 'archive-config.json':
             after = encode(swap(json.loads(before)))
-        elif p.name == 'installation.json':
+        elif p.name == 'installation.json':  # same swap: a historical path outside the repo stays as it is
             data = json.loads(before)
-            data['source_repository'] = new
-            after = (json.dumps(data, indent=2, ensure_ascii=False) + ('\n' if before.endswith(b'\n') else '')).encode()
+            moved = swap(data)
+            after = before if moved == data else \
+                (json.dumps(moved, indent=2, ensure_ascii=False) + ('\n' if before.endswith(b'\n') else '')).encode()
         elif p.name == 'Start Transcriber.command':
             text = before.decode()
             line = f'transcriber_root={old}\n'

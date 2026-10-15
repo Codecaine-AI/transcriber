@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """One-off move of the transcript archive from the `sotto` source id to `transcriber`.
 
-Subcommands, in order: plan (read-only), backup, migrate, verify; rollback only while frozen.
+Subcommands, in order: plan (read-only), backup, migrate, verify. rollback is exact and refuses unless
+every path, the index, the worker state and the config equal either the backup or its intended transform.
 drain-status is the read-only probe migrate-sotto-launchd.sh polls before stopping services.
 
 Only three metadata.json fields change (source, selected_source, source_versions[].role), plus
@@ -35,9 +36,8 @@ from archive import digest, encode, safe_id  # noqa: E402  (the worker's own byt
 OLD, NEW = 'sotto', 'transcriber'
 LABELS = ('server', 'archive', 'app')
 PORTS = (8391, 8392)
-STEPS = ('move', 'metadata', 'index', 'manifests', 'state', 'config', 'after-manifest')
+STEPS = ('move', 'files', 'index', 'state', 'config')
 IN_FLIGHT = ('receiving', 'queued', 'transcribing', 'proofreading')
-ROLE_PATH = re.compile(r'^\.source_versions\[\d+\]\.role$')
 UUID_DIR = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
 TEMP_FILE = re.compile(r'^\..+-[a-z0-9_]{8}$')  # tempfile.mkstemp(prefix='.' + name + '-')
 UNSTABLE = 'verification.json'  # rewritten by every archive.py verify run; compared by type and mode only
@@ -133,11 +133,28 @@ def sha_bytes(data):
 
 # ---------------------------------------------------------------- inventory
 
-def inventory(base, hashed=True, label=None):
-    """Typed entry for every path under base: d(mode), f(mode,size,sha), l(target). Special files refuse."""
+def raise_error(error):
+    raise error
+
+
+def hash_file(path, sync=False):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            h.update(chunk)
+        if sync:
+            os.fsync(f.fileno())
+    return h.hexdigest()
+
+
+def inventory(base, hashed=True, sync=False, label=None):
+    """Typed entry for every path under base: d(mode), f(mode,size,sha), l(target).
+
+    Unreadable directories and special files raise. With sync, every file and then every directory
+    (deepest first) is fsynced, so a backup is durable before it is published."""
     started = time.monotonic()
     entries = {}
-    for root, dirs, names in os.walk(base):
+    for root, dirs, names in os.walk(base, onerror=raise_error):
         dirs.sort()
         for name in sorted(dirs) + sorted(names):
             p = os.path.join(root, name)
@@ -154,12 +171,16 @@ def inventory(base, hashed=True, label=None):
     if hashed:
         files = [r for r, e in entries.items() if e['t'] == 'f']
         with concurrent.futures.ThreadPoolExecutor(WORKERS) as pool:
-            for rel, sha in zip(files, pool.map(lambda r: digest(os.path.join(base, r)), files)):
+            for rel, sha in zip(files, pool.map(lambda r: hash_file(os.path.join(base, r), sync), files)):
                 entries[rel]['sha'] = sha
         total = sum(entries[r]['size'] for r in files)
-        sec = time.monotonic() - started
-        say('time', f'{label or base}: {len(entries)} entries, {len(files)} files, {total / 1e9:.2f} GB hashed '
-                    f'in {sec:.1f}s')
+        say('time', f'{label or base}: {len(entries)} entries, {len(files)} files, {total / 1e9:.2f} GB hashed'
+                    f'{" and fsynced" if sync else ""} in {time.monotonic() - started:.1f}s')
+    if sync:
+        for rel in sorted((r for r, e in entries.items() if e['t'] == 'd'), key=lambda r: -r.count(os.sep)):
+            fsync_dir(os.path.join(base, rel))
+        fsync_dir(base)
+        fsync_dir(os.path.dirname(os.path.abspath(base)))
     return entries
 
 
@@ -167,14 +188,23 @@ def save_inventory(path, entries):
     write(path, json.dumps(entries, sort_keys=True, separators=(',', ':')).encode())
 
 
-def diff_inventories(a, b, relax=(UNSTABLE,)):
-    """Paths whose entries differ. Paths in relax compare by type and mode only."""
+def junk(rel):
+    """Finder writes .DS_Store files at will; they are compared by type only and restored on rollback."""
+    return os.path.basename(rel) == '.DS_Store'
+
+
+def diff_inventories(a, b, unstable=()):
+    """Paths whose entries differ. .DS_Store compares by type when present on both sides; paths in
+    unstable compare by type and mode only."""
     out = []
     for rel in sorted(set(a) | set(b)):
         x, y = a.get(rel), b.get(rel)
-        if x is None or y is None:
+        if junk(rel):
+            if x and y and x['t'] != y['t']:
+                out.append(f'type: {rel}')
+        elif x is None or y is None:
             out.append(f'{"extra" if x is None else "missing"}: {rel}')
-        elif rel in relax:
+        elif rel in unstable:
             if (x['t'], x.get('mode')) != (y['t'], y.get('mode')):
                 out.append(f'type/mode: {rel}')
         elif x != y:
@@ -182,12 +212,12 @@ def diff_inventories(a, b, relax=(UNSTABLE,)):
     return out
 
 
-def rename_rel(rel):
-    return re.sub(r'^records/sotto(?=/|$)', 'records/transcriber', rel)
+def is_meta(rel):
+    return re.fullmatch(r'records/sotto/[^/]+/metadata\.json', rel) is not None
 
 
 TEMP_NAMES = ('metadata.json', 'dataset.json', 'verification.json', f'{OLD}-state.json', f'{NEW}-state.json',
-              'archive-config.json', 'journal.json', 'backup.json', 'after.json', 'inventory-after.json')
+              'archive-config.json', 'journal.json', 'backup.json', 'inventory-before.json', '.DS_Store')
 
 
 def clean_temp_files(ctx, known, dest):
@@ -221,25 +251,6 @@ def transform(m, frm, to):
     return n
 
 
-def diff_paths(a, b, p=''):
-    if type(a) is not type(b):
-        yield p
-    elif isinstance(a, dict):
-        for k in sorted(set(a) | set(b)):
-            if k not in a or k not in b:
-                yield f'{p}.{k}'
-            else:
-                yield from diff_paths(a[k], b[k], f'{p}.{k}')
-    elif isinstance(a, list):
-        if len(a) != len(b):
-            yield p
-        else:
-            for i, (x, y) in enumerate(zip(a, b)):
-                yield from diff_paths(x, y, f'{p}[{i}]')
-    elif a != b:
-        yield p
-
-
 def show_diff(name, before, after):
     for line in difflib.unified_diff(before.decode().splitlines(), after.decode().splitlines(),
                                      f'a/{name}', f'b/{name}', lineterm='', n=1):
@@ -247,6 +258,9 @@ def show_diff(name, before, after):
 
 
 # ---------------------------------------------------------------- index, services, drain
+
+ROW = 'key,source,timestamp,status,app,raw,clean,path,audio,screenshot,bytes'
+
 
 def ro(path):
     return sqlite3.connect(Path(path).as_uri() + '?mode=ro', uri=True)
@@ -256,16 +270,30 @@ def index_counts(db):
     return dict(db.execute('select source, count(*) from records group by source').fetchall())
 
 
-def index_digest(path):
+def index_rows(path):
     db = ro(path)
     try:
-        h = hashlib.sha256()
-        for row in db.execute('select key,source,timestamp,status,app,raw,clean,path,audio,screenshot,bytes '
-                              'from records order by key'):
-            h.update(json.dumps(row, ensure_ascii=False).encode() + b'\n')
-        return h.hexdigest(), index_counts(db)
+        return db.execute(f'select {ROW} from records').fetchall()
     finally:
         db.close()
+
+
+def renamed_rows(rows):
+    """The index rows exactly as migrate's UPDATE leaves them."""
+    out = []
+    for row in rows:
+        if row[1] == OLD:
+            row = (NEW + '/' + row[0][len(OLD) + 1:], NEW) + row[2:7] + \
+                  (f'records/{NEW}/' + row[7][len(f'records/{OLD}/'):],) + row[8:]
+        out.append(row)
+    return out
+
+
+def rows_digest(rows):
+    h = hashlib.sha256()
+    for row in sorted(rows, key=lambda r: r[0]):
+        h.update(json.dumps(row, ensure_ascii=False).encode() + b'\n')
+    return h.hexdigest()
 
 
 def services():
@@ -292,7 +320,11 @@ def require_stopped(ctx):
 
 
 def drain(ctx, namespace):
-    """Server takes not yet terminal, and finished takes the archive worker has not copied yet."""
+    """Server takes not yet terminal, and finished takes the archive worker has not copied yet.
+    A missing generations directory counts as unreadable, so callers fail closed."""
+    if not ctx.generations.is_dir():
+        return {'receiving': 0, 'in_flight': 0, 'unarchived': 0, 'unreadable': 1,
+                'examples': [f'missing {ctx.generations}']}
     state_path = ctx.cache / f'{namespace}-state.json'
     state = load_json(state_path) if state_path.exists() else {}
     receiving, in_flight, unarchived, unreadable = [], [], [], []
@@ -337,6 +369,8 @@ def inspect(ctx, plists):
 
     ids = []
     for p in sorted(ctx.old_dir.iterdir()):
+        if p.name == '.DS_Store':
+            continue
         if p.is_dir() and not p.is_symlink() and UUID_DIR.match(p.name):
             ids.append(p.name)
         else:
@@ -437,7 +471,13 @@ def inspect(ctx, plists):
 
 def cmd_plan(ctx, args):
     say('info', f'transcripts={ctx.transcripts} cache={ctx.cache} repo={ctx.repo}')
-    _, s = inspect(ctx, ctx.agents)
+    plists = ctx.agents
+    if args.dir and not list(ctx.agents.glob(f'ai.codecaine.{OLD}.*.plist')):
+        plists = Path(args.dir).expanduser().resolve() / 'launchd' / 'LaunchAgents'
+        say('info', f'sotto plists are stashed by down; checking {plists}')
+    elif not list(ctx.agents.glob(f'ai.codecaine.{OLD}.*.plist')):
+        say('info', 'no sotto plists in LaunchAgents: after down, pass --dir DIR to check the stashed copies')
+    _, s = inspect(ctx, plists)
     code = (ctx.repo / 'scripts/archive/archive.py').read_text()
     say('info', 'main checkout archive.py: ' + ('new transcriber code' if "'--transcriber-data'" in code
                                                else 'old sotto code (merge before launchd up)'))
@@ -452,6 +492,92 @@ def cmd_drain_status(ctx, args):
     d = drain(ctx, args.namespace)
     print(json.dumps(d), flush=True)
     return 0 if not (d['in_flight'] or d['unarchived'] or d['unreadable']) else 1
+
+
+# ---------------------------------------------------------------- the intended change, and the one comparator
+
+def new_config(ctx):
+    cfg = load_json(ctx.config)
+    return encode({'archive_root': str(ctx.transcripts), 'transcriber_data': str(ctx.local / 'server'),
+                   'viewer_url': cfg.get('viewer_url', 'http://127.0.0.1:8392')})
+
+
+def new_bytes(clone, rel):
+    """The transformed bytes of a file migrate rewrites, built from the backup clone."""
+    data = json.loads((clone / rel).read_bytes())
+    if rel == 'dataset.json':
+        if data.get('sources') != ['wispr-flow', OLD]:
+            raise Surprise(f'dataset.json sources {data.get("sources")}')
+        return encode(dict(data, sources=['wispr-flow', NEW]))
+    return encode(transform(data, OLD, NEW))
+
+
+def rewritten(rel):
+    return rel == 'dataset.json' or is_meta(rel)
+
+
+def check_all(ctx, dest, info, before, allowed, label='live archive'):
+    """Compare everything migrate may touch against the backup. Every path, the index, the worker state and the
+    config must each be in an allowed form: 'old' (the backup) or 'new' (the backup transformed exactly as migrate
+    does). Any other difference, extra or missing path is a problem. Returns (problems, forms seen)."""
+    problems, seen = [], set()
+    clone = dest / 'Transcripts'
+    old_named, new_named = ctx.old_dir.exists(), ctx.new_dir.exists()
+    if old_named == new_named:
+        return [f'expected exactly one of records/{OLD} and records/{NEW}'], seen
+    seen.add('new' if new_named else 'old')
+    live = inventory(ctx.transcripts, label=label)
+    mapped = {(re.sub(rf'^records/{NEW}(?=/|$)', f'records/{OLD}', r) if new_named else r): e for r, e in live.items()}
+    def shown(rel):  # report paths under their live name
+        return re.sub(rf'^records/{OLD}(?=/|$)', f'records/{NEW}', rel) if new_named else rel
+
+    for rel in sorted(set(before) | set(mapped)):
+        x, y = before.get(rel), mapped.get(rel)
+        if junk(rel):
+            if x and y and x['t'] != y['t']:
+                problems.append(f'type: {shown(rel)}')
+        elif x is None or y is None:
+            problems.append(f'{"extra" if x is None else "missing"}: {shown(rel)}')
+        elif rel == UNSTABLE:
+            if (x['t'], x['mode']) != (y['t'], y['mode']):
+                problems.append(f'type/mode: {rel}')
+        elif rewritten(rel) and x['t'] == y['t'] == 'f' and x['mode'] == y['mode']:
+            if y['sha'] == x['sha']:
+                seen.add('old')
+            elif y['sha'] == sha_bytes(new_bytes(clone, rel)):
+                seen.add('new')
+            else:
+                problems.append(f'changed beyond the intended fields: {shown(rel)}')
+        elif x != y:
+            problems.append(f'changed: {shown(rel)}')
+
+    digest_now = rows_digest(index_rows(ctx.index))
+    forms = {info['index_old']: 'old', info['index_new']: 'new'}
+    if digest_now in forms:
+        seen.add(forms[digest_now])
+    else:
+        problems.append('index rows differ from both the backup snapshot and its intended transform')
+    states = []
+    if ctx.old_state.exists():
+        states.append('old' if digest(ctx.old_state) == info['state_sha'] else 'other')
+    if ctx.new_state.exists():
+        states.append('new' if digest(ctx.new_state) == info['state_new_sha'] else 'other')
+    if not states or 'other' in states:
+        problems.append('worker state differs from both its backup and its intended form')
+    seen.update(s for s in states if s != 'other')
+    config_form = {info['config_sha']: 'old', info['config_new_sha']: 'new'}.get(digest(ctx.config))
+    if config_form:
+        seen.add(config_form)
+    else:
+        problems.append('archive-config.json differs from both its backup and its intended form')
+    if seen - set(allowed):
+        problems.append(f'found {sorted(seen)} forms where only {sorted(allowed)} is allowed')
+    return problems, seen
+
+
+def fail_if(problems, what):
+    if problems:
+        raise Surprise(f'{what}: {len(problems)} difference(s): {problems[:5]}')
 
 
 # ---------------------------------------------------------------- backup
@@ -470,55 +596,59 @@ def cmd_backup(ctx, args):
     require_stopped(ctx)
     f, s = inspect(ctx, plists)
     if s:
-        raise Surprise(f'{len(s)} precondition(s) failed; run plan')
+        raise Surprise(f'{len(s)} precondition(s) failed; run plan --dir DEST')
     dest.mkdir(parents=True, exist_ok=True)
     if dest.stat().st_dev != ctx.transcripts.stat().st_dev:
         raise Surprise('the backup must be on the archive volume so cp -c can clone')
 
     started = time.monotonic()
-    before = inventory(ctx.transcripts, label='live archive')
     clone = dest / 'Transcripts'
-    t = time.monotonic()
+    if clone.exists():
+        raise Surprise(f'{clone} exists from an unfinished backup; move it aside and rerun')
     subprocess.run(['cp', '-c', '-p', '-R', str(ctx.transcripts), str(clone)], check=True)
-    say('time', f'APFS clone in {time.monotonic() - t:.1f}s')
-    cloned = inventory(clone, label='clone')
-    problems = diff_inventories(before, cloned, relax=())
-    if problems:
-        raise Surprise(f'clone differs from the live archive: {problems[:5]}')
-    again = inventory(ctx.transcripts, hashed=False)
-    if diff_inventories({k: {x: y for x, y in v.items() if x != 'sha'} for k, v in before.items()}, again, relax=()):
-        raise Surprise('the live archive changed while it was being backed up')
-    say('ok', f'clone: all {len(cloned)} entries match the live archive (every file hashed on both sides)')
-    save_inventory(dest / 'inventory-before.json', before)
+    say('time', f'APFS clone in {time.monotonic() - started:.1f}s')
+    before = inventory(clone, sync=True, label='clone')
+    fail_if(diff_inventories(before, inventory(ctx.transcripts, label='live archive')), 'clone vs live archive')
+    say('ok', f'clone equals the live archive: {len(before)} entries, every file hashed on both sides')
 
     (dest / 'cache').mkdir()
-    src, dst = ro(ctx.index), sqlite3.connect(dest / 'cache' / 'index.sqlite')
+    (dest / 'repo-local').mkdir()
+    snapshot = dest / 'cache' / 'index.sqlite'
+    src, dst = ro(ctx.index), sqlite3.connect(snapshot)
     try:
         src.backup(dst)
     finally:
         src.close()
         dst.close()
-    pre_digest, counts = index_digest(ctx.index)
-    if index_digest(dest / 'cache' / 'index.sqlite')[0] != pre_digest:
+    rows = index_rows(snapshot)
+    if rows_digest(rows) != rows_digest(index_rows(ctx.index)):
         raise Surprise('index snapshot differs from the live index')
-    (dest / 'repo-local').mkdir()
     for src_path, dst_path in ((ctx.old_state, dest / 'cache' / ctx.old_state.name),
                                (ctx.config, dest / 'repo-local' / ctx.config.name)):
         shutil.copy2(src_path, dst_path)
-        if digest(src_path) != digest(dst_path):
-            raise Surprise(f'copy of {src_path} differs')
+    keep = {k: v for k, v in load_json(ctx.old_state).items() if k.startswith(ctx.state_prefix)}
     info = {'status': 'complete', 'created_at': now(), 'transcripts': str(ctx.transcripts), 'cache': str(ctx.cache),
             'repo': str(ctx.repo), 'launch_agents': str(ctx.agents), 'records': f['records'], 'wispr': f['wispr'],
-            'state_keep': f['state_keep'], 'index_digest': pre_digest, 'index_counts': counts,
-            'state_sha': digest(ctx.old_state), 'config_sha': digest(ctx.config),
-            'launchd': {p.name: digest(p) for p in sorted(plists.iterdir())}}
+            'index_old': rows_digest(rows), 'index_new': rows_digest(renamed_rows(rows)),
+            'state_sha': hash_file(ctx.old_state), 'state_new_sha': sha_bytes(encode(keep)),
+            'config_sha': hash_file(ctx.config), 'config_new_sha': sha_bytes(new_config(ctx)),
+            'launchd': {p.name: hash_file(p) for p in sorted(plists.iterdir())}}
+    if (hash_file(dest / 'cache' / ctx.old_state.name) != info['state_sha']
+            or hash_file(dest / 'repo-local' / ctx.config.name) != info['config_sha']):
+        raise Surprise('state or config copy differs')
+    save_inventory(dest / 'inventory-before.json', before)
+    for d in ('cache', 'repo-local'):  # durable before publishing backup.json
+        inventory(dest / d, sync=True, label=f'backup {d}/')
+    inventory(dest / 'launchd', sync=True, label='backup launchd/')
     write(dest / 'backup.json', encode(info))
-    say('PASS', f'backup complete in {time.monotonic() - started:.0f}s: {dest}')
+    say('PASS', f'backup complete and fsynced in {time.monotonic() - started:.0f}s: {dest}')
     return 0
 
 
 def load_backup(ctx, path):
     dest = Path(path).expanduser().resolve()
+    if not (dest / 'backup.json').is_file():
+        raise Surprise(f'no completed backup in {dest}')
     info = load_json(dest / 'backup.json')
     if info.get('status') != 'complete':
         raise Surprise('backup is incomplete')
@@ -530,34 +660,22 @@ def load_backup(ctx, path):
     return dest, info, load_json(dest / 'inventory-before.json'), journal_path, journal
 
 
-def frozen_state(ctx):
-    digest_now, counts = index_digest(ctx.index)
-    return {'index_digest': digest_now, 'index_counts': counts,
-            'state_sha': digest(ctx.new_state) if ctx.new_state.exists() else None,
-            'config_sha': digest(ctx.config)}
-
-
 # ---------------------------------------------------------------- migrate
 
 def cmd_migrate(ctx, args):
     dest, info, before, journal_path, journal = load_backup(ctx, args.backup)
-    if journal['status'] != 'new' and journal['status'] != 'running':
+    if journal['status'] not in ('new', 'running'):
         raise Surprise(f'migration is {journal["status"]} for this backup; refusing to run again')
     require_stopped(ctx)
     if journal['status'] == 'running':
         say('info', f'resuming; finished: {[k for k, v in journal["steps"].items() if "finished_at" in v]}')
         clean_temp_files(ctx, before, dest)
+        fail_if(check_all(ctx, dest, info, before, {'old', 'new'})[0], 'archive is neither the backup nor its transform')
     else:
-        _, s = inspect(ctx, dest / 'launchd' / 'LaunchAgents')
-        if s:
-            raise Surprise(f'{len(s)} precondition(s) failed; run plan')
-        shape = {k: {x: y for x, y in v.items() if x != 'sha'} for k, v in before.items()}
-        problems = diff_inventories(shape, inventory(ctx.transcripts, hashed=False), relax=())
-        if problems:
-            raise Surprise(f'archive changed since the backup: {problems[:5]}')
+        fail_if(check_all(ctx, dest, info, before, {'old'})[0], 'archive changed since the backup')
     journal['status'] = 'running'
     n = info['records']
-    clone_old = dest / 'Transcripts' / 'records' / OLD
+    clone = dest / 'Transcripts'
 
     def step(name, fn):
         entry = journal['steps'].setdefault(name, {})
@@ -575,48 +693,42 @@ def cmd_migrate(ctx, args):
         if ctx.old_dir.is_dir() and not ctx.new_dir.exists():
             rename(ctx.old_dir, ctx.new_dir)
             return 'renamed records/sotto -> records/transcriber'
-        if ctx.new_dir.is_dir() and not ctx.old_dir.exists():
-            return 'already in place (resumed)'
-        raise Surprise('records/sotto and records/transcriber are in an unexpected state')
+        return 'already in place (resumed)'
 
-    def metadata():
+    def files():
         written = resumed = 0
         for rel, e in sorted(before.items()):
-            if not re.fullmatch(r'records/sotto/[^/]+/metadata\.json', rel):
+            if not rewritten(rel):
                 continue
-            rid = rel.split('/')[2]
-            p = ctx.new_dir / rid / 'metadata.json'
-            original = (clone_old / rid / 'metadata.json').read_bytes()
-            if sha_bytes(original) != e['sha']:
-                raise Surprise(f'{rid}: clone metadata no longer matches the inventory')
-            target = encode(transform(json.loads(original), OLD, NEW))
-            raw = p.read_bytes()
-            if raw == original:
-                write(p, target, e['mode'])
+            live = ctx.transcripts / re.sub(rf'^records/{OLD}/', f'records/{NEW}/', rel)
+            target = new_bytes(clone, rel)
+            sha = hash_file(live)
+            if sha == e['sha']:
+                write(live, target, e['mode'])
                 written += 1
-            elif raw == target:
+            elif sha == sha_bytes(target):
                 resumed += 1
             else:
-                raise Surprise(f'{rid}: metadata.json changed since the backup')
-        if written + resumed != n:
-            raise Surprise(f'{written + resumed} metadata files, expected {n}')
+                raise Surprise(f'{rel} changed since the backup')
+        if written + resumed != n + 1:
+            raise Surprise(f'{written + resumed} files, expected {n} metadata + dataset.json')
         return {'rewritten': written, 'already_done': resumed}
 
     def index():
         db = sqlite3.connect(ctx.index, isolation_level=None)
         try:
             db.execute('begin immediate')
-            counts = index_counts(db)
-            if counts == {NEW: n, 'wispr-flow': info['wispr']}:
+            current = rows_digest(db.execute(f'select {ROW} from records').fetchall())
+            if current == info['index_new']:
                 db.execute('rollback')
-                return 'already migrated (resumed)'
-            if counts != {OLD: n, 'wispr-flow': info['wispr']}:
-                raise Surprise(f'index counts {counts}')
+                return 'already migrated (resumed; rows equal the transformed backup)'
+            if current != info['index_old']:
+                raise Surprise('index rows differ from the backup snapshot')
             cur = db.execute("update records set key='transcriber/'||substr(key,7), source='transcriber', "
-                             "path='records/transcriber/'||substr(path,15) where source='sotto' "
-                             "and substr(key,1,6)='sotto/' and substr(path,1,14)='records/sotto/'")
-            if cur.rowcount != n or index_counts(db) != {NEW: n, 'wispr-flow': info['wispr']}:
-                raise Surprise('index update touched an unexpected number of rows')
+                             "path='records/transcriber/'||substr(path,15) where source='sotto'")
+            after = rows_digest(db.execute(f'select {ROW} from records').fetchall())
+            if cur.rowcount != n or after != info['index_new']:
+                raise Surprise('updated rows differ from the transformed backup rows')
             db.execute('commit')
             if db.execute('pragma wal_checkpoint(TRUNCATE)').fetchone()[0]:
                 raise Surprise('WAL checkpoint was blocked by another connection')
@@ -628,128 +740,50 @@ def cmd_migrate(ctx, args):
         finally:
             db.close()
 
-    def manifests():
-        p = ctx.transcripts / 'dataset.json'
-        raw = p.read_bytes()
-        d = json.loads(raw)
-        if d.get('sources') == ['wispr-flow', NEW]:
-            return 'already migrated (resumed)'
-        if d.get('sources') != ['wispr-flow', OLD]:
-            raise Surprise(f'dataset.json sources {d.get("sources")}')
-        after = encode(dict(d, sources=['wispr-flow', NEW]))
-        show_diff('dataset.json', raw, after)
-        write(p, after, before['dataset.json']['mode'])
-        return 'dataset.json sources updated'
-
     def state():
-        if ctx.new_state.is_file() and not ctx.old_state.exists():
-            return 'already migrated (resumed)'
-        if digest(ctx.old_state) != info['state_sha']:
-            raise Surprise('sotto-state.json changed since the backup')
-        keep = {k: v for k, v in load_json(ctx.old_state).items() if k.startswith(ctx.state_prefix)}
-        if len(keep) != n:
-            raise Surprise(f'{len(keep)} current-repo state keys, expected {n}')
-        write(ctx.new_state, encode(keep))
-        unlink(ctx.old_state)  # its exact bytes are in the backup (state_sha)
-        return {'kept_keys': len(keep)}
+        if ctx.old_state.exists():
+            if hash_file(ctx.old_state) != info['state_sha']:
+                raise Surprise('sotto-state.json changed since the backup')
+            keep = {k: v for k, v in load_json(ctx.old_state).items() if k.startswith(ctx.state_prefix)}
+            if len(keep) != n or sha_bytes(encode(keep)) != info['state_new_sha']:
+                raise Surprise(f'{len(keep)} current-repo state keys, expected {n}')
+            write(ctx.new_state, encode(keep))
+            unlink(ctx.old_state)  # its exact bytes are in the backup
+        return {'kept_keys': n}
 
     def config():
-        raw = ctx.config.read_bytes()
-        cfg = json.loads(raw)
-        if 'transcriber_data' in cfg and 'sotto_data' not in cfg:
-            return 'already migrated (resumed)'
-        if digest(ctx.config) != info['config_sha']:
-            raise Surprise('archive-config.json changed since the backup')
-        new = {'archive_root': str(ctx.transcripts), 'transcriber_data': str(ctx.local / 'server'),
-               'viewer_url': cfg.get('viewer_url', 'http://127.0.0.1:8392')}
-        show_diff('archive-config.json', raw, encode(new))
-        write(ctx.config, encode(new))
+        if hash_file(ctx.config) == info['config_sha']:
+            data = new_config(ctx)
+            show_diff('archive-config.json', ctx.config.read_bytes(), data)
+            write(ctx.config, data)
         return 'archive-config.json uses transcriber_data'
 
-    def after_manifest():
-        # The frozen post-migration state; rollback is allowed only while the live data still equals it.
-        save_inventory(dest / 'inventory-after.json', inventory(ctx.transcripts, label='migrated archive'))
-        write(dest / 'after.json', encode(frozen_state(ctx)))
-        return 'wrote inventory-after.json and after.json'
-
-    for name, fn in zip(STEPS, (move, metadata, index, manifests, state, config, after_manifest)):
+    for name, fn in zip(STEPS, (move, files, index, state, config)):
         step(name, fn)
+    fail_if(check_all(ctx, dest, info, before, {'new'}, 'migrated archive')[0], 'migrated archive is not the intended form')
     journal['status'] = 'complete'
     journal['finished_at'] = now()
     write(journal_path, encode(journal))
-    say('PASS', 'migration complete; run verify next')
+    say('PASS', 'migration complete and checked against the transformed backup; run verify next')
     return 0
 
 
 # ---------------------------------------------------------------- verify
 
-def check_transformed(ctx, dest, before, after):
-    """after must equal before with records/sotto renamed, apart from the intended metadata fields."""
-    expected = {rename_rel(r): e for r, e in before.items()}
-    problems = []
-    for rel in sorted(set(expected) | set(after)):
-        x, y = expected.get(rel), after.get(rel)
-        if x is None or y is None:
-            problems.append(f'{"extra" if x is None else "missing"}: {rel}')
-        elif rel == UNSTABLE:
-            if (x['t'], x['mode']) != (y['t'], y['mode']):
-                problems.append(f'type/mode: {rel}')
-        elif rel == 'dataset.json' or re.fullmatch(r'records/transcriber/[^/]+/metadata\.json', rel):
-            if (x['t'], x['mode']) != (y['t'], y['mode']):
-                problems.append(f'type/mode: {rel}')
-                continue
-            old = json.loads((dest / 'Transcripts' / [r for r in (rel, rel.replace(NEW, OLD, 1)) if r in before][0])
-                             .read_bytes())
-            live = (ctx.transcripts / rel).read_bytes()
-            if sha_bytes(live) != y['sha']:
-                problems.append(f'changed since after-manifest: {rel}')
-            elif rel == 'dataset.json':
-                if json.loads(live) != dict(old, sources=['wispr-flow', NEW]) or encode(json.loads(live)) != live:
-                    problems.append('dataset.json differs beyond sources')
-            else:
-                cur = json.loads(live)
-                illegal = {p for p in diff_paths(old, cur) if p not in ('.source', '.selected_source')
-                           and not ROLE_PATH.match(p)}
-                if illegal or cur != transform(old, OLD, NEW) or encode(cur) != live:
-                    problems.append(f'{rel}: unexpected differences {sorted(illegal) or "(bytes)"}')
-        elif x != y:
-            problems.append(f'changed: {rel}')
-    return problems
-
-
 def cmd_verify(ctx, args):
     dest, info, before, journal_path, journal = load_backup(ctx, args.backup)
     if journal['status'] != 'complete':
         raise Surprise(f'journal status is {journal["status"]!r}, expected complete')
-    after = load_json(dest / 'inventory-after.json')
-    live = inventory(ctx.transcripts, label='live archive')
-    problems = diff_inventories(after, live)
-    if problems:
-        raise Surprise(f'live archive differs from the post-migration manifest: {problems[:5]}')
-    say('ok', f'live archive equals the post-migration manifest ({len(live)} entries)')
-    problems = check_transformed(ctx, dest, before, after)
-    if problems:
-        raise Surprise(f'{len(problems)} unexpected differences from the backup: {problems[:5]}')
-    say('ok', f'every path equals the backup; only records/sotto -> records/transcriber, {info["records"]} metadata '
-              'files (source, selected_source, roles) and dataset.json sources changed')
-
-    frozen = load_json(dest / 'after.json')
-    current = frozen_state(ctx)
+    fail_if(check_all(ctx, dest, info, before, {'new'})[0], 'archive is not the transformed backup')
+    say('ok', f'every path equals the backup apart from records/sotto -> records/transcriber, {info["records"]} '
+              'metadata files and dataset.json (exactly the intended fields); index rows, worker state and config '
+              'equal the transformed backup')
     db = ro(ctx.index)
     try:
-        quick = db.execute('pragma quick_check').fetchone()[0]
+        if db.execute('pragma quick_check').fetchone()[0] != 'ok':
+            raise Surprise('index quick_check failed')
     finally:
         db.close()
-    if current != frozen or frozen['index_counts'] != {NEW: info['records'], 'wispr-flow': info['wispr']} or quick != 'ok':
-        raise Surprise(f'index/state/config differ from the post-migration manifest: {current}')
-    keep = {k: v for k, v in json.loads((dest / 'cache' / ctx.old_state.name).read_bytes()).items()
-            if k.startswith(ctx.state_prefix)}
-    cfg = load_json(ctx.config)
-    if (load_json(ctx.new_state) != keep or ctx.old_state.exists() or 'sotto_data' in cfg
-            or cfg.get('transcriber_data') != str(ctx.local / 'server')):
-        raise Surprise('worker state or archive-config.json is not as expected')
-    say('ok', f'index {current["index_counts"]} quick_check ok; state ({len(keep)} keys) and config as expected')
-
     started = time.monotonic()
     r = subprocess.run([sys.executable, str(HERE / 'archive.py'), '--root', str(ctx.transcripts),
                         '--cache', str(ctx.cache), 'verify'], capture_output=True, text=True)
@@ -764,79 +798,85 @@ def cmd_verify(ctx, args):
     return 0
 
 
-# ---------------------------------------------------------------- rollback (exact, frozen only)
-
-FIX_FORWARD = '''Rollback is refused: the archive changed after migration ({why}).
-Restoring the pre-migration snapshot now would discard that newer data. The only supported path is fix-forward:
-  1. Keep the new code and start the transcriber services again: migrate-sotto-launchd.sh start --dir DIR.
-  2. Fix the specific problem in the transcriber namespace; the clone in DIR/Transcripts and the snapshots in
-     DIR/cache stay available as read-only reference for any single file you need to compare.'''
-
+# ---------------------------------------------------------------- rollback (exact; only while data is unchanged)
 
 def cmd_rollback(ctx, args):
     dest, info, before, journal_path, journal = load_backup(ctx, args.backup)
     require_stopped(ctx)
-    if journal['status'] == 'complete':
-        after = load_json(dest / 'inventory-after.json')
-        changed = diff_inventories(after, inventory(ctx.transcripts, label='live archive'))
-        if not changed and frozen_state(ctx) != load_json(dest / 'after.json'):
-            changed = ['index, worker state or archive-config.json']
-        if changed:
-            print(FIX_FORWARD.format(why=', '.join(changed[:3]) + (' ...' if len(changed) > 3 else '')))
-            return 2
-        say('ok', 'live data still equals the post-migration manifest; exact rollback allowed')
+    status = journal['status']
+    if status == 'new':
+        raise Surprise('no migration step has run, so there is no data to roll back; restore the services with '
+                       'migrate-sotto-launchd.sh rollback --dir DIR')
+    if status == 'rolled-back':
+        raise Surprise('already rolled back')
+    if status in ('running', 'rolling-back'):
+        clean_temp_files(ctx, before, dest)  # an interrupted write leaves only these behind
+    problems, _ = check_all(ctx, dest, info, before, {'old', 'new'})
+    if problems:
+        print(f'Rollback is refused: {len(problems)} path(s) differ from both the backup and its intended transform:')
+        for p in problems[:10]:
+            print('    ' + p)
+        if journal.get('verified_at'):
+            print('The transcriber services ran after verify, so this is newer data. Fix forward instead:\n'
+                  '    bash scripts/archive/migrate-sotto-launchd.sh start --dir DIR   (keep the new code)')
+        else:
+            print('Verify never passed, so no service has run since migrate; the services are still stopped.\n'
+                  'Something outside the migration changed these paths. Inspect them against DIR/Transcripts,\n'
+                  'restore or remove them by hand, then rerun: migrate-sotto.py rollback --backup DIR')
+        return 2
+    if status != 'rolling-back':
         journal['status'] = 'rolling-back'
         write(journal_path, encode(journal))
-    elif journal['status'] == 'rolling-back':
-        say('info', 'resuming rollback')
-        clean_temp_files(ctx, before, dest)
-    else:
-        raise Surprise(f'journal status is {journal["status"]!r}; rollback needs a complete migration')
-
     clone = dest / 'Transcripts'
+
     if ctx.new_dir.is_dir() and not ctx.old_dir.exists():
         rename(ctx.new_dir, ctx.old_dir)
         say('did', 'renamed records/transcriber -> records/sotto')
     restored = 0
-    for rel, e in sorted(before.items()):
-        if e['t'] == 'f' and (rel.count('/') == 0 or re.fullmatch(r'records/sotto/[^/]+/metadata\.json', rel)):
-            data = (clone / rel).read_bytes()
-            if sha_bytes(data) != e['sha']:
-                raise Surprise(f'clone copy of {rel} no longer matches the inventory')
-            if (ctx.transcripts / rel).read_bytes() != data:
-                write(ctx.transcripts / rel, data, e['mode'])
+    for rel, e in sorted(before.items()):  # only the files migrate or verify rewrite, plus Finder's .DS_Store
+        if e['t'] == 'f' and (rewritten(rel) or rel == UNSTABLE or junk(rel)):
+            p = ctx.transcripts / rel
+            if not p.is_file() or hash_file(p) != e['sha']:
+                data = (clone / rel).read_bytes()
+                if sha_bytes(data) != e['sha']:
+                    raise Surprise(f'clone copy of {rel} no longer matches the backup inventory')
+                write(p, data, e['mode'])
                 restored += 1
-    say('did', f'restored {restored} metadata/top-level files from the clone')
+    for rel, e in inventory(ctx.transcripts, hashed=False).items():
+        if junk(rel) and rel not in before:
+            unlink(ctx.transcripts / rel)
+            restored += 1
+    say('did', f'restored {restored} metadata, dataset, verification and .DS_Store files from the clone')
 
-    db, snap = sqlite3.connect(ctx.index), sqlite3.connect((dest / 'cache' / 'index.sqlite').as_uri() + '?mode=ro', uri=True)
+    db = sqlite3.connect(ctx.index)
+    snap = sqlite3.connect((dest / 'cache' / 'index.sqlite').as_uri() + '?mode=ro', uri=True)
     try:
         snap.backup(db)
         db.execute('pragma wal_checkpoint(TRUNCATE)')
     finally:
         snap.close()
         db.close()
-    state_bytes = (dest / 'cache' / ctx.old_state.name).read_bytes()
-    if sha_bytes(state_bytes) != info['state_sha']:
-        raise Surprise('state backup is damaged')
-    write(ctx.old_state, state_bytes)
+    for src, target, sha in ((dest / 'cache' / ctx.old_state.name, ctx.old_state, info['state_sha']),
+                             (dest / 'repo-local' / ctx.config.name, ctx.config, info['config_sha'])):
+        data = src.read_bytes()
+        if sha_bytes(data) != sha:
+            raise Surprise(f'{src} is damaged')
+        if not target.exists() or hash_file(target) != sha:
+            write(target, data)
     if ctx.new_state.exists():
         unlink(ctx.new_state)
-    config_bytes = (dest / 'repo-local' / ctx.config.name).read_bytes()
-    if sha_bytes(config_bytes) != info['config_sha']:
-        raise Surprise('config backup is damaged')
-    write(ctx.config, config_bytes)
     say('did', 'index, sotto-state.json and archive-config.json restored from the snapshots')
 
-    problems = diff_inventories(before, inventory(ctx.transcripts, label='rolled-back archive'), relax=())
-    if problems:
-        raise Surprise(f'rolled-back archive still differs from the backup: {problems[:5]}; rerun rollback')
-    if (index_digest(ctx.index)[0] != info['index_digest'] or digest(ctx.old_state) != info['state_sha']
-            or digest(ctx.config) != info['config_sha']):
-        raise Surprise('index, state or config differs from the backup; rerun rollback')
+    problems, _ = check_all(ctx, dest, info, before, {'old'}, 'rolled-back archive')
+    live = inventory(ctx.transcripts, hashed=False)
+    if UNSTABLE in before and hash_file(ctx.transcripts / UNSTABLE) != before[UNSTABLE]['sha']:
+        problems.append(f'{UNSTABLE} differs')
+    problems += [f'.DS_Store differs: {r}' for r in live if junk(r) and r not in before]
+    fail_if(problems, 'rolled-back archive differs from the backup; rerun rollback')
     journal['status'] = 'rolled-back'
     journal['rolled_back_verified_at'] = now()
     write(journal_path, encode(journal))
-    say('PASS', 'archive is byte-identical to the backup; run migrate-sotto-launchd.sh rollback --dir DIR')
+    say('PASS', 'archive equals the backup; run migrate-sotto-launchd.sh rollback --dir DIR')
     return 0
 
 
@@ -848,7 +888,7 @@ def main():
     p.add_argument('--launch-agents', default=str(Path.home() / 'Library/LaunchAgents'))
     p.add_argument('--unsafe-skip-service-check', action='store_true', help='scratch rehearsals only; refused for real data')
     sub = p.add_subparsers(dest='command', required=True)
-    sub.add_parser('plan')
+    sub.add_parser('plan').add_argument('--dir', help='migration directory, once down has stashed the plists')
     s = sub.add_parser('drain-status')
     s.add_argument('--namespace', choices=(OLD, NEW), required=True)
     s = sub.add_parser('backup')

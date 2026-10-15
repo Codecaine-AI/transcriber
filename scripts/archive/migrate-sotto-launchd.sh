@@ -10,7 +10,11 @@
 #   stop --dir DIR      the same drain-and-stop for the transcriber services (before an archive rollback, and
 #                       Phase 2's folder move); their plists move into DIR/launchd/stopped
 #   start --dir DIR     reinstall the plists from DIR/launchd/stopped and start the transcriber services again
-#   rollback --dir DIR  after migrate-sotto.py rollback passed and main runs the sotto code again: restore sotto
+#   rollback --dir DIR  restore and start the sotto services: after migrate-sotto.py rollback passed, or when no
+#                       migration step ran (backup or plan refused after down). Main must run the sotto code.
+#
+# Every command is safe to rerun after an interruption; already-stopped services count as stopped, and stashed
+# plists stay in DIR until the services they start pass the health check. DIR/launchd/journal.log records progress.
 #
 # Guards against an accidental start while data moves: the plists leave ~/Library/LaunchAgents and the labels are
 # disabled (primary guard, since the old code cannot read new files), and <cache>/migration.lock makes the new
@@ -76,7 +80,7 @@ drained() { # drained NAMESPACE FIELD...: every listed drain-status field is 0
     local status ns=$1
     shift
     status=$(tool drain-status --namespace "$ns" || true)
-    python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(any(d[k] for k in sys.argv[2:]))' "$status" "$@" ||
+    python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(any(d[k] for k in sys.argv[2:] + ["unreadable"]))' "$status" "$@" ||
         {
             printf '    waiting: %s\n' "$status"
             return 1
@@ -102,45 +106,88 @@ place() { # place SRC DEST MODE: copy into place, refusing to replace a differen
     say did "installed $2"
 }
 
-stash() { # stash FILE DESTDIR: move FILE into DESTDIR (no-op when absent; refuses to overwrite)
+stash() { # stash FILE DESTDIR: copy FILE into DESTDIR, then remove it. Safe to rerun after an interruption.
+    local target
+    target="$2/$(basename "$1")"
     [[ -e $1 ]] || return 0
     mkdir -p "$2"
-    [[ ! -e $2/$(basename "$1") ]] || die "$2/$(basename "$1") already exists"
-    mv "$1" "$2/"
+    if [[ -e $target ]]; then
+        cmp -s "$1" "$target" || die "$target exists and differs from $1"
+    else
+        cp -p "$1" "$target.migrate-tmp"
+        mv "$target.migrate-tmp" "$target"
+    fi
+    rm "$1"
     say did "moved $1 -> $2/"
 }
 
-drain_and_stop() { # drain_and_stop PREFIX DESTDIR
+note() { # note TEXT: append to DIR/launchd/journal.log
+    mkdir -p "$dir/launchd"
+    printf '%s %s %s\n' "$(date -u +%FT%TZ)" "$command" "$*" >>"$dir/launchd/journal.log"
+}
+
+bootstrap() { # bootstrap PREFIX: load the three labels; already-loaded labels are left alone
+    local label
+    for label in "${labels[@]}"; do
+        if loaded "ai.codecaine.$1.$label"; then
+            say skip "ai.codecaine.$1.$label already loaded"
+        else
+            launchctl bootstrap "$domain" "$agents/ai.codecaine.$1.$label.plist"
+            say did "bootstrap ai.codecaine.$1.$label"
+        fi
+    done
+}
+
+stop_label() { # stop_label LABEL: bootout (if loaded) and disable
+    if loaded "$1"; then
+        launchctl bootout "$domain/$1"
+        say did "bootout $1"
+    fi
+    launchctl disable "$domain/$1"
+    wait_until 30 "$1 to unload" eval "! loaded $1"
+}
+
+drain_and_stop() { # drain_and_stop PREFIX DESTDIR: idempotent; already-stopped services count as stopped
     local prefix=$1 dest=$2 label
+    mkdir -p "$dest"
+    if [[ ! -f $dir/launchd/disabled-before.txt ]]; then
+        launchctl print-disabled "$domain" | grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dir/launchd/disabled-before.txt" || true
+    fi
+    say info "a dictation still being recorded when the app quits is kept in Recovered Recordings, not lost"
     if app_running; then
-        say info "waiting for any dictation in progress to finish uploading (do not start a new one)"
-        wait_until 180 "the current dictation to finish uploading" drained "$prefix" receiving
+        wait_until 180 "the current dictation to finish uploading (do not start a new one)" drained "$prefix" receiving
         osascript -e "tell application id \"$app_id\" to quit" >/dev/null
         wait_until 60 "Transcriber.app to quit" eval '! app_running'
-        say ok "Transcriber.app quit; unconfirmed takes stay in Active/Recovered Recordings for its next launch"
+        say ok "Transcriber.app quit (no new takes)"
     fi
-    wait_until 900 "the server to finish every queued and in-progress take" drained "$prefix" in_flight unreadable
+    # The server runs until it is idle, then stops, so nothing it holds can be cancelled.
+    if loaded "ai.codecaine.$prefix.server"; then
+        wait_until 900 "the server to finish every queued and in-progress take" drained "$prefix" in_flight
+    else
+        drained "$prefix" in_flight || die "the server is stopped with unfinished takes; start it to finish them"
+    fi
     say ok "server has no unfinished takes"
-    wait_until 120 "the archive worker to copy every finished take" drained "$prefix" in_flight unarchived unreadable
+    stop_label "ai.codecaine.$prefix.server"
+    note "server stopped"
+    # The archive worker keeps running until it has copied every finished take.
+    if loaded "ai.codecaine.$prefix.archive"; then
+        wait_until 120 "the archive worker to copy every finished take" drained "$prefix" in_flight unarchived
+    else
+        drained "$prefix" in_flight unarchived || die "the archive worker is stopped with uncopied takes; start it first"
+    fi
     say ok "archive worker has copied every finished take"
     mkdir -p "$(dirname "$lock")"
-    printf 'migration started %s\n' "$(date -u +%FT%TZ)" >"$lock"
-    say did "created $lock"
-    launchctl print-disabled "$domain" | grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dest/disabled-before.txt" || true
-    for label in archive server app; do
-        if loaded "ai.codecaine.$prefix.$label"; then
-            launchctl bootout "$domain/ai.codecaine.$prefix.$label"
-            say did "bootout ai.codecaine.$prefix.$label"
-        fi
-        launchctl disable "$domain/ai.codecaine.$prefix.$label"
-        wait_until 30 "ai.codecaine.$prefix.$label to unload" eval "! loaded ai.codecaine.$prefix.$label"
-    done
+    [[ -e $lock ]] || printf 'migration started %s\n' "$(date -u +%FT%TZ)" >"$lock"
+    say did "lock $lock"
+    stop_label "ai.codecaine.$prefix.archive"
+    stop_label "ai.codecaine.$prefix.app"
     wait_until 30 "ports 8391 and 8392 to close" ports_closed
     for label in "${labels[@]}"; do stash "$agents/ai.codecaine.$prefix.$label.plist" "$dest/LaunchAgents"; done
     for label in archive server; do stash "$repo/.local/ai.codecaine.$prefix.$label.plist" "$dest/repo-local"; done
     stash "$repo/.local/Start Transcriber.command" "$dest/repo-local"
     stash "$repo/.local/Start Sotto.command" "$dest/repo-local"
-    say ok "ai.codecaine.$prefix.* stopped and disabled; plists moved to $dest"
+    note "stopped and stashed $prefix"
+    say ok "ai.codecaine.$prefix.* stopped and disabled; plists in $dest"
 }
 
 generate() { # generate OUT: transcriber plists from the sotto copies in DIR/launchd, launcher from install.py
@@ -235,16 +282,13 @@ restore_enabled() { # restore_enabled PREFIX: enable labels unless they were dis
 
 case $command in
 down)
-    if [[ -d $dir/launchd/LaunchAgents ]] && ! ls "$agents"/ai.codecaine.sotto.*.plist >/dev/null 2>&1; then
-        labels_gone sotto && ports_closed && say PASS "already down" && exit 0
-    fi
-    [[ ! -e $dir/launchd ]] || die "$dir/launchd already exists"
     for label in "${labels[@]}"; do
-        [[ -f $agents/ai.codecaine.sotto.$label.plist ]] || die "missing $agents/ai.codecaine.sotto.$label.plist"
+        [[ -f $agents/ai.codecaine.sotto.$label.plist || -f $dir/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist ]] ||
+            die "ai.codecaine.sotto.$label.plist is neither installed nor stashed in $dir"
     done
-    mkdir -p "$dir/launchd"
     drain_and_stop sotto "$dir/launchd"
-    say PASS "down. Next: migrate-sotto.py backup --dest $dir"
+    say PASS "down. Next: migrate-sotto.py plan --dir $dir, then backup --dest $dir.
+       To go back instead (before migrate): migrate-sotto-launchd.sh rollback --dir $dir"
     ;;
 preview)
     generate "$dir/launchd/preview"
@@ -256,8 +300,7 @@ up)
     [[ $(backup_field launch_agents) == "$agents" ]] || die "the backup was taken for another LaunchAgents folder"
     grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py" ||
         die "$repo/scripts/archive/archive.py is still the sotto code; merge the rename first"
-    labels_gone sotto && labels_gone transcriber || die "a sotto or transcriber label is loaded"
-    ports_closed || die "ports 8391/8392 are in use: $(listeners 8391) $(listeners 8392)"
+    labels_gone sotto || die "a sotto label is loaded"
     python3 - "$dir" <<'PY' || die "files in $dir/launchd differ from the backup record"
 import hashlib, json, sys
 from pathlib import Path
@@ -279,21 +322,16 @@ PY
     restore_enabled transcriber
     rm -f "$lock"
     say did "removed $lock"
-    for label in "${labels[@]}"; do
-        launchctl bootstrap "$domain" "$agents/ai.codecaine.transcriber.$label.plist"
-        say did "bootstrap ai.codecaine.transcriber.$label"
-    done
+    bootstrap transcriber
     health transcriber
+    note "up: transcriber running"
     say PASS "ai.codecaine.transcriber.* running; the sotto labels stay disabled with their plists in $dir/launchd"
     ;;
 stop)
-    [[ ! -e $dir/launchd/stopped ]] || die "$dir/launchd/stopped already exists; already stopped?"
     for label in "${labels[@]}"; do
-        [[ -f $agents/ai.codecaine.transcriber.$label.plist ]] || die "missing $agents/ai.codecaine.transcriber.$label.plist"
+        [[ -f $agents/ai.codecaine.transcriber.$label.plist || -f $dir/launchd/stopped/LaunchAgents/ai.codecaine.transcriber.$label.plist ]] ||
+            die "ai.codecaine.transcriber.$label.plist is neither installed nor stashed in $dir/launchd/stopped"
     done
-    mkdir -p "$dir/launchd/stopped"
-    [[ -f $dir/launchd/disabled-before.txt ]] || launchctl print-disabled "$domain" |
-        grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dir/launchd/disabled-before.txt" || true
     drain_and_stop transcriber "$dir/launchd/stopped"
     say PASS "transcriber services stopped and disabled; plists in $dir/launchd/stopped"
     ;;
@@ -301,7 +339,7 @@ start)
     stopped="$dir/launchd/stopped"
     [[ -d $stopped/LaunchAgents ]] || die "nothing to start: $stopped/LaunchAgents is missing"
     grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py" || die "$repo runs the sotto archive code"
-    labels_gone sotto && labels_gone transcriber && ports_closed || die "a service is already running"
+    labels_gone sotto || die "a sotto label is loaded"
     for f in "$stopped"/LaunchAgents/*.plist "$stopped"/repo-local/*.plist; do
         plutil -lint "$f" >/dev/null || die "plutil -lint failed for $f"
     done
@@ -315,22 +353,26 @@ start)
     if [[ -f "$stopped/repo-local/Start Transcriber.command" ]]; then
         place "$stopped/repo-local/Start Transcriber.command" "$repo/.local/Start Transcriber.command" 755
     fi
-    mv "$stopped" "$dir/launchd/started-$(date +%Y%m%d-%H%M%S)"
     restore_enabled transcriber
     rm -f "$lock"
     say did "removed $lock"
-    for label in "${labels[@]}"; do
-        launchctl bootstrap "$domain" "$agents/ai.codecaine.transcriber.$label.plist"
-        say did "bootstrap ai.codecaine.transcriber.$label"
-    done
+    bootstrap transcriber
     health transcriber
+    mv "$stopped" "$dir/launchd/started-$(date +%Y%m%d-%H%M%S)" # kept until health passed
+    note "start: transcriber running"
     say PASS "ai.codecaine.transcriber.* running"
     ;;
 rollback)
-    [[ $(journal status) == rolled-back && -n $(journal rolled_back_verified_at) ]] ||
-        die "run migrate-sotto.py rollback --backup $dir first (it must pass)"
+    # Restores the sotto services: after a verified data rollback, or when no migration step ever ran
+    # (for example backup or plan refused after down).
+    status=$(journal status)
+    if [[ -n $status && $status != new ]]; then
+        [[ $status == rolled-back && -n $(journal rolled_back_verified_at) ]] ||
+            die "the archive journal is '$status': run migrate-sotto.py rollback --backup $dir first (it must pass)"
+    fi
+    [[ -d $dir/launchd/LaunchAgents ]] || die "no stashed sotto plists in $dir/launchd"
     ! ls "$agents"/ai.codecaine.transcriber.*.plist >/dev/null 2>&1 || die "transcriber plists are installed; run stop first"
-    labels_gone sotto && labels_gone transcriber && ports_closed || die "services are still running; run stop first"
+    labels_gone transcriber || die "transcriber services are still running; run stop first"
     grep -q "'--sotto-data'" "$repo/scripts/archive/archive.py" ||
         die "$repo/scripts/archive/archive.py is the transcriber code; revert the rename in the main checkout first"
     for label in "${labels[@]}"; do
@@ -344,15 +386,13 @@ rollback)
     done
     restore_enabled sotto
     rm -f "$lock"
-    for label in "${labels[@]}"; do
-        launchctl bootstrap "$domain" "$agents/ai.codecaine.sotto.$label.plist"
-        say did "bootstrap ai.codecaine.sotto.$label"
-    done
+    bootstrap sotto
     health sotto
+    note "rollback: sotto running"
     say PASS "ai.codecaine.sotto.* restored and running"
     ;;
 *)
-    sed -n '2,20p' "$0"
+    sed -n '2,28p' "$0"
     exit 2
     ;;
 esac

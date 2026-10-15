@@ -5,7 +5,8 @@
 #
 #   cd ~ && bash <repo>/scripts/archive/migrate-repo-folder.sh check                 read-only preflight
 #   cd ~ && bash <repo>/scripts/archive/migrate-repo-folder.sh run                   drain, stop, move, repair, rewrite, start
-#   cd ~ && bash <new repo>/scripts/archive/migrate-repo-folder.sh rollback --work DIR
+#   cd ~ && bash DIR/migrate-repo-folder.sh resume --work DIR      after a failure past the move: finish it
+#   cd ~ && bash DIR/migrate-repo-folder.sh rollback --work DIR    undo (also after a failure)
 #
 # Services are drained and stopped by migrate-sotto-launchd.sh stop, which also moves their plists out of
 # ~/Library/LaunchAgents, so a reboot mid-move starts nothing. Rollback inverse-rewrites the current files.
@@ -36,13 +37,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 # The script lives inside the folder it moves: run from a private copy with cwd outside the repository.
-if [[ -z ${MIGRATE_REPO_REEXEC:-} && $command =~ ^(run|rollback)$ ]]; then
+if [[ -z ${MIGRATE_REPO_REEXEC:-} && $command =~ ^(run|resume|rollback)$ ]]; then
     if [[ -z $work ]]; then
-        [[ $command == run ]] || die "rollback needs --work DIR from the run"
+        [[ $command == run ]] || die "$command needs --work DIR from the run"
         work="$HOME/TranscriberMigration/repo-folder-$(date +%Y%m%d-%H%M%S)"
     fi
     mkdir -p "$work"
-    cp "$0" "$work/migrate-repo-folder.sh"
+    [[ $0 -ef $work/migrate-repo-folder.sh ]] || cp "$0" "$work/migrate-repo-folder.sh"
     cd /
     MIGRATE_REPO_REEXEC=1 exec bash "$work/migrate-repo-folder.sh" "$command" --work "$work"
 fi
@@ -85,13 +86,21 @@ files_to_rewrite() { # files_to_rewrite REPO WORK: every file that names the rep
     for f in "$stopped"/LaunchAgents/*.plist "$stopped"/repo-local/*.plist "$stopped/repo-local/Start Transcriber.command"; do
         [[ -f $f ]] && printf '%s\n' "$f"
     done
-    printf '%s\n' "$repo/.local/archive-config.json" "$repo/.local/archive-cache/transcriber-state.json" \
-        "$TRANSCRIPTS/installation.json"
+    # ~/Transcripts/installation.json is left alone: its source_repository is a historical path, not this repo.
+    printf '%s\n' "$repo/.local/archive-config.json" "$repo/.local/archive-cache/transcriber-state.json"
 }
 
 rewrite() { # rewrite FROM TO WORK: swap paths with the helper in TO, then prove FROM is gone
     local from=$1 to=$2 list=()
     while IFS= read -r f; do list+=("$f"); done < <(files_to_rewrite "$to" "$3")
+    local keep
+    keep="$3/before-rewrite-$(date +%Y%m%d-%H%M%S)"
+    for f in "${list[@]}"; do
+        [[ -f $f ]] || die "missing $f"
+        mkdir -p "$keep$(dirname "$f")"
+        cp -p "$f" "$keep$f"
+    done
+    say ok "copied ${#list[@]} files to $keep before rewriting"
     python3 "$to/scripts/archive/rewrite-repo-paths.py" "$from" "$to" "${list[@]}"
     if grep -l -F "$from" "${list[@]}"; then die "the files above still name $from"; fi
     say ok "${#list[@]} files checked; none names $from"
@@ -142,6 +151,22 @@ preflight() {
     worktrees "$OLD" | sed 's/^/    /'
 }
 
+recovery() { # EXIT trap on failure: say exactly where things stand and how to continue
+    printf '\n[RECOVER] Phase 2 stopped part-way. The services may be stopped; their plists are in %s/launchd/stopped.\n' "$work"
+    if [[ -d $NEW && ! -e $OLD ]]; then
+        printf '  The folder is at %s. Finish (repair, rewrite, start; safe to rerun):\n    cd ~ && bash %s/migrate-repo-folder.sh resume --work %s\n' "$NEW" "$work" "$work"
+    elif [[ -d $OLD && ! -e $NEW ]]; then
+        printf '  The folder is still at %s. If the services are stopped, restart them as before:\n    bash %s/scripts/archive/migrate-sotto-launchd.sh start --dir %s\n' "$OLD" "$OLD" "$work"
+    fi
+    printf '  Or undo everything:  cd ~ && bash %s/migrate-repo-folder.sh rollback --work %s\n' "$work" "$work"
+}
+
+finish() { # after the move: each step is safe to rerun
+    repair "$NEW" "$work/worktrees.new"
+    rewrite "$OLD" "$NEW" "$work"
+    bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" start --dir "$work"
+}
+
 follow_ups() {
     cat <<EOF
 [todo] Not done by this script:
@@ -159,6 +184,7 @@ check)
     ;;
 run)
     exec > >(tee -a "$work/run.log") 2>&1
+    trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
     say info "work directory: $work"
     preflight
     worktrees "$OLD" >"$work/worktrees.old"
@@ -167,28 +193,42 @@ run)
     require_quiet "$OLD"
     mv "$OLD" "$NEW"
     say did "moved $OLD -> $NEW"
-    repair "$NEW" "$work/worktrees.new"
-    rewrite "$OLD" "$NEW" "$work"
-    bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" start --dir "$work"
+    finish
     say PASS "repository is now $NEW. Undo: cd ~ && bash $work/migrate-repo-folder.sh rollback --work $work"
+    follow_ups
+    ;;
+resume)
+    [[ -f $work/worktrees.new && -d $NEW && ! -e $OLD ]] || die "resume needs the folder at $NEW and --work from the run"
+    exec > >(tee -a "$work/resume.log") 2>&1
+    trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
+    finish
+    say PASS "repository is now $NEW"
     follow_ups
     ;;
 rollback)
     [[ -f $work/worktrees.old ]] || die "--work must be the directory from a run"
     exec > >(tee -a "$work/rollback.log") 2>&1
-    [[ -d $NEW && ! -e $OLD ]] || die "expected $NEW present and $OLD absent"
-    [[ ! -e $work/launchd/stopped ]] || mv "$work/launchd/stopped" "$work/launchd/stopped-before-rollback-$(date +%s)"
-    bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
-    require_quiet "$NEW"
-    mv "$NEW" "$OLD"
-    say did "moved $NEW -> $OLD"
+    trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
+    # Every step is safe to rerun: stop treats stopped services as stopped, the move and the rewrite skip
+    # what is already done.
+    if [[ -d $NEW && ! -e $OLD ]]; then
+        bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
+        require_quiet "$NEW"
+        mv "$NEW" "$OLD"
+        say did "moved $NEW -> $OLD"
+    elif [[ -d $OLD && ! -e $NEW ]]; then
+        bash "$OLD/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
+        say info "$OLD already in place"
+    else
+        die "expected exactly one of $OLD and $NEW"
+    fi
     repair "$OLD" "$work/worktrees.old"
     rewrite "$NEW" "$OLD" "$work"
     bash "$OLD/scripts/archive/migrate-sotto-launchd.sh" start --dir "$work"
     say PASS "repository is back at $OLD"
     ;;
 *)
-    sed -n '2,12p' "$0"
+    sed -n '2,14p' "$0"
     exit 2
     ;;
 esac
