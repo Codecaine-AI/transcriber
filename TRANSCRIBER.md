@@ -22,9 +22,11 @@ Upstream is mined selectively. Specific features are hand-ported and adapted to 
 
 With `--dev`, the same steps produce `build/Transcriber Dev.app` (`ai.codecaine.transcriber.dev`). Its permissions, settings, and Keychain entries stay apart from the installed app.
 
-## Remaining sotto identifiers
+## Archive and service names
 
-A few identifiers still use the old `sotto` name until a separate data migration renames them: the launchd labels `ai.codecaine.sotto.*`, the archive source id `sotto`, the archive's `--sotto-data` option, and the repository folder. Leave them as they are until that migration runs.
+The transcript archive and its services use the Transcriber name too: the launchd labels `ai.codecaine.transcriber.{server,archive,app}`, the archive source id `transcriber` (`records/transcriber/`), the worker state file `transcriber-state.json`, and the archive's `--transcriber-data` option. `scripts/archive/migrate-sotto.py` and `scripts/archive/migrate-sotto-launchd.sh` moved existing data off the old `sotto` names.
+
+The repository folder is the last place the old `sotto` name remains. `scripts/archive/migrate-repo-folder.sh` renames it; run it from Terminal.app with no agent sessions inside the repository.
 
 ## Commands
 

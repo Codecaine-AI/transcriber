@@ -9,7 +9,7 @@ from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, unquote
 
 
-def serve(archive, sotto_data, port):
+def serve(archive, transcriber_data, port):
     if not 1 <= port <= 65535:
         raise ValueError('Invalid port')
     # A derived index can always be reconstructed from the portable record files.
@@ -18,7 +18,7 @@ def serve(archive, sotto_data, port):
     def worker():
         while not stop.is_set():
             try:
-                archive.sync_sotto(sotto_data)
+                archive.sync_transcriber(transcriber_data)
             except Exception as error:
                 archive.last_error = str(error)
             stop.wait(3)

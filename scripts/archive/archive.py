@@ -104,7 +104,7 @@ class Archive:
         self.db.execute('create index if not exists records_date on records(timestamp desc)')
         self.db.execute('create index if not exists records_source on records(source)')
         self.db.commit()
-        self.state_path = self.cache / 'sotto-state.json'
+        self.state_path = self.cache / 'transcriber-state.json'
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
         self.last_error = None
         self.last_sync = None
@@ -118,11 +118,11 @@ class Archive:
                 'id': str(uuid.uuid4()), 'name': 'Transcripts', 'created_at': now(),
                 'records': 'records/<source>/<record-id>/metadata.json',
                 'text_files': {'raw': 'raw.txt', 'clean': 'clean.txt'},
-                'sources': ['wispr-flow', 'sotto'], 'artifact_size_limit': None,
+                'sources': ['wispr-flow', 'transcriber'], 'artifact_size_limit': None,
                 'retention': 'Archive records survive deletion from the source application.'}))
 
     def record_dir(self, source, identifier):
-        if source not in ('wispr-flow', 'sotto'):
+        if source not in ('wispr-flow', 'transcriber'):
             raise ValueError('Unknown source')
         return self.root / 'records' / source / safe_id(identifier)
 
@@ -341,7 +341,7 @@ class Archive:
             finally:
                 db.close()
 
-    def sync_sotto(self, source):
+    def sync_transcriber(self, source):
         source = Path(source).expanduser().resolve()
         if not source.is_dir():
             raise FileNotFoundError("Transcriber data directory is unavailable")
@@ -350,21 +350,21 @@ class Archive:
             stamp = [path.stat().st_mtime_ns, path.stat().st_size]
             key = str(path)
             # Also check destination: a rebuilt cache or manually moved archive must recover.
-            if self.state.get(key) == stamp and (self.record_dir('sotto', path.parent.name) / 'metadata.json').exists():
+            if self.state.get(key) == stamp and (self.record_dir('transcriber', path.parent.name) / 'metadata.json').exists():
                 continue
             original = json.loads(path.read_text())
             if original['status'] not in ('completed', 'failed', 'cancelled'):
                 continue
             if original.get('importedSource'):
                 continue  # Wispr history is imported directly and losslessly, not through the server's legacy adapter.
-            m = self.load('sotto', original['id'])
-            folder = self.record_dir('sotto', original['id'])
+            m = self.load('transcriber', original['id'])
+            folder = self.record_dir('transcriber', original['id'])
             m.update(timestamp=original['createdAt'], status=original['status'],
                 text={'raw': original.get('rawText'), 'clean': original.get('finalText'),
                       'clean_variant': 'finalText', 'variants': {k:original.get(k) for k in ('rawText','finalText','insertionText','previewText')}},
                 context={'app': None, 'device': original.get('device'), 'language': original.get('detectedLanguage')},
-                mode=original.get('mode'), selected_source='sotto')
-            self.version(folder, m, original, 'sotto-metadata', 'metadata.json')
+                mode=original.get('mode'), selected_source='transcriber')
+            self.version(folder, m, original, 'transcriber-metadata', 'metadata.json')
             for field, kind in [('inferenceAudio', 'audio'), ('originalAudio', 'original-audio')]:
                 if not original.get(field):
                     continue
@@ -387,7 +387,7 @@ class Archive:
         with self.lock:
             groups = self.db.execute('select source,count(*),sum(audio),sum(screenshot),sum(bytes),sum(timestamp is null) from records group by source').fetchall()
         return {'name': 'Transcripts', 'root': str(self.root), 'sources': [dict(zip(('source','records','audio','screenshots','bytes','undated'), row)) for row in groups],
-                'last_sotto_sync': self.last_sync, 'error': self.last_error, 'artifact_size_limit': None}
+                'last_transcriber_sync': self.last_sync, 'error': self.last_error, 'artifact_size_limit': None}
 
     def verify(self):
         count = 0; total = 0
@@ -420,8 +420,8 @@ def main():
     imp.add_argument('--backup', action='append', default=[])
     sub.add_parser('verify')
     sub.add_parser('reindex')
-    s = sub.add_parser('sync'); s.add_argument('--sotto-data', required=True)
-    s = sub.add_parser('serve'); s.add_argument('--sotto-data', required=True); s.add_argument('--port', type=int, default=8392)
+    s = sub.add_parser('sync'); s.add_argument('--transcriber-data', required=True)
+    s = sub.add_parser('serve'); s.add_argument('--transcriber-data', required=True); s.add_argument('--port', type=int, default=8392)
     args = p.parse_args()
     os.umask(0o077)
     archive = Archive(args.root, args.cache)
@@ -447,10 +447,10 @@ def main():
     elif args.command == 'reindex':
         archive.reindex(); print(json.dumps(archive.summary(), indent=2))
     elif args.command == 'sync':
-        print('Archived', archive.sync_sotto(args.sotto_data), 'Transcriber records')
+        print('Archived', archive.sync_transcriber(args.transcriber_data), 'Transcriber records')
     elif args.command == 'serve':
         from viewer import serve
-        serve(archive, args.sotto_data, args.port)
+        serve(archive, args.transcriber_data, args.port)
 
 if __name__ == '__main__':
     main()

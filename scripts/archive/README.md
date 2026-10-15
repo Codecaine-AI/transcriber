@@ -16,7 +16,7 @@ The archive is the permanent, portable home for historical Wispr records and new
       clean.txt
       source_versions/<sha256>.json
       artifacts/<sha256>.<extension>
-    sotto/<generation-id>/
+    transcriber/<generation-id>/
       metadata.json
       raw.txt
       clean.txt
@@ -43,12 +43,14 @@ python3 scripts/archive/archive.py --root /path/to/Transcripts --cache .local/ar
   --backup /path/to/backup.sqlite
 python3 scripts/archive/archive.py --root /path/to/Transcripts --cache .local/archive-cache verify
 python3 scripts/archive/archive.py --root /path/to/Transcripts --cache .local/archive-cache serve \
-  --sotto-data .local/server
+  --transcriber-data .local/server
 ```
 
 Use `--backup` repeatedly for additional complete backups. A failed migration leaves `migration.json` marked failed and can be retried; original sources are unchanged. Inspect verification before retiring the old exporter.
 
 `python3 scripts/archive/install.py --root /path/to/Transcripts` configures the worker for the current login session and updates `.local/Start Transcriber.command`. It does not enable launch at login. That launcher starts both dictation and archive services. The Data page and browser viewer use `http://127.0.0.1:8392`.
+
+Archives created before the Transcriber rename stored new recordings under the `sotto` source id. `migrate-sotto.py` (`plan`, `backup`, `migrate`, `verify`, `rollback`) moves them to `records/transcriber/` and updates the search index, worker state, and configuration. `migrate-sotto-launchd.sh` (`down`, `up`, `rollback`) swaps the `ai.codecaine.sotto.*` services for `ai.codecaine.transcriber.*`. Original source versions are never rewritten.
 
 The viewer is read-only, binds only to loopback, rejects foreign Host/Origin headers, validates file paths, and serves audio with byte ranges. It supports full-archive search, source filters, pagination, raw/clean text, attachments, grouped source fields, and every retained metadata version. It does not send data to a hosted service.
 

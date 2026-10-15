@@ -21,11 +21,11 @@ def main():
     root=Path(args.root).expanduser().resolve()
     if not (root/'dataset.json').is_file():
         raise SystemExit('The archive must exist before installation.')
-    config={'archive_root':str(root),'sotto_data':str(repo/'.local/server'),'viewer_url':'http://127.0.0.1:8392'}
+    config={'archive_root':str(root),'transcriber_data':str(repo/'.local/server'),'viewer_url':'http://127.0.0.1:8392'}
     atomic(repo/'.local/archive-config.json',encode(config))
-    label='ai.codecaine.sotto.archive'
+    label='ai.codecaine.transcriber.archive'
     plist={'Label':label,'ProgramArguments':[sys.executable,str(repo/'scripts/archive/archive.py'),
-        '--root',str(root),'--cache',str(repo/'.local/archive-cache'),'serve','--sotto-data',str(repo/'.local/server')],
+        '--root',str(root),'--cache',str(repo/'.local/archive-cache'),'serve','--transcriber-data',str(repo/'.local/server')],
         'WorkingDirectory':str(repo),'RunAtLoad':True,'KeepAlive':True,'ThrottleInterval':15,
         'StandardOutPath':str(repo/'.local/archive-service.log'),'StandardErrorPath':str(repo/'.local/archive-service.log'),
         'Umask':0o077}
@@ -42,13 +42,13 @@ def main():
     subprocess.run(['launchctl','bootstrap',domain,str(path)],check=True)
     launcher='''#!/bin/bash
 set -euo pipefail
-sotto_root=ROOT
-sotto_domain="gui/$(id -u)"
-for sotto_label in ai.codecaine.sotto.server ai.codecaine.sotto.archive; do
-    if ! launchctl print "$sotto_domain/$sotto_label" >/dev/null 2>&1; then
-        launchctl bootstrap "$sotto_domain" "$sotto_root/.local/$sotto_label.plist"
+transcriber_root=ROOT
+transcriber_domain="gui/$(id -u)"
+for transcriber_label in ai.codecaine.transcriber.server ai.codecaine.transcriber.archive; do
+    if ! launchctl print "$transcriber_domain/$transcriber_label" >/dev/null 2>&1; then
+        launchctl bootstrap "$transcriber_domain" "$transcriber_root/.local/$transcriber_label.plist"
     fi
-    launchctl kickstart "$sotto_domain/$sotto_label"
+    launchctl kickstart "$transcriber_domain/$transcriber_label"
 done
 open /Applications/Transcriber.app
 printf 'Transcriber is open. The Data page shows your shared transcript archive.\\n'

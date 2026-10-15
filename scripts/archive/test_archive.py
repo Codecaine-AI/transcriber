@@ -61,25 +61,25 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(self.archive.verify()['records'],2)
         self.assertEqual(len(list((self.archive.root/'sources/wispr-flow').glob('dictionary-*.json'))),1)
 
-    def test_media_versions_and_sotto_updates_are_retained(self):
-        uid=str(uuid.uuid4());source=self.base/'sotto';folder=source/'generations'/uid;folder.mkdir(parents=True)
+    def test_media_versions_and_transcriber_updates_are_retained(self):
+        uid=str(uuid.uuid4());source=self.base/'transcriber';folder=source/'generations'/uid;folder.mkdir(parents=True)
         audio=b'audio bytes'
         (folder/'inference.wav').write_bytes(audio)
         native={'id':uid,'status':'completed','mode':'dictation','createdAt':'2026-09-16T12:00:00Z',
             'rawText':'raw','finalText':'Clean.','device':{'id':'my-mac'},
             'inferenceAudio':{'filename':'inference.wav'},'settings':{'language':'en'}}
         p=folder/'metadata.json';p.write_text(json.dumps(native))
-        self.assertEqual(self.archive.sync_sotto(source),1)
-        self.assertEqual(self.archive.sync_sotto(source),0)
+        self.assertEqual(self.archive.sync_transcriber(source),1)
+        self.assertEqual(self.archive.sync_transcriber(source),0)
         native['delivery']={'status':'inserted'};p.write_text(json.dumps(native))
-        self.assertEqual(self.archive.sync_sotto(source),1)
-        m=self.archive.load('sotto',uid)
+        self.assertEqual(self.archive.sync_transcriber(source),1)
+        m=self.archive.load('transcriber',uid)
         self.assertEqual(len(m['source_versions']),2)
         self.assertEqual(len(m['artifacts']),1)
         p.unlink()
-        self.archive.sync_sotto(source)
+        self.archive.sync_transcriber(source)
         self.assertEqual(self.archive.verify()['records'],1)
-        self.assertEqual(self.archive.load('sotto',uid)['text']['raw'],'raw')
+        self.assertEqual(self.archive.load('transcriber',uid)['text']['raw'],'raw')
 
     def test_export_integrity_metadata_and_original_files_are_preserved(self):
         root=self.base/'export';record=root/'records/unknown/unknown/unknown/x';record.mkdir(parents=True)
@@ -102,15 +102,15 @@ class ArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'integrity'):
             self.archive.verify()
 
-    def test_failed_sotto_copy_is_retried_and_cache_is_rebuildable(self):
-        uid=str(uuid.uuid4());source=self.base/'sotto';folder=source/'generations'/uid;folder.mkdir(parents=True)
+    def test_failed_transcriber_copy_is_retried_and_cache_is_rebuildable(self):
+        uid=str(uuid.uuid4());source=self.base/'transcriber';folder=source/'generations'/uid;folder.mkdir(parents=True)
         m={'id':uid,'status':'completed','createdAt':'2026-09-16T12:00:00Z','rawText':'raw',
             'finalText':'clean','inferenceAudio':{'filename':'inference.wav'}}
         (folder/'metadata.json').write_text(json.dumps(m))
-        with self.assertRaises(ValueError):self.archive.sync_sotto(source)
+        with self.assertRaises(ValueError):self.archive.sync_transcriber(source)
         self.assertEqual(self.archive.state,{})
         (folder/'inference.wav').write_bytes(b'audio')
-        self.assertEqual(self.archive.sync_sotto(source),1)
+        self.assertEqual(self.archive.sync_transcriber(source),1)
         self.archive.db.execute('delete from records');self.archive.db.commit()
         self.archive.reindex()
         self.assertEqual(self.archive.summary()['sources'][0]['records'],1)
@@ -130,16 +130,16 @@ class ViewerTests(unittest.TestCase):
         import urllib.request
         import urllib.error
         with tempfile.TemporaryDirectory() as temp:
-            base=Path(temp);root=base/'archive';cache=base/'cache';data=base/'sotto';data.mkdir()
+            base=Path(temp);root=base/'archive';cache=base/'cache';data=base/'transcriber';data.mkdir()
             a=Archive(root,cache)
             evidence=root/'sources'/'dictionary.json'
             evidence.parent.mkdir()
             evidence.write_text('{"rows": []}')
             for n in range(55):
-                m=a.load('sotto',str(uuid.uuid4()))
+                m=a.load('transcriber',str(uuid.uuid4()))
                 m.update(timestamp='2026-09-16T12:00:00Z',text={'raw':f'raw {n}', 'clean':f'clean {n}'},status='completed')
                 if n==54:
-                    folder=a.record_dir('sotto',m['id'])
+                    folder=a.record_dir('transcriber',m['id'])
                     artifact=a.blob(folder,io.BytesIO(b'RIFF0123456789'),'audio','.wav','sample.wav')
                     a.add_artifact(m,artifact);file_path=folder.relative_to(root.resolve()).as_posix()+'/'+artifact['path']
                     wanted=m['source']+'/'+m['id']
@@ -147,7 +147,7 @@ class ViewerTests(unittest.TestCase):
             a.commit();a.db.close()
             with socket.socket() as sock:
                 sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
-            process=subprocess.Popen([sys.executable,str(Path(__file__).parent/'archive.py'),'--root',str(root),'--cache',str(cache),'serve','--sotto-data',str(data),'--port',str(port)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            process=subprocess.Popen([sys.executable,str(Path(__file__).parent/'archive.py'),'--root',str(root),'--cache',str(cache),'serve','--transcriber-data',str(data),'--port',str(port)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
             address=f'http://127.0.0.1:{port}'
             try:
                 for _ in range(100):
