@@ -1,5 +1,5 @@
 {
-  "name": "@v07/server",
+  "name": "@transcriber/server",
   "private": true,
   "type": "module",
   "scripts": {

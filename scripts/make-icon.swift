@@ -4,8 +4,8 @@ import Foundation
 let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
 try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
-// Seven signal strokes form a V, matching Resources/V07.svg.
-// Keep this geometry in sync with V07Brand.logoPath(in:).
+// Seven signal strokes form a V, matching Resources/Transcriber.svg.
+// Keep this geometry in sync with TranscriberBrand.logoPath(in:).
 func logoPath() -> CGPath {
     let path = CGMutablePath()
     let strokes: [(CGFloat, CGFloat, CGFloat)] = [

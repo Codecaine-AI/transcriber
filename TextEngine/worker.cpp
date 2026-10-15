@@ -210,7 +210,7 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string argument = argv[i];
         if (argument == "--help") {
-            std::fputs("Usage: v07-text-engine --model MODEL.gguf [--threads 1..32]\nJSON lines on stdin and stdout; diagnostics only on stderr.\n", stderr);
+            std::fputs("Usage: transcriber-text-engine --model MODEL.gguf [--threads 1..32]\nJSON lines on stdin and stdout; diagnostics only on stderr.\n", stderr);
             return 0;
         } else if (argument == "--model" && i + 1 < argc) modelPath = argv[++i];
         else if (argument == "--threads" && i + 1 < argc) {
@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
             if (parsed.ec != std::errc() || parsed.ptr != value.data() + value.size() || threads < 1 || threads > 32) {
                 emitError("The thread count must be between 1 and 32."); return 1;
             }
-        } else { emitError("Usage: v07-text-engine --model MODEL.gguf [--threads 1..32]"); return 1; }
+        } else { emitError("Usage: transcriber-text-engine --model MODEL.gguf [--threads 1..32]"); return 1; }
     }
     std::error_code fileError;
     if (modelPath.empty() || !std::filesystem::is_regular_file(modelPath, fileError)) {

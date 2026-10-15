@@ -62,7 +62,7 @@ def build(identity, keychain, dev=False):
         app.joinpath('Contents/MacOS', info['CFBundleExecutable']).rename(app / 'Contents/MacOS' / APP_NAME)
         info.update(CFBundleExecutable=APP_NAME, CFBundleIdentifier=bundle_id,
                     CFBundleName=app_name, CFBundleDisplayName=app_name)
-        # Permission prompts name the app and its server ("V07 Dev ... your V07 server").
+        # Permission prompts name the app and its server ("Transcriber Dev ... your Transcriber server").
         for key, value in info.items():
             if key.endswith('UsageDescription'):
                 info[key] = value.replace(upstream_name, app_name).replace(base_name, APP_NAME)

@@ -635,7 +635,7 @@ export interface operations {
       query?: {
         limit?: number;
         before?: string;
-        source?: "v07" | "wispr-flow";
+        source?: "transcriber" | "wispr-flow";
       };
       header?: never;
       path?: never;
