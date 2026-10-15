@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, rebrand, sign, verify, replace, and reopen the local Transcriber app."""
+"""Build, sign, verify, replace, and reopen the local Transcriber app."""
 import argparse
 from datetime import datetime
 import fcntl
@@ -15,15 +15,18 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 # macOS permissions, the settings directory, and the Keychain service follow this
-# name and identifier. They stay fixed whatever upstream calls its app.
+# name and identifier. The source's Info.plist files carry them; the build is
+# checked against them before it is signed, so a drifted plist never installs.
 APP_NAME = 'Transcriber'
 BUNDLE_ID = 'ai.codecaine.transcriber'
 BUILT = ROOT / 'build' / f'{APP_NAME}.app'
-# The development build gets the same rebrand under its own name and identifier,
-# so its permissions, settings, and Keychain entries stay apart from the real app.
+# The development build has its own name and identifier, so its permissions,
+# settings, and Keychain entries stay apart from the real app.
 DEV_APP_NAME = 'Transcriber Dev'
 DEV_BUNDLE_ID = 'ai.codecaine.transcriber.dev'
 DEV_BUILT = ROOT / 'build' / f'{DEV_APP_NAME}.app'
+EXECUTABLE = 'Transcriber'
+ENTITLEMENTS = ROOT / 'Resources/Transcriber.entitlements'
 TARGET = Path('/Applications') / f'{APP_NAME}.app'
 CONFIG = Path.home() / '.config/transcriber/signing.json'
 
@@ -40,50 +43,30 @@ def requirement(app):
 
 def installed_pids():
     result = subprocess.check_output(['ps', '-axo', 'pid=,comm='], text=True)
-    executable = str(TARGET / 'Contents/MacOS' / APP_NAME)
+    executable = str(TARGET / 'Contents/MacOS' / EXECUTABLE)
     return [int(parts[0]) for line in result.splitlines() if len(parts := line.strip().split(None, 1)) == 2 and parts[1] == executable]
 
 
 def build(identity, keychain, dev=False):
-    """Build upstream's app unchanged, then give a copy the Transcriber identity."""
+    """Build the app with scripts/build-app.sh, check its identity, and sign it with the pinned certificate."""
     app_name, bundle_id, built = (DEV_APP_NAME, DEV_BUNDLE_ID, DEV_BUILT) if dev else (APP_NAME, BUNDLE_ID, BUILT)
-    with ROOT.joinpath('Resources/Info.plist').open('rb') as file:
-        base_name = plistlib.load(file)['CFBundleName']
-    with ROOT.joinpath('Resources/Info-Dev.plist' if dev else 'Resources/Info.plist').open('rb') as file:
-        upstream_name = plistlib.load(file)['CFBundleName']
-    run(str(ROOT / 'scripts/build-app.sh'), *(['--dev'] if dev else []), cwd=ROOT)
-    upstream_app = ROOT / 'build' / f'{upstream_name}.app'
-    stage = Path(tempfile.mkdtemp(prefix='.transcriber.', dir=ROOT / 'build'))
-    try:
-        app = stage / built.name
-        run('ditto', str(upstream_app), str(app))
-        info_path = app / 'Contents/Info.plist'
-        info = plistlib.loads(info_path.read_bytes())
-        app.joinpath('Contents/MacOS', info['CFBundleExecutable']).rename(app / 'Contents/MacOS' / APP_NAME)
-        info.update(CFBundleExecutable=APP_NAME, CFBundleIdentifier=bundle_id,
-                    CFBundleName=app_name, CFBundleDisplayName=app_name)
-        # Permission prompts name the app and its server ("Transcriber Dev ... your Transcriber server").
-        for key, value in info.items():
-            if key.endswith('UsageDescription'):
-                info[key] = value.replace(upstream_name, app_name).replace(base_name, APP_NAME)
-        info_path.write_bytes(plistlib.dumps(info))
-        # Upstream's own signature carries the entitlements its build chose.
-        entitlements = stage / 'entitlements.plist'
-        entitlements.write_bytes(subprocess.run(
-            ['codesign', '-d', '--entitlements', '-', '--xml', str(upstream_app)],
-            check=True, capture_output=True).stdout)
-        if not plistlib.loads(entitlements.read_bytes()):
-            raise SystemExit('The upstream build carries no entitlements. No app was changed.')
-        # The pinned certificate must succeed; never fall back to ad-hoc signing.
-        run('codesign', '--force', '--sign', identity, '--keychain', keychain, '--options', 'runtime',
-            '--requirements', f'=designated => identifier "{bundle_id}" and certificate leaf = H"{identity}"',
-            '--entitlements', str(entitlements), '--identifier', bundle_id, str(app))
-        run('codesign', '--verify', '--deep', '--strict', str(app))
-        if built.exists():
-            shutil.rmtree(built)
-        app.rename(built)
-    finally:
-        shutil.rmtree(stage)
+    # build-app.sh signs ad hoc here; the pinned signature below replaces it.
+    run(str(ROOT / 'scripts/build-app.sh'), *(['--dev'] if dev else []), cwd=ROOT,
+        env={**os.environ, 'TRANSCRIBER_SIGNING_IDENTITY': '-'})
+    with built.joinpath('Contents/Info.plist').open('rb') as file:
+        info = plistlib.load(file)
+    found = {key: info.get(key) for key in ('CFBundleName', 'CFBundleIdentifier', 'CFBundleExecutable')}
+    expected = {'CFBundleName': app_name, 'CFBundleIdentifier': bundle_id, 'CFBundleExecutable': EXECUTABLE}
+    if found != expected:
+        raise SystemExit(f'{built} has {found}, expected {expected}. Fix the Info.plist in Resources/. '
+                         'No installed app was changed.')
+    if not plistlib.loads(ENTITLEMENTS.read_bytes()):
+        raise SystemExit(f'{ENTITLEMENTS} grants no entitlements. No installed app was changed.')
+    # The pinned certificate must succeed; never fall back to ad-hoc signing.
+    run('codesign', '--force', '--sign', identity, '--keychain', keychain, '--options', 'runtime',
+        '--requirements', f'=designated => identifier "{bundle_id}" and certificate leaf = H"{identity}"',
+        '--entitlements', str(ENTITLEMENTS), '--identifier', bundle_id, str(built))
+    run('codesign', '--verify', '--deep', '--strict', str(built))
 
 
 def main():

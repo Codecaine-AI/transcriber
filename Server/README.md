@@ -55,8 +55,8 @@ Install Bun 1.4.2 and initialize submodules with `git submodule update --init --
 Linux requires Bun, a C/C++ toolchain, CMake, Git, curl, pkg-config, and libcurl development headers. Swift is not required. CUDA builds also need a compatible NVIDIA driver and CUDA toolkit. The [Dockerfile](Dockerfile) provides a pinned Ubuntu 24.04 build environment.
 
 ```sh
-./scripts/build-server.sh                  # macOS Metal/MLX; Linux CPU
-TRANSCRIBER_CUDA=ON ./scripts/build-server.sh     # Linux with CUDA
+./scripts/build-server.sh                      # macOS Metal/MLX; Linux CPU
+TRANSCRIBER_CUDA=ON ./scripts/build-server.sh  # Linux with CUDA
 ```
 
 Output is `build/server`: executable, native helpers, VAD, notices, and resources. Keep the package together; the Mac proofreader requires the adjacent Metal library and bundles. Large model weights and user data live outside it.
@@ -107,7 +107,7 @@ For server-only development alongside an installed Transcriber instance, use `--
 | `--proof-helper`, `--proof-model`   | `TRANSCRIBER_TEXT_ENGINE_PATH`, `TRANSCRIBER_TEXT_MODEL`       |
 | `--dev`                             | `TRANSCRIBER_DEV=1`                                            |
 
-The dev runner fixes its host to loopback and defaults to port 8391, `.local/server` for data, and `.local/server.log` for logs. Set `TRANSCRIBER_SPEECH_MODEL` and `TRANSCRIBER_TEXT_MODEL` when using the paths above. Without those overrides, macOS searches the existing locations `~/Library/Application Support/Transcriber/Models/ggml-large-v3-turbo.bin` and `~/.transcriber/models/Qwen3-4B-Instruct-2507-MLX-4bit`.
+The dev runner fixes its host to loopback and defaults to port 8391, `.local/server` for data, and `.local/server.log` for logs. Set `TRANSCRIBER_SPEECH_MODEL` and `TRANSCRIBER_TEXT_MODEL` when using the paths above. Without those overrides, the dev runner on macOS uses the default locations `~/Library/Application Support/Transcriber/Models/ggml-large-v3-turbo.bin` and `~/.transcriber/models/Qwen3-4B-Instruct-2507-MLX-4bit`. `scripts/download-model.sh` installs Whisper in the first location when `TRANSCRIBER_MODEL_DIR` is unset.
 
 ## Remote access
 

@@ -1,6 +1,9 @@
 #!/bin/bash
 # Start the packaged server for the installed Transcriber app. Executables are
-# found by role, so an upstream rename needs only ./scripts/build-server.sh.
+# found by role (transcriber-server, helpers/transcriber-engine and
+# helpers/transcriber-text-engine from ./scripts/build-server.sh). Explicit
+# arguments take precedence over the server's own TRANSCRIBER_* variables, so
+# TRANSCRIBER_SPEECH_MODEL and TRANSCRIBER_TEXT_MODEL are resolved here once.
 set -euo pipefail
 shopt -s nullglob
 

@@ -1,6 +1,6 @@
 # Transcriber
 
-Transcriber is Codecaine's build of this project. It follows the upstream source and installs under its own fixed name, so an upstream rename never changes what macOS sees.
+Transcriber is Codecaine's fork of [davis7dotsh/inlay](https://github.com/davis7dotsh/inlay). The source is named Transcriber end to end: Swift targets and modules, the app bundle, the server and helper binaries (`transcriber-server`, `transcriber-engine`, `transcriber-text-engine`), and the `TRANSCRIBER_*` environment variables.
 
 | What                  | Value                                       |
 | --------------------- | ------------------------------------------- |
@@ -10,15 +10,21 @@ Transcriber is Codecaine's build of this project. It follows the upstream source
 | Keychain service      | `ai.codecaine.transcriber.server`           |
 | Signing configuration | `~/.config/transcriber/signing.json`        |
 
-macOS ties Microphone, Accessibility, and Input Monitoring grants to the bundle identifier and the signing certificate. Both stay the same across rebuilds and upstream syncs, so the grants persist.
+macOS ties Microphone, Accessibility, and Input Monitoring grants to the bundle identifier and the signing certificate. Both stay the same across rebuilds, so the grants persist.
 
-## How the name is applied
+## Upstream policy
 
-`scripts/install-local.py` runs upstream's `scripts/build-app.sh` unchanged. It then copies the result to `build/Transcriber.app`, rewrites the name and identifier in the copy's `Info.plist`, and signs the copy with the pinned local certificate. The app reads its name and identifier from its own bundle (`TranscriberBuild.swift`), so the settings directory and Keychain service follow the bundle.
+Upstream is mined selectively. Specific features are hand-ported and adapted to Transcriber; upstream is never merged wholesale. Each port is listed under Fork Differences From Upstream in [Product Direction](docs/00-foundation/10-product-direction/doc.json).
 
-With `--dev`, the same steps turn upstream's development build into `build/Transcriber Dev.app` (`ai.codecaine.transcriber.dev`). Its permissions, settings, and Keychain entries stay apart from the installed app.
+## How the app is built and signed
 
-Upstream's source tree, module names, `README.md`, and build scripts keep upstream's names. That keeps syncs free of rename conflicts. A few fixed labels inside the app window still show upstream's name.
+`Resources/Info.plist` and `Resources/Info-Dev.plist` carry the app's name and identifier. `scripts/install-local.py` builds the bundle with `scripts/build-app.sh`, checks that its `CFBundleName`, `CFBundleIdentifier`, and `CFBundleExecutable` match the expected Transcriber values, and signs it with the pinned local certificate. The app reads its name and identifier from its own bundle (`TranscriberBuild.swift`), so the settings directory and Keychain service follow the bundle.
+
+With `--dev`, the same steps produce `build/Transcriber Dev.app` (`ai.codecaine.transcriber.dev`). Its permissions, settings, and Keychain entries stay apart from the installed app.
+
+## Remaining sotto identifiers
+
+A few identifiers still use the old `sotto` name until a separate data migration renames them: the launchd labels `ai.codecaine.sotto.*`, the archive source id `sotto`, the archive's `--sotto-data` option, and the repository folder. Leave them as they are until that migration runs.
 
 ## Commands
 
@@ -31,7 +37,7 @@ python3 scripts/setup-local-signing.py        # Once per Mac: create the signing
 
 ## Test with Transcriber Dev
 
-Where upstream's `CLAUDE.md` and `AGENTS.md` say to verify in Transcriber Dev, verify in Transcriber Dev against an isolated source server instead. Start the server in its own terminal, then open the app with its own client directory:
+Verify behavior in Transcriber Dev against an isolated source server. Start the server in its own terminal, then open the app with its own client directory:
 
 ```sh
 bun run dev --port 8393 \
@@ -46,6 +52,6 @@ Enter the token from `.local/dev-server/token` once under **This Mac**. Transcri
 
 ## Fork differences
 
-[Product Direction](docs/00-foundation/10-product-direction/doc.json) lists every difference from upstream and what to keep when merging. Behavior is described in [Architecture](docs/10-system-design/10-architecture/doc.json).
+[Product Direction](docs/00-foundation/10-product-direction/doc.json) lists every difference from upstream, including each hand-ported feature. Behavior is described in [Architecture](docs/10-system-design/10-architecture/doc.json).
 
 Project documentation lives in the [Docs corpus](docs/00-foundation/doc.json); start with [Current Status](docs/00-foundation/20-current-status/doc.json). The transcript archive is described in [scripts/archive/README.md](scripts/archive/README.md).

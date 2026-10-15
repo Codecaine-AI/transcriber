@@ -4,7 +4,9 @@ Hold a key, speak, and release to insert your dictation. Transcriber is a native
 
 The dev runner builds **Transcriber Dev**, with separate settings and visible Dev labels. For the regular app, run `./scripts/build-app.sh` and install `build/Transcriber.app` in Applications. Both connect to an independently running server.
 
-Upgrading from an earlier project name: rebuild both client and server, update environment variables to the `TRANSCRIBER_` prefix, and grant the renamed app its macOS permissions. Transcriber uses new application-support directories and Keychain services; copy your existing client settings into the corresponding Transcriber directory if needed, then re-enter your server token. Keep the server pointed at its existing data directory to retain history and shared preferences. Model files can stay where they are; set `TRANSCRIBER_SPEECH_MODEL` and `TRANSCRIBER_TEXT_MODEL` to their paths.
+Transcriber is Codecaine's fork of [davis7dotsh/inlay](https://github.com/davis7dotsh/inlay), formerly named V07. [TRANSCRIBER.md](TRANSCRIBER.md) lists the installed app's names, signing, and local build commands.
+
+Upgrading from a build that still used V07 names: rename `V07_*` environment variables to the `TRANSCRIBER_` prefix and rebuild both client and server. The default model locations are now `~/Library/Application Support/Transcriber/Models` and `~/.transcriber/models`. Move the weights there, or set `TRANSCRIBER_SPEECH_MODEL` and `TRANSCRIBER_TEXT_MODEL` to their current paths. An app installed with `scripts/rebuild-local.sh` already used the Transcriber name and bundle identifier, so its permissions, settings, and server token carry over. A `V07.app` built directly with `scripts/build-app.sh` is a different app to macOS. Grant `Transcriber.app` its permissions, copy settings from `~/Library/Application Support/V07` if needed, and re-enter the server token. Keep the server pointed at its existing data directory to retain history.
 
 ## Get started on one Mac
 
