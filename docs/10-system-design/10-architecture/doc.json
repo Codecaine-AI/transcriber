@@ -67,7 +67,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The native Swift macOS client handles microphone capture, shortcuts, and cursor insertion. An independent TypeScript/Fastify server, compiled with Bun, owns inference, shared settings, and history. Both processes use the same OpenAPI v1 contract whether they run on one machine or across the network. Upstream names the project V07, and the fork installs the client as Transcriber."
+          "insert": "The native Swift macOS client handles microphone capture, shortcuts, and cursor insertion. An independent TypeScript/Fastify server, compiled with Bun, owns inference, shared settings, and history. Both processes use the same OpenAPI v1 contract whether they run on one machine or across the network. The fork names its source, client, and server Transcriber."
         }
       ],
       "children": []
@@ -97,7 +97,7 @@
           [
             [
               {
-                "insert": "Sources/V07",
+                "insert": "Sources/Transcriber",
                 "attributes": {
                   "code": true
                 }
@@ -108,7 +108,7 @@
           [
             [
               {
-                "insert": "Sources/V07Core",
+                "insert": "Sources/TranscriberCore",
                 "attributes": {
                   "code": true
                 }
@@ -119,7 +119,7 @@
           [
             [
               {
-                "insert": "Sources/V07API",
+                "insert": "Sources/TranscriberAPI",
                 "attributes": {
                   "code": true
                 }
@@ -130,7 +130,7 @@
           [
             [
               {
-                "insert": "Sources/V07APIWire",
+                "insert": "Sources/TranscriberAPIWire",
                 "attributes": {
                   "code": true
                 }
@@ -163,7 +163,7 @@
           [
             [
               {
-                "insert": "Sources/V07Domain",
+                "insert": "Sources/TranscriberDomain",
                 "attributes": {
                   "code": true
                 }
@@ -174,7 +174,7 @@
           [
             [
               {
-                "insert": "Sources/V07ServerKit",
+                "insert": "Sources/TranscriberServerKit",
                 "attributes": {
                   "code": true
                 }
@@ -185,7 +185,7 @@
           [
             [
               {
-                "insert": "Sources/V07Server",
+                "insert": "Sources/TranscriberServer",
                 "attributes": {
                   "code": true
                 }
@@ -257,7 +257,7 @@
                 }
               }
             ],
-            "Codecaine installer that builds upstream's app, renames the copy to Transcriber, signs it, and installs it."
+            "Codecaine installer that builds Transcriber.app, checks its identity, signs it with the pinned certificate, and installs it."
           ],
           [
             [
@@ -268,7 +268,7 @@
                 }
               }
             ],
-            "Codecaine launcher for the local server service. It finds the packaged server and helpers by role, so an upstream rename needs only a rebuild."
+            "Codecaine launcher for the local server service. It finds the packaged server and helpers by role."
           ]
         ]
       },
@@ -804,7 +804,7 @@
           }
         },
         {
-          "insert": ". Upstream V07 has only the first two modes."
+          "insert": ". Upstream has only the first two modes."
         }
       ],
       "children": []
@@ -885,7 +885,7 @@
           }
         },
         {
-          "insert": " is the fallback. Upstream V07 uses local Whisper only, so this routing is a fork difference. Deepgram replaces only the speech step. Dictionary rules, list formatting, and Qwen proofreading run unchanged on its text."
+          "insert": " is the fallback. Upstream uses local Whisper only, so this routing is a fork difference. Deepgram replaces only the speech step. Dictionary rules, list formatting, and Qwen proofreading run unchanged on its text."
         }
       ],
       "children": []
@@ -1467,12 +1467,12 @@
           "insert": "The client reads its name and bundle identifier from its own bundle in "
         },
         {
-          "insert": "Sources/V07Core/V07Build.swift",
+          "insert": "Sources/TranscriberCore/TranscriberBuild.swift",
           "attributes": {
             "code": true,
             "reference": {
               "kind": "source",
-              "path": "Sources/V07Core/V07Build.swift"
+              "path": "Sources/TranscriberCore/TranscriberBuild.swift"
             }
           }
         },
@@ -1522,24 +1522,6 @@
           }
         },
         {
-          "insert": ". An upstream V07 build uses "
-        },
-        {
-          "insert": "~/Library/Application Support/V07",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": ", and V07 Dev uses "
-        },
-        {
-          "insert": "~/Library/Application Support/V07 Dev",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
           "insert": "."
         }
       ],
@@ -1551,7 +1533,7 @@
       "props": {},
       "text": [
         {
-          "insert": "V07_CLIENT_DATA_DIR",
+          "insert": "TRANSCRIBER_CLIENT_DATA_DIR",
           "attributes": {
             "code": true
           }
@@ -1587,7 +1569,7 @@
           "insert": " stores endpoint/device identity. Tokens live in the Keychain, scoped to the endpoint and client directory. "
         },
         {
-          "insert": "V07_SERVER_URL",
+          "insert": "TRANSCRIBER_SERVER_URL",
           "attributes": {
             "code": true
           }

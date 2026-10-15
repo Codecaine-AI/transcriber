@@ -34,13 +34,13 @@
       "props": {},
       "text": [
         {
-          "insert": "v07-engine",
+          "insert": "transcriber-engine",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " is the server's persistent whisper.cpp process. It reads audio files supplied by the server; it never opens a microphone or network connection. Builds use Metal on macOS and CPU or CUDA on Linux. See "
+          "insert": " is the server's persistent whisper.cpp process. It reads audio files supplied by the server and never opens a microphone or network connection. Builds use Metal on macOS and CPU or CUDA on Linux. See "
         },
         {
           "insert": "server setup",
@@ -107,7 +107,7 @@
       },
       "text": [
         {
-          "insert": "{\"type\":\"transcribe\",\"id\":\"request-1\",\"path\":\"/absolute/path/to/recording.wav\",\"language\":\"en\",\"vocabularyTerms\":[\"V07\",\"SwiftUI\",\"Metal\"]}"
+          "insert": "{\"type\":\"transcribe\",\"id\":\"request-1\",\"path\":\"/absolute/path/to/recording.wav\",\"language\":\"en\",\"vocabularyTerms\":[\"Transcriber\",\"SwiftUI\",\"Metal\"]}"
         }
       ],
       "children": []
@@ -436,7 +436,7 @@
           "insert": "After the build, use "
         },
         {
-          "insert": "V07 Dev",
+          "insert": "Transcriber Dev",
           "attributes": {
             "bold": true
           }

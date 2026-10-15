@@ -49,7 +49,14 @@
         "work-record-2026-10-05-dictation",
         "work-record-2026-10-05-dev",
         "work-record-2026-10-05-language",
-        "work-record-2026-10-05-unverified"
+        "work-record-2026-10-05-unverified",
+        "work-record-2026-10-15-heading",
+        "work-record-2026-10-15-commit",
+        "work-record-2026-10-15-names",
+        "work-record-2026-10-15-install",
+        "work-record-2026-10-15-policy",
+        "work-record-2026-10-15-sotto",
+        "work-record-2026-10-15-state"
       ]
     },
     "b-10-work-record-this-record-captures-wor-1": {
@@ -1343,6 +1350,342 @@
       "text": [
         {
           "insert": "The fallback after a real network loss and the 1-hour Whisper idle unload were not verified."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-heading": {
+      "id": "work-record-2026-10-15-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Transcriber Source Rename, 2026-10-15"
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-commit": {
+      "id": "work-record-2026-10-15-commit",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "On 2026-10-15 commit "
+        },
+        {
+          "insert": "85b8ffc",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on branch "
+        },
+        {
+          "insert": "transcriber-rename",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " renamed every V07 source name to Transcriber. Upstream had by then become "
+        },
+        {
+          "insert": "davis7dotsh/inlay",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", formerly V07."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-names": {
+      "id": "work-record-2026-10-15-names",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The commit renamed the source, the binaries, and the identifiers."
+        }
+      ],
+      "children": [
+        "work-record-2026-10-15-modules",
+        "work-record-2026-10-15-binaries",
+        "work-record-2026-10-15-ids"
+      ]
+    },
+    "work-record-2026-10-15-modules": {
+      "id": "work-record-2026-10-15-modules",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Swift modules moved to "
+        },
+        {
+          "insert": "Sources/Transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and the matching "
+        },
+        {
+          "insert": "Transcriber*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " modules, and each "
+        },
+        {
+          "insert": "V07X.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " file became "
+        },
+        {
+          "insert": "TranscriberX.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-binaries": {
+      "id": "work-record-2026-10-15-binaries",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The binaries became "
+        },
+        {
+          "insert": "transcriber-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "transcriber-engine",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "transcriber-text-engine",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "V07_*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " environment variables became "
+        },
+        {
+          "insert": "TRANSCRIBER_*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-ids": {
+      "id": "work-record-2026-10-15-ids",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "In "
+        },
+        {
+          "insert": "Resources/Info.plist",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "Resources/Info-Dev.plist",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", the bundle identifiers became "
+        },
+        {
+          "insert": "ai.codecaine.transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and the plist key became "
+        },
+        {
+          "insert": "TranscriberDevelopmentBuild",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-install": {
+      "id": "work-record-2026-10-15-install",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/build-app.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " now builds "
+        },
+        {
+          "insert": "Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " directly, so the same branch simplifies "
+        },
+        {
+          "insert": "scripts/install-local.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to stop copying and rebranding upstream's app."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-policy": {
+      "id": "work-record-2026-10-15-policy",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Product Direction now states that upstream features are hand-ported onto the fork's names, never merged wholesale."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-sotto": {
+      "id": "work-record-2026-10-15-sotto",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "sotto",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " identifiers stayed unchanged for a later data migration: the archive source ID, the "
+        },
+        {
+          "insert": "ai.codecaine.sotto.*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " launchd labels, the "
+        },
+        {
+          "insert": "--sotto-data",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " flag, and the checkout folder."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-state": {
+      "id": "work-record-2026-10-15-state",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "When this entry was written, the branch was not merged, and the installed app and server still ran builds from before the rename."
         }
       ],
       "children": []

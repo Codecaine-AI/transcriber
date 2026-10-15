@@ -87,7 +87,7 @@
       "props": {},
       "text": [
         {
-          "insert": "This guide follows upstream's "
+          "insert": "This guide follows the repository's "
         },
         {
           "insert": "README.md",
@@ -105,7 +105,7 @@
           }
         },
         {
-          "insert": ", which use the name V07. It adds the fork's workflow for building and installing Transcriber, which "
+          "insert": ". It adds the fork's workflow for building and installing Transcriber, which "
         },
         {
           "insert": "TRANSCRIBER.md",
@@ -137,7 +137,7 @@
       "props": {},
       "text": [
         {
-          "insert": "Hold a key, speak, and release to insert your dictation. V07 is a native Swift macOS app backed by a Bun-compiled TypeScript/Fastify model server running on the same Mac, another Mac, or Linux. Audio uploads while you speak. The server returns progress and one finished transcript. You can start another take immediately. Finished recordings queue on the server, and each result returns to the client that recorded it."
+          "insert": "Hold a key, speak, and release to insert your dictation. Transcriber is a native Swift macOS app backed by a Bun-compiled TypeScript/Fastify model server running on the same Mac, another Mac, or Linux. Audio uploads while you speak. The server returns progress and one finished transcript. You can start another take immediately. Finished recordings queue on the server, and each result returns to the client that recorded it."
         }
       ],
       "children": []
@@ -148,10 +148,10 @@
       "props": {},
       "text": [
         {
-          "insert": "The dev runner builds V07 Dev, bundle identifier "
+          "insert": "The dev runner builds Transcriber Dev, bundle identifier "
         },
         {
-          "insert": "dev.davis.v07.dev",
+          "insert": "ai.codecaine.transcriber.dev",
           "attributes": {
             "code": true
           }
@@ -245,7 +245,7 @@
       },
       "text": [
         {
-          "insert": "export V07_SPEECH_MODEL=\"$PWD/.local/models/ggml-large-v3-turbo.bin\"\nexport V07_TEXT_MODEL=\"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n./scripts/run-dev.sh"
+          "insert": "export TRANSCRIBER_SPEECH_MODEL=\"$PWD/.local/models/ggml-large-v3-turbo.bin\"\nexport TRANSCRIBER_TEXT_MODEL=\"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n./scripts/run-dev.sh"
         }
       ],
       "children": []
@@ -268,7 +268,7 @@
           "insert": ", and opens "
         },
         {
-          "insert": "build/V07 Dev.app",
+          "insert": "build/Transcriber Dev.app",
           "attributes": {
             "code": true
           }
@@ -290,7 +290,7 @@
           "insert": "Grant "
         },
         {
-          "insert": "V07 Dev",
+          "insert": "Transcriber Dev",
           "attributes": {
             "bold": true
           }
@@ -433,7 +433,7 @@
       },
       "text": [
         {
-          "insert": "./scripts/build-app.sh\nopen \"build/V07.app\""
+          "insert": "./scripts/build-app.sh\nopen \"build/Transcriber.app\""
         }
       ],
       "children": []
@@ -453,28 +453,19 @@
           }
         },
         {
-          "insert": ". Use HTTPS for remote hosts, or HTTP with the server's literal Tailscale IP on your connected tailnet. The client needs no model weights or GPU for inference. "
-        },
-        {
-          "insert": "build/V07.app",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " carries upstream's identity. To build the fork's app without installing it, run "
-        },
-        {
-          "insert": "./scripts/rebuild-local.sh --build-only",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": ", which produces "
+          "insert": ". Use HTTPS for remote hosts, or HTTP with the server's literal Tailscale IP on your connected tailnet. The client needs no model weights or GPU for inference. To sign "
         },
         {
           "insert": "build/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with the pinned local certificate without installing it, run "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh --build-only",
           "attributes": {
             "code": true
           }
@@ -549,13 +540,13 @@
           "insert": ". It ignores an inherited "
         },
         {
-          "insert": "V07_SERVER_DATA_DIR",
+          "insert": "TRANSCRIBER_SERVER_DATA_DIR",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": "; pass "
+          "insert": ". Pass "
         },
         {
           "insert": "--data-dir",
@@ -621,7 +612,7 @@
           }
         },
         {
-          "insert": " on a Mac, in place of the V07 Dev that upstream's "
+          "insert": " on a Mac, as "
         },
         {
           "insert": "AGENTS.md",
@@ -639,7 +630,7 @@
           }
         },
         {
-          "insert": " name. The browser health endpoint alone cannot verify dictation or insertion. When you change Swift or the API, also run "
+          "insert": " require. The browser health endpoint alone cannot verify dictation or insertion. When you change Swift or the API, also run "
         },
         {
           "insert": "bun run generate:api --check",
@@ -704,7 +695,7 @@
           "insert": ", which the installed server on Ford's Mac already uses. Before running it beside that installation, set "
         },
         {
-          "insert": "V07_SERVER_PORT",
+          "insert": "TRANSCRIBER_SERVER_PORT",
           "attributes": {
             "code": true
           }
@@ -713,7 +704,7 @@
           "insert": " to an unused port and "
         },
         {
-          "insert": "V07_SERVER_DATA_DIR",
+          "insert": "TRANSCRIBER_SERVER_DATA_DIR",
           "attributes": {
             "code": true
           }
@@ -823,7 +814,7 @@
       },
       "text": [
         {
-          "insert": "./scripts/rebuild-local.sh --dev   # Build and sign build/Transcriber Dev.app\n\n# In its own terminal:\nbun run dev --port 8393 \\\n  --speech-model \"$PWD/.local/models/ggml-large-v3-turbo.bin\" \\\n  --proof-model \"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n\nopen --env \"V07_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \\\n  --env \"V07_SERVER_URL=http://127.0.0.1:8393\" \"build/Transcriber Dev.app\""
+          "insert": "./scripts/rebuild-local.sh --dev   # Build and sign build/Transcriber Dev.app\n\n# In its own terminal:\nbun run dev --port 8393 \\\n  --speech-model \"$PWD/.local/models/ggml-large-v3-turbo.bin\" \\\n  --proof-model \"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n\nopen --env \"TRANSCRIBER_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \\\n  --env \"TRANSCRIBER_SERVER_URL=http://127.0.0.1:8393\" \"build/Transcriber Dev.app\""
         }
       ],
       "children": []
@@ -842,7 +833,25 @@
           }
         },
         {
-          "insert": " builds upstream's development app and gives the copy the name Transcriber Dev and the bundle identifier "
+          "insert": " builds "
+        },
+        {
+          "insert": "build/Transcriber Dev.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from "
+        },
+        {
+          "insert": "Resources/Info-Dev.plist",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", with the bundle identifier "
         },
         {
           "insert": "ai.codecaine.transcriber.dev",
@@ -866,7 +875,7 @@
       },
       "text": [
         {
-          "insert": "The installer signs the copy with the pinned local certificate and installs nothing."
+          "insert": "The installer signs the bundle with the pinned local certificate and installs nothing."
         }
       ],
       "children": []
@@ -1004,7 +1013,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The install command builds upstream's app, copies it to "
+          "insert": "The install command builds "
         },
         {
           "insert": "build/Transcriber.app",
@@ -1013,7 +1022,7 @@
           }
         },
         {
-          "insert": " with the Transcriber name and bundle identifier, and signs the copy. It then checks the identity, keeps a rollback copy of any installed Transcriber, and opens "
+          "insert": ", checks its name and bundle identifier, and signs it with the pinned certificate. It then keeps a rollback copy of any installed Transcriber and opens "
         },
         {
           "insert": "/Applications/Transcriber.app",
@@ -1190,7 +1199,7 @@
           }
         },
         {
-          "insert": " and the certificate fingerprint instead. A changed executable can satisfy the same requirement. Both stay the same across rebuilds and upstream syncs."
+          "insert": " and the certificate fingerprint instead. A changed executable can satisfy the same requirement, because both values stay the same across rebuilds."
         }
       ],
       "children": []
@@ -1270,10 +1279,10 @@
           }
         },
         {
-          "insert": " is upstream's script and does not read the pinned configuration. It signs "
+          "insert": " does not read the pinned configuration. Run on its own, it signs "
         },
         {
-          "insert": "build/V07.app",
+          "insert": "build/Transcriber.app",
           "attributes": {
             "code": true
           }
@@ -1282,13 +1291,13 @@
           "insert": " with "
         },
         {
-          "insert": "V07_SIGNING_IDENTITY",
+          "insert": "TRANSCRIBER_SIGNING_IDENTITY",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " if set, with the Apple Development identity if exactly one exists, or ad hoc. The installer then signs the Transcriber copy with the pinned certificate. A missing key or signing error stops the installer. It never falls back to ad-hoc signing."
+          "insert": " if set, with the Apple Development identity if exactly one exists, or ad hoc. The installer runs it with an ad-hoc identity and then signs the bundle with the pinned certificate. A missing key or signing error stops the installer. It never falls back to ad-hoc signing."
         }
       ],
       "children": []
@@ -1414,7 +1423,7 @@
       "props": {},
       "text": [
         {
-          "insert": "If access remains denied, inspect the signing requirement and permission logs before changing certificates or resetting grants. V07 Dev and the earlier Sotto.app have separate identities. Grant access to the installed Transcriber.app used by this workflow."
+          "insert": "If access remains denied, inspect the signing requirement and permission logs before changing certificates or resetting grants. Transcriber Dev and the earlier Sotto.app have separate identities. Grant access to the installed Transcriber.app used by this workflow."
         }
       ],
       "children": []

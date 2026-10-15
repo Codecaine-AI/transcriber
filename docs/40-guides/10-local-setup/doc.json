@@ -633,10 +633,10 @@
           }
         },
         {
-          "insert": ", which starts "
+          "insert": ", which starts the packaged server in "
         },
         {
-          "insert": "build/server/v07-server",
+          "insert": "build/server",
           "attributes": {
             "code": true
           }

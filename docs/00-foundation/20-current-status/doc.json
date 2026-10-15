@@ -16,7 +16,6 @@
         "startup-lead",
         "startup-before",
         "startup-after",
-        "startup-logging",
         "b-20-current-status-data-coverage-4",
         "b-20-current-status-the-verified-migration-c-5",
         "b-20-current-status-the-archive-has-1-215-en-6",
@@ -39,6 +38,7 @@
         "rollback-reload",
         "rollback-open",
         "open-work-carried-heading",
+        "open-work-rename-install",
         "open-work-deepgram",
         "open-work-carried-backup",
         "open-work-carried-wispr",
@@ -47,7 +47,6 @@
         "open-decisions-heading",
         "open-work-carried-tests",
         "open-decision-display-name",
-        "open-decision-v07-labels",
         "open-decision-sotto-leftovers",
         "b-20-current-status-automatic-launch-at-logi-15",
         "relocation-verified-20-current-status"
@@ -59,7 +58,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork's source is merged with upstream V07 through PR #23. "
+          "insert": "The fork last merged upstream, then named V07, through PR #23. "
         },
         {
           "insert": "/Applications/Transcriber.app",
@@ -77,7 +76,16 @@
           }
         },
         {
-          "insert": " with local Whisper as the fallback. This page records the current handoff, and "
+          "insert": " with local Whisper as the fallback. Branch "
+        },
+        {
+          "insert": "transcriber-rename",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " renames every V07 source name to Transcriber and is not yet merged or installed. This page records the current handoff, and "
         },
         {
           "insert": "Work Record",
@@ -175,6 +183,46 @@
               },
               {
                 "insert": " on 2026-10-09"
+              }
+            ]
+          ],
+          [
+            "Source rename",
+            [
+              {
+                "insert": "Done on "
+              },
+              {
+                "insert": "transcriber-rename",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ", not merged or installed"
+              }
+            ],
+            [
+              {
+                "insert": "Commit "
+              },
+              {
+                "insert": "85b8ffc",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " on 2026-10-15 renames the Swift modules, files, binaries, "
+              },
+              {
+                "insert": "TRANSCRIBER_*",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " variables, and bundle and log identifiers. The installed app and server still run builds from before the rename"
               }
             ]
           ],
@@ -364,7 +412,7 @@
                 }
               },
               {
-                "insert": " on "
+                "insert": ", a build from before the source rename, on "
               },
               {
                 "insert": "127.0.0.1:8391",
@@ -703,49 +751,6 @@
         },
         {
           "insert": "."
-        }
-      ],
-      "children": []
-    },
-    "startup-logging": {
-      "id": "startup-logging",
-      "type": "list-item",
-      "props": {
-        "ordered": false
-      },
-      "text": [
-        {
-          "insert": "Sources/V07/StartupTiming.swift",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " logs each startup step under the "
-        },
-        {
-          "insert": "startup-timing",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " log category."
-        }
-      ],
-      "children": [
-        "startup-logging-temporary"
-      ]
-    },
-    "startup-logging-temporary": {
-      "id": "startup-logging-temporary",
-      "type": "list-item",
-      "props": {
-        "ordered": false
-      },
-      "text": [
-        {
-          "insert": "The file is marked temporary, for removal after the investigation."
         }
       ],
       "children": []
@@ -1327,6 +1332,93 @@
       ],
       "children": []
     },
+    "open-work-rename-install": {
+      "id": "open-work-rename-install",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Merge "
+        },
+        {
+          "insert": "transcriber-rename",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and reinstall from it."
+        }
+      ],
+      "children": [
+        "open-work-rename-server",
+        "open-work-rename-app"
+      ]
+    },
+    "open-work-rename-server": {
+      "id": "open-work-rename-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Run "
+        },
+        {
+          "insert": "./scripts/build-server.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and restart "
+        },
+        {
+          "insert": "ai.codecaine.sotto.server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", which then starts "
+        },
+        {
+          "insert": "build/server/transcriber-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " without a plist edit."
+        }
+      ],
+      "children": []
+    },
+    "open-work-rename-app": {
+      "id": "open-work-rename-app",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Run "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The bundle identifier and settings directory do not change, so permissions and settings carry over."
+        }
+      ],
+      "children": []
+    },
     "open-work-deepgram": {
       "id": "open-work-deepgram",
       "type": "list-item",
@@ -1429,7 +1521,7 @@
       },
       "text": [
         {
-          "insert": "Choose a port for upstream's source server on this Mac. "
+          "insert": "Choose a port for the source server on this Mac. "
         },
         {
           "insert": "bun run dev",
@@ -1547,19 +1639,6 @@
         },
         {
           "insert": " still gives the display name Sotto, and no Docs tool edits it."
-        }
-      ],
-      "children": []
-    },
-    "open-decision-v07-labels": {
-      "id": "open-decision-v07-labels",
-      "type": "list-item",
-      "props": {
-        "ordered": false
-      },
-      "text": [
-        {
-          "insert": "Decide whether the fixed V07 labels in the app window, such as the sidebar title, should say Transcriber. Changing them means editing upstream's source."
         }
       ],
       "children": []

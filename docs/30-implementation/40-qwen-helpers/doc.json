@@ -35,7 +35,7 @@
           "insert": "The server packages "
         },
         {
-          "insert": "v07-text-engine",
+          "insert": "transcriber-text-engine",
           "attributes": {
             "code": true
           }
@@ -330,7 +330,7 @@
           "insert": " and set "
         },
         {
-          "insert": "V07_TEXT_MODEL",
+          "insert": "TRANSCRIBER_TEXT_MODEL",
           "attributes": {
             "code": true
           }
@@ -339,7 +339,7 @@
           "insert": " to the model directory or file. Use "
         },
         {
-          "insert": "V07 Dev",
+          "insert": "Transcriber Dev",
           "attributes": {
             "bold": true
           }

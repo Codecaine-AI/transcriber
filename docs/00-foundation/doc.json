@@ -29,7 +29,16 @@
           }
         },
         {
-          "insert": " fork of the upstream project that its author names V07. The project replaces reliance on Wispr Flow while preserving an inspectable, portable transcript archive."
+          "insert": " fork of "
+        },
+        {
+          "insert": "davis7dotsh/inlay",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", which was formerly named V07. The project replaces reliance on Wispr Flow while preserving an inspectable, portable transcript archive."
         }
       ],
       "children": []

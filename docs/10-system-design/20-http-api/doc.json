@@ -36,7 +36,7 @@
       "props": {},
       "text": [
         {
-          "insert": "API version 1, default port "
+          "insert": "API version 1 listens on default port "
         },
         {
           "insert": "8391",
@@ -45,7 +45,7 @@
           }
         },
         {
-          "insert": ". "
+          "insert": ", and "
         },
         {
           "insert": "Server/api/openapi.yaml",
@@ -58,20 +58,20 @@
           }
         },
         {
-          "insert": " defines the transport contract and generates the TypeScript and Swift types. "
+          "insert": " defines the transport contract that generates the TypeScript and Swift types. "
         },
         {
-          "insert": "Sources/V07API/API.swift",
+          "insert": "Sources/TranscriberAPI/API.swift",
           "attributes": {
             "code": true,
             "reference": {
               "kind": "source",
-              "path": "Sources/V07API/API.swift"
+              "path": "Sources/TranscriberAPI/API.swift"
             }
           }
         },
         {
-          "insert": " holds the Swift client-facing facade and defaults. JSON uses whole-second ISO-8601 UTC dates. macOS and Linux expose the same API. See "
+          "insert": " holds the Swift client-facing facade and defaults. JSON uses whole-second ISO-8601 UTC dates, and macOS and Linux expose the same API. See "
         },
         {
           "insert": "server setup",

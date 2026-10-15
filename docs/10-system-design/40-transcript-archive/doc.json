@@ -274,7 +274,7 @@
       "props": {},
       "text": [
         {
-          "insert": "Upstream's source server, started with "
+          "insert": "The source server, started with "
         },
         {
           "insert": "bun run dev",

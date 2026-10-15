@@ -11,13 +11,8 @@
       "children": [
         "b-10-native-app-and-server-the-native-client-and-se-1",
         "b-10-native-app-and-server-decisions-2",
-        "b-10-native-app-and-server-the-data-page-embeds-a-n-3",
-        "b-10-native-app-and-server-sottowindowview-swift-4",
-        "b-10-native-app-and-server-generationservice-swift-5",
-        "b-10-native-app-and-server-generationservicetests-6",
-        "impl-transcriber-installer",
-        "impl-transcriber-bundle-identity",
-        "impl-transcriber-fixed-labels",
+        "impl-data-archive",
+        "impl-installed-identity",
         "b-10-native-app-and-server-the-app-is-installed-sep-7"
       ]
     },
@@ -54,7 +49,7 @@
           "insert": " in "
         },
         {
-          "insert": "Sources/V07",
+          "insert": "Sources/Transcriber",
           "attributes": {
             "code": true
           }
@@ -69,7 +64,7 @@
           }
         },
         {
-          "insert": ". The directory and module names are upstream's."
+          "insert": "."
         }
       ],
       "children": []
@@ -87,6 +82,28 @@
       ],
       "children": []
     },
+    "impl-data-archive": {
+      "id": "impl-data-archive",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Data Page and Archive Files",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "b-10-native-app-and-server-the-data-page-embeds-a-n-3",
+        "b-10-native-app-and-server-sottowindowview-swift-4",
+        "b-10-native-app-and-server-generationservice-swift-5",
+        "b-10-native-app-and-server-generationservicetests-6",
+        "impl-imports-compat"
+      ]
+    },
     "b-10-native-app-and-server-the-data-page-embeds-a-n-3": {
       "id": "b-10-native-app-and-server-the-data-page-embeds-a-n-3",
       "type": "list-item",
@@ -95,14 +112,14 @@
       },
       "text": [
         {
-          "insert": "The Data page embeds a nonpersistent WKWebView and opens the loopback archive viewer. This keeps dataset browsing independent of inference. "
+          "insert": "The Data page embeds a nonpersistent WKWebView that opens the loopback archive viewer, so dataset browsing stays independent of inference. "
         },
         {
           "insert": "TranscriptDataPage.swift",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/V07/Views/TranscriptDataPage.swift"
+              "path": "Sources/Transcriber/Views/TranscriptDataPage.swift"
             }
           }
         },
@@ -120,28 +137,28 @@
       },
       "text": [
         {
-          "insert": "V07WindowView.swift",
+          "insert": "TranscriberWindowView.swift",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/V07/Views/V07WindowView.swift"
+              "path": "Sources/Transcriber/Views/TranscriberWindowView.swift"
             }
           }
         },
         {
-          "insert": " adds Data navigation. "
+          "insert": " adds Data navigation, and "
         },
         {
           "insert": "HistoryPage.swift",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/V07/Views/HistoryPage.swift"
+              "path": "Sources/Transcriber/Views/HistoryPage.swift"
             }
           }
         },
         {
-          "insert": " links to the full transcript archive, and no control opens the limited legacy import sheet."
+          "insert": " links to the full transcript archive. No control opens the limited legacy import sheet."
         }
       ],
       "children": []
@@ -163,14 +180,14 @@
           }
         },
         {
-          "insert": " writes raw.txt and clean.txt before terminal metadata and allows downloading them. Metadata is the worker's publication marker. The reference Swift server in "
+          "insert": " writes raw.txt and clean.txt before the terminal metadata that marks publication for the worker, and serves both files for download. The reference Swift server in "
         },
         {
           "insert": "GenerationService.swift",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/V07ServerKit/GenerationService.swift"
+              "path": "Sources/TranscriberServerKit/GenerationService.swift"
             }
           }
         },
@@ -206,7 +223,20 @@
           }
         },
         {
-          "insert": " prohibits automated tests. Check raw and clean artifacts by dictating through V07 Dev and reading the generation's files. The upstream import implementation in "
+          "insert": " prohibits automated tests. Check raw and clean artifacts by dictating through Transcriber Dev and reading the generation's files."
+        }
+      ],
+      "children": []
+    },
+    "impl-imports-compat": {
+      "id": "impl-imports-compat",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The upstream import implementation in "
         },
         {
           "insert": "imports.ts",
@@ -222,6 +252,26 @@
         }
       ],
       "children": []
+    },
+    "impl-installed-identity": {
+      "id": "impl-installed-identity",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Installed Identity",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "impl-transcriber-installer",
+        "impl-transcriber-bundle-identity",
+        "impl-transcriber-fixed-labels"
+      ]
     },
     "impl-transcriber-installer": {
       "id": "impl-transcriber-installer",
@@ -240,7 +290,7 @@
           }
         },
         {
-          "insert": " runs upstream's "
+          "insert": " runs "
         },
         {
           "insert": "build-app.sh",
@@ -252,7 +302,7 @@
           }
         },
         {
-          "insert": " unchanged and copies the result to "
+          "insert": ", which builds "
         },
         {
           "insert": "build/Transcriber.app",
@@ -261,16 +311,16 @@
           }
         },
         {
-          "insert": ". In the copy it renames the executable, rewrites the name and bundle identifier in "
+          "insert": " from "
         },
         {
-          "insert": "Info.plist",
+          "insert": "Resources/Info.plist",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": ", and signs with the pinned local certificate. The rename stays out of upstream's build script and source tree, so a sync has no rename conflicts there."
+          "insert": ". The installer checks the bundle's name, identifier, and executable against the Transcriber values, then signs it with the pinned local certificate."
         }
       ],
       "children": []
@@ -283,16 +333,16 @@
       },
       "text": [
         {
-          "insert": "V07Build.swift",
+          "insert": "TranscriberBuild.swift",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/V07Core/V07Build.swift"
+              "path": "Sources/TranscriberCore/TranscriberBuild.swift"
             }
           }
         },
         {
-          "insert": " reads the display name and bundle identifier from the running bundle and falls back to upstream's values. The settings directory and Keychain service follow the bundle. Transcriber uses "
+          "insert": " reads the display name and bundle identifier from the running bundle and falls back to the Transcriber values. The settings directory and Keychain service follow the bundle, so Transcriber uses "
         },
         {
           "insert": "~/Library/Application Support/Transcriber",
@@ -310,7 +360,7 @@
           }
         },
         {
-          "insert": ", and an upstream build keeps its own."
+          "insert": "."
         }
       ],
       "children": []
@@ -323,7 +373,25 @@
       },
       "text": [
         {
-          "insert": "Some fixed labels in the app window show upstream's name, such as the sidebar title V07 in V07WindowView.swift. The window title and the login toggle use the bundle's display name."
+          "insert": "The sidebar title in "
+        },
+        {
+          "insert": "TranscriberWindowView.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and the menu header in "
+        },
+        {
+          "insert": "MenuHUDViews.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " are fixed Transcriber labels. The window title and the login toggle use the bundle's display name."
         }
       ],
       "children": []

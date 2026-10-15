@@ -21,6 +21,7 @@
         "naming-lead",
         "naming-identity",
         "naming-upstream",
+        "naming-ports",
         "naming-retained",
         "fork-diff-heading",
         "fork-diff-lead",
@@ -209,7 +210,7 @@
       },
       "text": [
         {
-          "insert": "Upstream V07 recognizes speech with local Whisper only, so this routing is a fork difference."
+          "insert": "Upstream recognizes speech with local Whisper only, so this routing is a fork difference."
         }
       ],
       "children": []
@@ -286,7 +287,16 @@
       "props": {},
       "text": [
         {
-          "insert": "Three names are in use. Transcriber is the fork's installed app. V07 is upstream's project, modules, environment variable prefix, and development app. Sotto is the earlier upstream name, which the fork keeps in a fixed set of identifiers."
+          "insert": "Transcriber names everything in the fork. Upstream is "
+        },
+        {
+          "insert": "davis7dotsh/inlay",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", formerly named V07. Sotto is an earlier upstream name that survives in a fixed set of identifiers."
         }
       ],
       "children": []
@@ -299,7 +309,7 @@
       },
       "text": [
         {
-          "insert": "The installed app has a fixed identity: the name Transcriber and the bundle identifier "
+          "insert": "The installed app is named Transcriber, with the bundle identifier "
         },
         {
           "insert": "ai.codecaine.transcriber",
@@ -308,16 +318,60 @@
           }
         },
         {
-          "insert": ". macOS permissions, the client settings directory, and the Keychain service follow the bundle identifier and name. Upstream's rename to V07 changed its bundle identifier to "
-        },
+          "insert": "."
+        }
+      ],
+      "children": [
+        "naming-identity-follow",
+        "naming-identity-plist"
+      ]
+    },
+    "naming-identity-follow": {
+      "id": "naming-identity-follow",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
         {
-          "insert": "dev.davis.v07",
+          "insert": "macOS permissions, the client settings directory, and the Keychain service follow that name and identifier."
+        }
+      ],
+      "children": []
+    },
+    "naming-identity-plist": {
+      "id": "naming-identity-plist",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Resources/Info.plist",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": ", which macOS treats as a different app. A fixed identity keeps an upstream rename from changing what macOS sees."
+          "insert": " carries both values, so "
+        },
+        {
+          "insert": "scripts/build-app.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " builds "
+        },
+        {
+          "insert": "build/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with that identity directly."
         }
       ],
       "children": []
@@ -330,10 +384,36 @@
       },
       "text": [
         {
-          "insert": "The source tree, Swift module names, "
+          "insert": "Everything in the source is named Transcriber."
+        }
+      ],
+      "children": [
+        "naming-source-list",
+        "naming-source-ids",
+        "naming-source-notes"
+      ]
+    },
+    "naming-source-list": {
+      "id": "naming-source-list",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The Swift modules and files, the "
         },
         {
-          "insert": "README.md",
+          "insert": "transcriber-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "transcriber-engine",
           "attributes": {
             "code": true
           }
@@ -342,14 +422,73 @@
           "insert": ", and "
         },
         {
-          "insert": "scripts/build-app.sh",
+          "insert": "transcriber-text-engine",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " keep upstream's V07 names and are identical to upstream, so a sync has no rename conflicts in them. Fork notes live in "
+          "insert": " binaries, and the "
         },
+        {
+          "insert": "TRANSCRIBER_*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " environment variables all use the name."
+        }
+      ],
+      "children": []
+    },
+    "naming-source-ids": {
+      "id": "naming-source-ids",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The bundle identifiers are "
+        },
+        {
+          "insert": "ai.codecaine.transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "ai.codecaine.transcriber.dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and the log subsystem is "
+        },
+        {
+          "insert": "ai.codecaine.transcriber",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "naming-source-notes": {
+      "id": "naming-source-notes",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
         {
           "insert": "TRANSCRIBER.md",
           "attributes": {
@@ -357,7 +496,49 @@
           }
         },
         {
-          "insert": "."
+          "insert": " summarizes the names, signing, and local build commands."
+        }
+      ],
+      "children": []
+    },
+    "naming-ports": {
+      "id": "naming-ports",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Upstream is mined selectively and never merged wholesale."
+        }
+      ],
+      "children": [
+        "naming-ports-adapt",
+        "naming-ports-record"
+      ]
+    },
+    "naming-ports-adapt": {
+      "id": "naming-ports-adapt",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Useful upstream features are hand-ported and adapted to the fork's names and behavior."
+        }
+      ],
+      "children": []
+    },
+    "naming-ports-record": {
+      "id": "naming-ports-record",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Each port is recorded under Fork Differences From Upstream on this page."
         }
       ],
       "children": []
@@ -418,6 +599,30 @@
           "insert": "."
         }
       ],
+      "children": [
+        "naming-retained-migration"
+      ]
+    },
+    "naming-retained-migration": {
+      "id": "naming-retained-migration",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A separate data migration is scheduled to rename them, together with the checkout folder "
+        },
+        {
+          "insert": "sotto",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Leave them unchanged until that migration runs."
+        }
+      ],
       "children": []
     },
     "fork-diff-heading": {
@@ -439,7 +644,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork differs from upstream V07 in six areas. Check each one when you merge upstream, because each adds files or fields that upstream does not have."
+          "insert": "The fork differs from upstream in six areas. Check each one when you port an upstream feature, because each adds files or fields that upstream does not have."
         }
       ],
       "children": []
@@ -452,11 +657,12 @@
       },
       "text": [
         {
-          "insert": "The installed app keeps the fixed Transcriber identity."
+          "insert": "The whole source and the installed app carry the Transcriber name."
         }
       ],
       "children": [
         "fork-diff-identity-detail",
+        "fork-diff-identity-build",
         "fork-diff-identity-dev"
       ]
     },
@@ -468,7 +674,44 @@
       },
       "text": [
         {
-          "insert": "The Naming section lists the bundle identifier and the files that keep upstream's names."
+          "insert": "The Naming section lists the bundle identifiers and the upstream policy."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-identity-build": {
+      "id": "fork-diff-identity-build",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/build-app.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " builds "
+        },
+        {
+          "insert": "build/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " directly, and "
+        },
+        {
+          "insert": "scripts/install-local.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " checks its identity and signs it. No step copies or rebrands an upstream app."
         }
       ],
       "children": []
@@ -587,7 +830,7 @@
           "insert": ", "
         },
         {
-          "insert": "Sources/V07API",
+          "insert": "Sources/TranscriberAPI",
           "attributes": {
             "code": true
           }
@@ -596,7 +839,7 @@
           "insert": ", "
         },
         {
-          "insert": "Sources/V07/Views/HistoryPage.swift",
+          "insert": "Sources/Transcriber/Views/HistoryPage.swift",
           "attributes": {
             "code": true
           }
@@ -605,7 +848,7 @@
           "insert": ", and "
         },
         {
-          "insert": "Sources/V07/Views/PreferencesPage.swift",
+          "insert": "Sources/Transcriber/Views/PreferencesPage.swift",
           "attributes": {
             "code": true
           }
@@ -840,7 +1083,7 @@
       },
       "text": [
         {
-          "insert": "Upstream V07 has only "
+          "insert": "Upstream has only "
         },
         {
           "insert": "hold",
@@ -892,7 +1135,7 @@
           "insert": "The change touches "
         },
         {
-          "insert": "Sources/V07/System/HotkeyMonitor.swift",
+          "insert": "Sources/Transcriber/System/HotkeyMonitor.swift",
           "attributes": {
             "code": true
           }
@@ -901,7 +1144,7 @@
           "insert": ", "
         },
         {
-          "insert": "Sources/V07Core/V07Configuration.swift",
+          "insert": "Sources/TranscriberCore/TranscriberConfiguration.swift",
           "attributes": {
             "code": true
           }
@@ -910,7 +1153,7 @@
           "insert": ", and the idle hints in "
         },
         {
-          "insert": "V07Brand.swift",
+          "insert": "TranscriberBrand.swift",
           "attributes": {
             "code": true
           }
@@ -919,7 +1162,7 @@
           "insert": ", "
         },
         {
-          "insert": "V07WindowView.swift",
+          "insert": "TranscriberWindowView.swift",
           "attributes": {
             "code": true
           }
@@ -937,7 +1180,7 @@
           "insert": " under "
         },
         {
-          "insert": "Sources/V07/Views",
+          "insert": "Sources/Transcriber/Views",
           "attributes": {
             "code": true
           }
@@ -956,7 +1199,7 @@
       },
       "text": [
         {
-          "insert": "A sync that edits "
+          "insert": "A port that edits "
         },
         {
           "insert": "HotkeyMonitor.swift",
@@ -1130,7 +1373,7 @@
           "insert": " under "
         },
         {
-          "insert": "Sources/V07/System",
+          "insert": "Sources/Transcriber/System",
           "attributes": {
             "code": true
           }
@@ -1148,7 +1391,7 @@
           "insert": " and "
         },
         {
-          "insert": "Sources/V07Core/MicrophonePreferences.swift",
+          "insert": "Sources/TranscriberCore/MicrophonePreferences.swift",
           "attributes": {
             "code": true
           }
@@ -1167,7 +1410,7 @@
       },
       "text": [
         {
-          "insert": "A sync that edits "
+          "insert": "A port that edits "
         },
         {
           "insert": "AudioRecorder.swift",
@@ -1272,7 +1515,7 @@
           "insert": ", "
         },
         {
-          "insert": "Sources/V07/ServerClient.swift",
+          "insert": "Sources/Transcriber/ServerClient.swift",
           "attributes": {
             "code": true
           }
@@ -1281,7 +1524,7 @@
           "insert": ", "
         },
         {
-          "insert": "Sources/V07/V07Controller.swift",
+          "insert": "Sources/Transcriber/TranscriberController.swift",
           "attributes": {
             "code": true
           }
@@ -1309,7 +1552,7 @@
       },
       "text": [
         {
-          "insert": "A sync that edits the upload, seal, or restart code in "
+          "insert": "A port that edits the upload, seal, or restart code in "
         },
         {
           "insert": "generation-service.ts",

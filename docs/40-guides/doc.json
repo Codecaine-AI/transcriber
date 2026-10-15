@@ -110,7 +110,7 @@
           }
         },
         {
-          "insert": ": upstream V07 build, static checks, and the Transcriber install workflow."
+          "insert": ": Transcriber Dev build, static checks, and the Transcriber install workflow."
         }
       ],
       "children": []
