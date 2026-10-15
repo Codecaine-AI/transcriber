@@ -32,6 +32,8 @@ struct TranscriberWindowView: View {
                 HStack(spacing: 12) {
                     TranscriberAppIcon(size: 36)
                     Text("Transcriber").font(.system(size: 27, weight: .regular, design: .serif))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                     DevBadge()
                     Spacer(minLength: 0)
                 }
