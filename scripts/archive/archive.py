@@ -19,6 +19,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# A one-off data migration holds this file in the cache directory; nothing may copy records meanwhile.
+MIGRATION_LOCK = 'migration.lock'
 TEXT_COLUMNS = ('asrText', 'formattedText', 'editedText', 'pastedText', 'serverFinalizedText',
                 'defaultAsrText', 'fallbackAsrText', 'defaultFormattedText', 'fallbackFormattedText',
                 'editedTextUnbounded', 'toneMatchedText', 'desiredAsr', 'desiredFormatted')
@@ -341,7 +343,12 @@ class Archive:
             finally:
                 db.close()
 
+    def require_unlocked(self):
+        if (self.cache / MIGRATION_LOCK).exists():
+            raise RuntimeError('A transcript archive migration is in progress; the worker stays stopped until it finishes')
+
     def sync_transcriber(self, source):
+        self.require_unlocked()
         source = Path(source).expanduser().resolve()
         if not source.is_dir():
             raise FileNotFoundError("Transcriber data directory is unavailable")
@@ -449,6 +456,7 @@ def main():
     elif args.command == 'sync':
         print('Archived', archive.sync_transcriber(args.transcriber_data), 'Transcriber records')
     elif args.command == 'serve':
+        archive.require_unlocked()
         from viewer import serve
         serve(archive, args.transcriber_data, args.port)
 

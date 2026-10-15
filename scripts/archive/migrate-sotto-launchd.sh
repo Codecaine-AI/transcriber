@@ -1,13 +1,20 @@
 #!/bin/bash
 # One-off swap of the ai.codecaine.sotto.* launchd services for ai.codecaine.transcriber.*.
-# The repository folder and every path inside the plists stay as they are.
+# The repository folder and every path inside the plists stay as they are. DIR is the migration directory;
+# migrate-sotto.py backup --dest DIR uses the same one.
 #
-#   migrate-sotto-launchd.sh down                    stop the sotto services, confirm 8391/8392 closed
-#   migrate-sotto-launchd.sh preview --backup DIR    generate the new plists into DIR only; touches nothing else
-#   migrate-sotto-launchd.sh up --backup DIR         install and start the transcriber services
-#   migrate-sotto-launchd.sh rollback --backup DIR   stop the transcriber services, restore and start the sotto ones
+#   down --dir DIR      quit the app, drain the server and the archive worker, stop the sotto services and move
+#                       their plists into DIR, so nothing starts again at login or after a reboot
+#   preview --dir DIR   write the transcriber plists into DIR/launchd/preview only
+#   up --dir DIR        after migrate + verify passed and main has the new code: install and start transcriber
+#   stop --dir DIR      the same drain-and-stop for the transcriber services (before an archive rollback, and
+#                       Phase 2's folder move); their plists move into DIR/launchd/stopped
+#   start --dir DIR     reinstall the plists from DIR/launchd/stopped and start the transcriber services again
+#   rollback --dir DIR  after migrate-sotto.py rollback passed and main runs the sotto code again: restore sotto
 #
-# DIR is the migrate-sotto.py backup directory; its launchd/ and repo-local/ copies are the source of truth.
+# Guards against an accidental start while data moves: the plists leave ~/Library/LaunchAgents and the labels are
+# disabled (primary guard, since the old code cannot read new files), and <cache>/migration.lock makes the new
+# archive worker, install.py and Start Transcriber.command refuse to run (secondary guard).
 set -euo pipefail
 
 die() {
@@ -18,98 +25,140 @@ say() { printf '[%s] %s\n' "$1" "$2"; }
 
 command=${1:-}
 [[ $# -gt 0 ]] && shift
-backup=""
+dir=""
 while [[ $# -gt 0 ]]; do
     case $1 in
-    --backup)
-        [[ $# -ge 2 && -d $2 ]] || die "--backup needs an existing directory"
-        backup=$(cd "$2" && pwd -P)
+    --dir)
+        [[ $# -ge 2 ]] || die "--dir needs a directory"
+        mkdir -p "$2"
+        dir=$(cd "$2" && pwd -P)
         shift 2
         ;;
     *) die "unknown argument: $1" ;;
     esac
 done
+[[ -n $dir || -z $command ]] || die "pass --dir DIR"
 
-domain="gui/$(id -u)"
+script_dir=$(cd "$(dirname "$0")" && pwd -P)
+# Scratch rehearsals only: point at copies. Real runs use the defaults.
+agents=${MIGRATE_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}
+repo=${MIGRATE_REPO:-$(dirname "$(git -C "$script_dir" rev-parse --path-format=absolute --git-common-dir)")}
+transcripts=${MIGRATE_TRANSCRIPTS:-$HOME/Transcripts}
+[[ -z ${MIGRATE_LAUNCH_AGENTS:-}${MIGRATE_REPO:-}${MIGRATE_TRANSCRIPTS:-} ]] ||
+    say scratch "agents=$agents repo=$repo transcripts=$transcripts"
+uid=$(id -u)
+domain="gui/$uid"
 labels=(server archive app)
-local_labels=(archive server)
-agents="$HOME/Library/LaunchAgents"
+lock="$repo/.local/archive-cache/migration.lock"
+app_id=ai.codecaine.transcriber
 
 loaded() { launchctl print "$domain/$1" >/dev/null 2>&1; }
 listeners() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fpc 2>/dev/null | tr '\n' ' ' || true; }
-
-field() { # field NAME: read a value from DIR/backup.json
-    python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$backup/backup.json" "$1"
+tool() { python3 "$script_dir/migrate-sotto.py" --repo "$repo" --transcripts "$transcripts" "$@"; }
+app_running() { [[ $(osascript -e "application id \"$app_id\" is running" 2>/dev/null) == true ]]; }
+journal() {
+    python3 -c 'import json,sys,os; p=sys.argv[1]; print((json.load(open(p)).get(sys.argv[2]) or "") if os.path.exists(p) else "")' \
+        "$dir/journal.json" "$1"
 }
-journal() { # journal KEY: read a value from DIR/journal.json, empty when absent
-    python3 -c 'import json,sys,os; p=sys.argv[1]; print(json.load(open(p)).get(sys.argv[2]) or "" if os.path.exists(p) else "")' \
-        "$backup/journal.json" "$1"
+backup_field() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$dir/backup.json" "$1"; }
+
+wait_until() { # wait_until SECONDS DESCRIPTION COMMAND...: poll every 2 s, fail with DESCRIPTION on timeout
+    local seconds=$1 what=$2
+    shift 2
+    local deadline=$((SECONDS + seconds))
+    until "$@"; do
+        [[ $SECONDS -lt $deadline ]] || die "timed out after ${seconds}s waiting for: $what"
+        sleep 2
+    done
 }
 
-stop_labels() { # stop_labels PREFIX
-    local prefix=$1 label target
+drained() { # drained NAMESPACE FIELD...: every listed drain-status field is 0
+    local status ns=$1
+    shift
+    status=$(tool drain-status --namespace "$ns" || true)
+    python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(any(d[k] for k in sys.argv[2:]))' "$status" "$@" ||
+        {
+            printf '    waiting: %s\n' "$status"
+            return 1
+        }
+}
+
+ports_closed() { [[ -z $(listeners 8391)$(listeners 8392) ]]; }
+labels_gone() { # labels_gone PREFIX
+    local label
     for label in "${labels[@]}"; do
-        target="$domain/ai.codecaine.$prefix.$label"
+        if loaded "ai.codecaine.$1.$label"; then return 1; fi
+    done
+}
+
+place() { # place SRC DEST MODE: copy into place, refusing to replace a different file
+    if [[ -e $2 ]]; then
+        cmp -s "$1" "$2" || die "$2 exists and differs from $1"
+        return 0
+    fi
+    cp "$1" "$2.migrate-tmp"
+    chmod "$3" "$2.migrate-tmp"
+    mv "$2.migrate-tmp" "$2"
+    say did "installed $2"
+}
+
+stash() { # stash FILE DESTDIR: move FILE into DESTDIR (no-op when absent; refuses to overwrite)
+    [[ -e $1 ]] || return 0
+    mkdir -p "$2"
+    [[ ! -e $2/$(basename "$1") ]] || die "$2/$(basename "$1") already exists"
+    mv "$1" "$2/"
+    say did "moved $1 -> $2/"
+}
+
+drain_and_stop() { # drain_and_stop PREFIX DESTDIR
+    local prefix=$1 dest=$2 label
+    if app_running; then
+        say info "waiting for any dictation in progress to finish uploading (do not start a new one)"
+        wait_until 180 "the current dictation to finish uploading" drained "$prefix" receiving
+        osascript -e "tell application id \"$app_id\" to quit" >/dev/null
+        wait_until 60 "Transcriber.app to quit" eval '! app_running'
+        say ok "Transcriber.app quit; unconfirmed takes stay in Active/Recovered Recordings for its next launch"
+    fi
+    wait_until 900 "the server to finish every queued and in-progress take" drained "$prefix" in_flight unreadable
+    say ok "server has no unfinished takes"
+    wait_until 120 "the archive worker to copy every finished take" drained "$prefix" in_flight unarchived unreadable
+    say ok "archive worker has copied every finished take"
+    mkdir -p "$(dirname "$lock")"
+    printf 'migration started %s\n' "$(date -u +%FT%TZ)" >"$lock"
+    say did "created $lock"
+    launchctl print-disabled "$domain" | grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dest/disabled-before.txt" || true
+    for label in archive server app; do
         if loaded "ai.codecaine.$prefix.$label"; then
-            launchctl bootout "$target" || die "bootout $target failed"
-            say did "bootout $target"
+            launchctl bootout "$domain/ai.codecaine.$prefix.$label"
+            say did "bootout ai.codecaine.$prefix.$label"
         fi
+        launchctl disable "$domain/ai.codecaine.$prefix.$label"
+        wait_until 30 "ai.codecaine.$prefix.$label to unload" eval "! loaded ai.codecaine.$prefix.$label"
     done
-    for _ in $(seq 100); do
-        local busy=0
-        for label in "${labels[@]}"; do
-            if loaded "ai.codecaine.$prefix.$label"; then busy=1; fi
-        done
-        for port in 8391 8392; do
-            if [[ -n $(listeners "$port") ]]; then busy=1; fi
-        done
-        if [[ $busy -eq 0 ]]; then break; fi
-        sleep 0.2
-    done
-    for label in "${labels[@]}"; do
-        ! loaded "ai.codecaine.$prefix.$label" || die "ai.codecaine.$prefix.$label is still loaded"
-    done
-    for port in 8391 8392; do
-        [[ -z $(listeners "$port") ]] || die "port $port is still in use by: $(listeners "$port")"
-    done
-    say ok "ai.codecaine.$prefix.* stopped; ports 8391 and 8392 closed"
+    wait_until 30 "ports 8391 and 8392 to close" ports_closed
+    for label in "${labels[@]}"; do stash "$agents/ai.codecaine.$prefix.$label.plist" "$dest/LaunchAgents"; done
+    for label in archive server; do stash "$repo/.local/ai.codecaine.$prefix.$label.plist" "$dest/repo-local"; done
+    stash "$repo/.local/Start Transcriber.command" "$dest/repo-local"
+    stash "$repo/.local/Start Sotto.command" "$dest/repo-local"
+    say ok "ai.codecaine.$prefix.* stopped and disabled; plists moved to $dest"
 }
 
-require_quiet() {
-    local prefix label
-    for prefix in sotto transcriber; do
-        for label in "${labels[@]}"; do
-            ! loaded "ai.codecaine.$prefix.$label" || die "ai.codecaine.$prefix.$label is loaded; run down first"
-        done
-    done
-    for port in 8391 8392; do
-        [[ -z $(listeners "$port") ]] || die "port $port is in use by: $(listeners "$port")"
-    done
-}
-
-require_backup() {
-    [[ -n $backup && -f $backup/backup.json ]] || die "pass --backup DIR from migrate-sotto.py backup"
-    [[ $(field status) == complete ]] || die "backup is incomplete"
-    repo=$(field repo)
-    for label in "${labels[@]}"; do
-        [[ -f $backup/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist ]] || die "backup lacks ai.codecaine.sotto.$label.plist"
-    done
-}
-
-generate() { # generate OUT: build the transcriber plists and launcher from the backed-up sotto copies
-    local out=$1
+generate() { # generate OUT: transcriber plists from the sotto copies in DIR/launchd, launcher from install.py
+    local out=$1 f
     rm -rf "$out"
     mkdir -p "$out/LaunchAgents" "$out/repo-local"
-    python3 - "$backup" "$out" "$repo" "$(field transcripts)" <<'PY'
+    python3 - "$dir/launchd" "$out" "$repo" "$transcripts" "$script_dir" <<'PY'
 import copy, plistlib, sys
 from pathlib import Path
-backup, out, repo, transcripts = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4]
+src_root, out, repo, transcripts, scripts = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]
+sys.path.insert(0, scripts)
+from install import launcher_text
 
-def walk(value):
+def strings(value):
     if isinstance(value, dict):
-        for v in value.values(): yield from walk(v)
+        for v in value.values(): yield from strings(v)
     elif isinstance(value, list):
-        for v in value: yield from walk(v)
+        for v in value: yield from strings(v)
     elif isinstance(value, str):
         yield value
 
@@ -123,174 +172,187 @@ def convert(src, dst, label):
     assert len(flags) == (1 if label == 'archive' else 0), (src, flags)
     for i in flags:
         args[i] = '--transcriber-data'
-    # Only the label and the flag may change; any other sotto must be the repo or archive path.
-    for s in walk(new):
+    for s in strings(new):  # any remaining sotto must be the unchanged repo or archive path
         assert 'sotto' not in s or any(s == p or s.startswith(p + '/') for p in (repo, transcripts)), (src, s)
-    changed = [k for k in set(old) | set(new) if old.get(k) != new.get(k)]
-    assert set(changed) <= {'Label', 'ProgramArguments'}, changed
+    assert {k for k in set(old) | set(new) if old.get(k) != new.get(k)} <= {'Label', 'ProgramArguments'}
     dst.write_bytes(plistlib.dumps(new, fmt=plistlib.FMT_XML))
-    print(f'    {src.name} -> {dst.name}: Label' + (', --sotto-data -> --transcriber-data' if flags else ''))
+    print(f'    {src.name} -> {dst.name}')
 
 for label in ('server', 'archive', 'app'):
-    convert(backup / 'launchd/LaunchAgents' / f'ai.codecaine.sotto.{label}.plist',
+    convert(src_root / 'LaunchAgents' / f'ai.codecaine.sotto.{label}.plist',
             out / 'LaunchAgents' / f'ai.codecaine.transcriber.{label}.plist', label)
 for label in ('archive', 'server'):
-    src = backup / 'repo-local' / f'ai.codecaine.sotto.{label}.plist'
+    src = src_root / 'repo-local' / f'ai.codecaine.sotto.{label}.plist'
     if src.is_file():
         convert(src, out / 'repo-local' / f'ai.codecaine.transcriber.{label}.plist', label)
-
-src = backup / 'repo-local' / 'Start Transcriber.command'
-if src.is_file():
-    text = src.read_text()
-    new = text.replace('ai.codecaine.sotto.', 'ai.codecaine.transcriber.')
-    for name in ('root', 'domain', 'label'):
-        new = new.replace(f'sotto_{name}', f'transcriber_{name}')
-    leftover = [line for line in new.splitlines() if 'sotto' in line and not line.startswith('transcriber_root=')]
-    assert not leftover, leftover
-    (out / 'repo-local' / 'Start Transcriber.command').write_text(new)
-    print('    Start Transcriber.command: labels and variable names renamed; repo path unchanged')
+(out / 'repo-local' / 'Start Transcriber.command').write_text(launcher_text(repo))
+print('    Start Transcriber.command from install.py (checks the migration lock)')
 PY
-    local f
     for f in "$out"/LaunchAgents/*.plist "$out"/repo-local/*.plist; do
         plutil -lint "$f" >/dev/null || die "plutil -lint failed for $f"
     done
-    say ok "generated and linted $(ls "$out"/LaunchAgents "$out"/repo-local | grep -c '\.plist$') plists in $out"
-    for label in "${labels[@]}"; do
-        printf '    --- diff ai.codecaine.sotto.%s -> transcriber (plutil -p)\n' "$label"
-        diff <(plutil -p "$backup/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist") \
-            <(plutil -p "$out/LaunchAgents/ai.codecaine.transcriber.$label.plist") | sed 's/^/    /' || true
+    for f in "$out"/LaunchAgents/*.plist; do
+        printf '    --- %s\n' "$(basename "$f")"
+        diff <(plutil -p "$dir/launchd/LaunchAgents/$(basename "$f" | sed 's/transcriber/sotto/')") <(plutil -p "$f") |
+            sed 's/^/    /' || true
     done
-    if [[ -f "$out/repo-local/Start Transcriber.command" ]]; then
-        printf '    --- diff Start Transcriber.command\n'
-        diff "$backup/repo-local/Start Transcriber.command" "$out/repo-local/Start Transcriber.command" | sed 's/^/    /' || true
-    fi
+    say ok "generated and linted the transcriber plists in $out"
 }
 
-place() { # place NEW_FILE DEST MODE: install a generated file, refusing to overwrite something different
-    if [[ -e $2 ]]; then
-        cmp -s "$1" "$2" || die "$2 exists and differs from the generated file"
-        return
-    fi
-    cp "$1" "$2"
-    chmod "$3" "$2"
-    say did "installed $2"
-}
-
-stash() { # stash FILE DEST_DIR [ORIGINAL]: move FILE into the backup, refusing if it differs from ORIGINAL
-    [[ -e $1 ]] || return 0
-    if [[ -n ${3:-} ]]; then cmp -s "$1" "$3" || die "$1 changed since the backup; resolve by hand"; fi
-    mkdir -p "$2"
-    [[ ! -e $2/$(basename "$1") ]] || die "$2/$(basename "$1") already exists"
-    mv "$1" "$2/"
-    say did "moved $1 -> $2/"
-}
-
-health() { # health SOURCE: wait for the server and the archive viewer; SOURCE is the expected archive source id
-    local source=$1 expected
-    expected=$(field records)
-    for _ in $(seq 120); do
-        curl -fsS -m 2 -o /dev/null http://127.0.0.1:8391/v1/health 2>/dev/null && break
-        sleep 1
-    done
-    curl -fsS -m 2 -o /dev/null http://127.0.0.1:8391/v1/health || die "server health on 8391 did not answer"
-    say ok "server answers on http://127.0.0.1:8391/v1/health"
-    local summary=""
-    for _ in $(seq 120); do
-        summary=$(curl -fsS -m 5 http://127.0.0.1:8392/api/summary 2>/dev/null || true)
-        if [[ -n $summary ]] && python3 - "$summary" "$source" "$expected" <<'PY'; then break; fi
+health() { # health SOURCE
+    local source=$1 expected body=""
+    expected=$(find "$transcripts/records/$source" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+    ready() {
+        body=$(curl -fsS -m 3 http://127.0.0.1:8391/v1/health 2>/dev/null) || return 1
+        python3 -c 'import json,sys; sys.exit(json.loads(sys.argv[1]).get("ready") is not True)' "$body"
+    }
+    wait_until 240 "server health ready:true on 8391" ready
+    say ok "server ready on 8391"
+    archive_ok() {
+        body=$(curl -fsS -m 5 http://127.0.0.1:8392/api/summary 2>/dev/null) || return 1
+        python3 - "$body" "$source" "$expected" <<'PY'
 import json, sys
 d, source, expected = json.loads(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 counts = {s['source']: s['records'] for s in d['sources']}
-sync = d.get(f'last_{source}_sync')
-sys.exit(0 if counts.get(source, 0) >= expected and set(counts) == {source, 'wispr-flow'} and sync and not d['error'] else 1)
+ok = counts.get(source, 0) >= expected and set(counts) == {source, 'wispr-flow'}
+sys.exit(0 if ok and d.get(f'last_{source}_sync') and not d.get('error') else 1)
 PY
-        summary=""
-        sleep 1
+    }
+    wait_until 240 "archive viewer on 8392 to report $expected $source records and a clean sync" archive_ok
+    say ok "archive viewer on 8392: $body"
+}
+
+restore_enabled() { # restore_enabled PREFIX: enable labels unless they were disabled before the migration
+    local label file="$dir/launchd/disabled-before.txt"
+    for label in "${labels[@]}"; do
+        if grep -q "\"ai.codecaine.$1.$label\" => disabled" "$file" 2>/dev/null; then
+            say keep "ai.codecaine.$1.$label stays disabled as it was before"
+        else
+            launchctl enable "$domain/ai.codecaine.$1.$label"
+        fi
     done
-    [[ -n $summary ]] || die "archive viewer on 8392 never reported $expected $source records with a clean sync"
-    say ok "archive viewer on 8392: $summary"
 }
 
 case $command in
 down)
-    stop_labels sotto
+    if [[ -d $dir/launchd/LaunchAgents ]] && ! ls "$agents"/ai.codecaine.sotto.*.plist >/dev/null 2>&1; then
+        labels_gone sotto && ports_closed && say PASS "already down" && exit 0
+    fi
+    [[ ! -e $dir/launchd ]] || die "$dir/launchd already exists"
+    for label in "${labels[@]}"; do
+        [[ -f $agents/ai.codecaine.sotto.$label.plist ]] || die "missing $agents/ai.codecaine.sotto.$label.plist"
+    done
+    mkdir -p "$dir/launchd"
+    drain_and_stop sotto "$dir/launchd"
+    say PASS "down. Next: migrate-sotto.py backup --dest $dir"
     ;;
 preview)
-    require_backup
-    generate "$backup/launchd/preview"
-    say PASS "preview only; nothing outside $backup changed"
+    generate "$dir/launchd/preview"
+    say PASS "preview only; nothing outside $dir changed"
     ;;
 up)
-    require_backup
-    [[ $(field launch_agents) == "$agents" ]] || die "backup was taken for another LaunchAgents folder"
-    [[ $(journal status) == complete && -n $(journal verified_at) ]] ||
-        die "run migrate-sotto.py migrate and verify (both passing) before up"
+    [[ -f $dir/backup.json && $(journal status) == complete && -n $(journal verified_at) ]] ||
+        die "run migrate-sotto.py backup, migrate and verify (all passing) first"
+    [[ $(backup_field launch_agents) == "$agents" ]] || die "the backup was taken for another LaunchAgents folder"
     grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py" ||
         die "$repo/scripts/archive/archive.py is still the sotto code; merge the rename first"
-    require_quiet
-    generate "$backup/launchd/new"
+    labels_gone sotto && labels_gone transcriber || die "a sotto or transcriber label is loaded"
+    ports_closed || die "ports 8391/8392 are in use: $(listeners 8391) $(listeners 8392)"
+    python3 - "$dir" <<'PY' || die "files in $dir/launchd differ from the backup record"
+import hashlib, json, sys
+from pathlib import Path
+d = Path(sys.argv[1])
+recorded = json.load(open(d / 'backup.json'))['launchd']
+actual = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((d / 'launchd/LaunchAgents').iterdir())}
+sys.exit(recorded != actual)
+PY
+    generate "$dir/launchd/new"
     for label in "${labels[@]}"; do
-        place "$backup/launchd/new/LaunchAgents/ai.codecaine.transcriber.$label.plist" \
-            "$agents/ai.codecaine.transcriber.$label.plist" 600
-        stash "$agents/ai.codecaine.sotto.$label.plist" "$backup/launchd/moved/LaunchAgents" \
-            "$backup/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist"
+        place "$dir/launchd/new/LaunchAgents/ai.codecaine.transcriber.$label.plist" "$agents/ai.codecaine.transcriber.$label.plist" 600
     done
-    for label in "${local_labels[@]}"; do
-        if [[ -f $backup/launchd/new/repo-local/ai.codecaine.transcriber.$label.plist ]]; then
-            place "$backup/launchd/new/repo-local/ai.codecaine.transcriber.$label.plist" \
-                "$repo/.local/ai.codecaine.transcriber.$label.plist" 600
+    for label in archive server; do
+        if [[ -f $dir/launchd/new/repo-local/ai.codecaine.transcriber.$label.plist ]]; then
+            place "$dir/launchd/new/repo-local/ai.codecaine.transcriber.$label.plist" "$repo/.local/ai.codecaine.transcriber.$label.plist" 600
         fi
-        stash "$repo/.local/ai.codecaine.sotto.$label.plist" "$backup/launchd/moved/repo-local" \
-            "$backup/repo-local/ai.codecaine.sotto.$label.plist"
     done
-    stash "$repo/.local/Start Transcriber.command" "$backup/launchd/moved/repo-local" \
-        "$backup/repo-local/Start Transcriber.command"
-    place "$backup/launchd/new/repo-local/Start Transcriber.command" "$repo/.local/Start Transcriber.command" 755
-    stash "$repo/.local/Start Sotto.command" "$backup/launchd/moved/repo-local" "$backup/repo-local/Start Sotto.command"
+    place "$dir/launchd/new/repo-local/Start Transcriber.command" "$repo/.local/Start Transcriber.command" 755
+    restore_enabled transcriber
+    rm -f "$lock"
+    say did "removed $lock"
     for label in "${labels[@]}"; do
-        launchctl bootstrap "$domain" "$agents/ai.codecaine.transcriber.$label.plist" ||
-            die "bootstrap ai.codecaine.transcriber.$label failed; run rollback"
+        launchctl bootstrap "$domain" "$agents/ai.codecaine.transcriber.$label.plist"
+        say did "bootstrap ai.codecaine.transcriber.$label"
+    done
+    health transcriber
+    say PASS "ai.codecaine.transcriber.* running; the sotto labels stay disabled with their plists in $dir/launchd"
+    ;;
+stop)
+    [[ ! -e $dir/launchd/stopped ]] || die "$dir/launchd/stopped already exists; already stopped?"
+    for label in "${labels[@]}"; do
+        [[ -f $agents/ai.codecaine.transcriber.$label.plist ]] || die "missing $agents/ai.codecaine.transcriber.$label.plist"
+    done
+    mkdir -p "$dir/launchd/stopped"
+    [[ -f $dir/launchd/disabled-before.txt ]] || launchctl print-disabled "$domain" |
+        grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dir/launchd/disabled-before.txt" || true
+    drain_and_stop transcriber "$dir/launchd/stopped"
+    say PASS "transcriber services stopped and disabled; plists in $dir/launchd/stopped"
+    ;;
+start)
+    stopped="$dir/launchd/stopped"
+    [[ -d $stopped/LaunchAgents ]] || die "nothing to start: $stopped/LaunchAgents is missing"
+    grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py" || die "$repo runs the sotto archive code"
+    labels_gone sotto && labels_gone transcriber && ports_closed || die "a service is already running"
+    for f in "$stopped"/LaunchAgents/*.plist "$stopped"/repo-local/*.plist; do
+        plutil -lint "$f" >/dev/null || die "plutil -lint failed for $f"
+    done
+    for label in "${labels[@]}"; do
+        place "$stopped/LaunchAgents/ai.codecaine.transcriber.$label.plist" "$agents/ai.codecaine.transcriber.$label.plist" 600
+    done
+    for label in archive server; do
+        f="$stopped/repo-local/ai.codecaine.transcriber.$label.plist"
+        if [[ -f $f ]]; then place "$f" "$repo/.local/$(basename "$f")" 600; fi
+    done
+    if [[ -f "$stopped/repo-local/Start Transcriber.command" ]]; then
+        place "$stopped/repo-local/Start Transcriber.command" "$repo/.local/Start Transcriber.command" 755
+    fi
+    mv "$stopped" "$dir/launchd/started-$(date +%Y%m%d-%H%M%S)"
+    restore_enabled transcriber
+    rm -f "$lock"
+    say did "removed $lock"
+    for label in "${labels[@]}"; do
+        launchctl bootstrap "$domain" "$agents/ai.codecaine.transcriber.$label.plist"
         say did "bootstrap ai.codecaine.transcriber.$label"
     done
     health transcriber
     say PASS "ai.codecaine.transcriber.* running"
     ;;
 rollback)
-    require_backup
-    [[ $(field launch_agents) == "$agents" ]] || die "backup was taken for another LaunchAgents folder"
-    stop_labels transcriber
-    status=$(journal status)
-    [[ -z $status || $status == new || $status == rolled-back ]] ||
-        die "archive journal is '$status': run migrate-sotto.py rollback first (services stay stopped)"
+    [[ $(journal status) == rolled-back && -n $(journal rolled_back_verified_at) ]] ||
+        die "run migrate-sotto.py rollback --backup $dir first (it must pass)"
+    ! ls "$agents"/ai.codecaine.transcriber.*.plist >/dev/null 2>&1 || die "transcriber plists are installed; run stop first"
+    labels_gone sotto && labels_gone transcriber && ports_closed || die "services are still running; run stop first"
     grep -q "'--sotto-data'" "$repo/scripts/archive/archive.py" ||
-        die "$repo/scripts/archive/archive.py is the transcriber code; revert the rename in the main checkout, then rerun (services stay stopped)"
+        die "$repo/scripts/archive/archive.py is the transcriber code; revert the rename in the main checkout first"
     for label in "${labels[@]}"; do
-        stash "$agents/ai.codecaine.transcriber.$label.plist" "$backup/launchd/rolled-back/LaunchAgents"
-        place "$backup/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist" "$agents/ai.codecaine.sotto.$label.plist" 600
+        place "$dir/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist" "$agents/ai.codecaine.sotto.$label.plist" 600
     done
-    for label in "${local_labels[@]}"; do
-        stash "$repo/.local/ai.codecaine.transcriber.$label.plist" "$backup/launchd/rolled-back/repo-local"
-        if [[ -f $backup/repo-local/ai.codecaine.sotto.$label.plist ]]; then
-            place "$backup/repo-local/ai.codecaine.sotto.$label.plist" "$repo/.local/ai.codecaine.sotto.$label.plist" 600
-        fi
+    for name in ai.codecaine.sotto.archive.plist ai.codecaine.sotto.server.plist; do
+        if [[ -f $dir/launchd/repo-local/$name ]]; then place "$dir/launchd/repo-local/$name" "$repo/.local/$name" 600; fi
     done
-    if [[ -f "$repo/.local/Start Transcriber.command" ]] &&
-        ! cmp -s "$repo/.local/Start Transcriber.command" "$backup/repo-local/Start Transcriber.command"; then
-        stash "$repo/.local/Start Transcriber.command" "$backup/launchd/rolled-back/repo-local"
-    fi
     for name in "Start Transcriber.command" "Start Sotto.command"; do
-        if [[ -f $backup/repo-local/$name ]]; then place "$backup/repo-local/$name" "$repo/.local/$name" 755; fi
+        if [[ -f $dir/launchd/repo-local/$name ]]; then place "$dir/launchd/repo-local/$name" "$repo/.local/$name" 755; fi
     done
+    restore_enabled sotto
+    rm -f "$lock"
     for label in "${labels[@]}"; do
-        launchctl bootstrap "$domain" "$agents/ai.codecaine.sotto.$label.plist" ||
-            die "bootstrap ai.codecaine.sotto.$label failed"
+        launchctl bootstrap "$domain" "$agents/ai.codecaine.sotto.$label.plist"
         say did "bootstrap ai.codecaine.sotto.$label"
     done
     health sotto
     say PASS "ai.codecaine.sotto.* restored and running"
     ;;
 *)
-    sed -n '2,10p' "$0"
+    sed -n '2,20p' "$0"
     exit 2
     ;;
 esac
