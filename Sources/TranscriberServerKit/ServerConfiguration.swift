@@ -28,6 +28,11 @@ public struct ServerConfiguration: Sendable {
 
     public static func parse(arguments: [String] = Array(CommandLine.arguments.dropFirst()),
                              environment: [String: String] = ProcessInfo.processInfo.environment) throws -> Self {
+        // Refuse retired names instead of silently ignoring them: a dropped token file would disable authentication.
+        let retired = environment.keys.filter { $0.hasPrefix("V07_") }.sorted()
+        guard retired.isEmpty else {
+            throw ServerConfigurationError.invalid("\(retired.joined(separator: ", ")) use the retired V07_ prefix. Rename them to TRANSCRIBER_.")
+        }
         var options: [String: String] = [:]
         var development = environment["TRANSCRIBER_DEV"] == "1"
         let names: Set<String> = ["host", "port", "data-dir", "token-file", "speech-helper", "speech-model", "vad-model", "proof-helper", "proof-model"]

@@ -38,6 +38,16 @@ final class TranscriberAppDelegate: NSObject, NSApplicationDelegate, NSWindowDel
     private var reopenRequested = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Refuse retired names before loading settings: ignoring them would point a test build at real data.
+        let retired = ProcessInfo.processInfo.environment.keys.filter { $0.hasPrefix("V07_") }.sorted()
+        guard retired.isEmpty else {
+            let alert = NSAlert()
+            alert.messageText = "Rename the old environment variables"
+            alert.informativeText = "\(retired.joined(separator: ", ")) use the retired V07_ prefix. Rename them to TRANSCRIBER_. No settings were loaded and no server was contacted."
+            alert.runModal()
+            NSApp.terminate(nil)
+            return
+        }
         let root = ProcessInfo.processInfo.environment["TRANSCRIBER_CLIENT_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? TranscriberBuild.current.dataDirectory
         let configuration = ConfigurationStore(

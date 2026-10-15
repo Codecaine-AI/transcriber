@@ -46,6 +46,13 @@ export async function parseConfiguration(
   args = process.argv.slice(2),
   environment: NodeJS.ProcessEnv = process.env,
 ) {
+  // Refuse retired names instead of silently ignoring them: a dropped token file would disable authentication.
+  const retired = Object.keys(environment).filter((name) => name.startsWith("V07_"));
+  if (retired.length > 0) {
+    throw new Error(
+      `${retired.join(", ")} use the retired V07_ prefix. Rename them to TRANSCRIBER_.`,
+    );
+  }
   const options = new Map<string, string>();
   let development = environment.TRANSCRIBER_DEV === "1";
   for (let index = 0; index < args.length; index++) {

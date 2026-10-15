@@ -18,6 +18,7 @@ sudo useradd --system --user-group --home /var/lib/transcriber --shell /usr/sbin
 sudo mkdir -p /opt/transcriber
 sudo install -d -o transcriber -g transcriber -m 750 /var/lib/transcriber /var/lib/transcriber/models
 sudo install -d -o root -g transcriber -m 750 /etc/transcriber
+sha256sum -c transcriber-server-linux-x64-cuda.tar.gz.sha256
 sudo tar -xzf transcriber-server-linux-x64-cuda.tar.gz -C /opt/transcriber --strip-components=1 --no-same-owner
 ```
 
