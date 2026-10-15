@@ -260,19 +260,31 @@ def quarantine_temp_files(ctx, known, dest):
             if where == 'Transcripts' and (rel in known or rel.replace(f'records/{NEW}/', f'records/{OLD}/', 1) in known):
                 continue  # present at backup time: archive data
             found.append((p, dest / 'quarantine' / where / rel))
+    moved = []
     for src, dst in found:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        os.link(src, dst)  # fails if dst exists: nothing in quarantine is ever replaced
-        fsync_dir(dst.parent)
+        if dst.exists() and os.path.samefile(src, dst):
+            pass  # an interrupted earlier run linked it but did not unlink the source: finish that move
+        else:
+            base, n = dst, 0
+            while True:
+                try:
+                    os.link(src, dst)  # exclusive: nothing in quarantine is ever replaced
+                    break
+                except FileExistsError:
+                    n += 1
+                    dst = base.with_name(f'{base.name}.{n}')
+            fsync_dir(dst.parent)
         unlink(src)
         with open(dest / 'quarantine.log', 'a') as f:
             f.write(f'{now()} {src} -> {dst}\n')
             f.flush()
             os.fsync(f.fileno())
         say('did', f'quarantined leftover temp file {src} -> {dst}')
-    if found:
-        say('info', f'{len(found)} leftover temp file(s) moved to {dest / "quarantine"}; review them, nothing was deleted')
-    return found
+        moved.append((src, dst))
+    if moved:
+        say('info', f'{len(moved)} leftover temp file(s) moved to {dest / "quarantine"}; review them, nothing was deleted')
+    return moved
 
 
 # ---------------------------------------------------------------- metadata transform
