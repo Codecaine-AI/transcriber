@@ -281,7 +281,7 @@ def quarantine_temp_files(ctx, known, dest):
                 except FileExistsError:
                     n += 1
                     dst = base.with_name(f'{base.name}.{n}')
-            fsync_dir(dst.parent)
+        fsync_dir(dst.parent)  # the quarantine link must be durable before the source goes, on both paths
         unlink(src)
         with open(dest / 'quarantine.log', 'a') as f:
             f.write(f'{now()} {src} -> {dst}\n')
