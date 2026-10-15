@@ -1685,7 +1685,169 @@
       },
       "text": [
         {
-          "insert": "When this entry was written, the branch was not merged, and the installed app and server still ran builds from before the rename."
+          "insert": "Later on 2026-10-15 the rename merged to "
+        },
+        {
+          "insert": "main",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and was pushed, with commits "
+        },
+        {
+          "insert": "85b8ffc",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "50120b3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on "
+        },
+        {
+          "insert": "origin/main",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "work-record-2026-10-15-state-commits",
+        "work-record-2026-10-15-state-server",
+        "work-record-2026-10-15-state-app",
+        "work-record-2026-10-15-state-v07"
+      ]
+    },
+    "work-record-2026-10-15-state-commits": {
+      "id": "work-record-2026-10-15-state-commits",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The merge also ported the static CUDA Linux server package from upstream."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-state-server": {
+      "id": "work-record-2026-10-15-state-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "launchd restarted the rebuilt server, which runs "
+        },
+        {
+          "insert": "build/server/transcriber-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with the helpers "
+        },
+        {
+          "insert": "transcriber-engine",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "transcriber-text-engine",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". "
+        },
+        {
+          "insert": "/v1/health",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reported Deepgram speech and MLX proofreading ready."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-state-app": {
+      "id": "work-record-2026-10-15-state-app",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "./scripts/rebuild-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reinstalled "
+        },
+        {
+          "insert": "/Applications/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with the same signing identity and no reset of macOS permissions. The rollback copy is "
+        },
+        {
+          "insert": ".local/install-backups/20261015-142908-109296/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "work-record-2026-10-15-state-v07": {
+      "id": "work-record-2026-10-15-state-v07",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The app and server refuse to start if any "
+        },
+        {
+          "insert": "V07_*",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " environment variable is set."
         }
       ],
       "children": []

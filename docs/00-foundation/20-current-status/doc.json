@@ -38,7 +38,7 @@
         "rollback-reload",
         "rollback-open",
         "open-work-carried-heading",
-        "open-work-rename-install",
+        "open-work-sotto-migration",
         "open-work-deepgram",
         "open-work-carried-backup",
         "open-work-carried-wispr",
@@ -76,16 +76,16 @@
           }
         },
         {
-          "insert": " with local Whisper as the fallback. Branch "
+          "insert": " with local Whisper as the fallback. The Transcriber source rename is on "
         },
         {
-          "insert": "transcriber-rename",
+          "insert": "main",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " renames every V07 source name to Transcriber and is not yet merged or installed. This page records the current handoff, and "
+          "insert": ", and the installed app and server run builds from it. This page records the current handoff, and "
         },
         {
           "insert": "Work Record",
@@ -129,13 +129,16 @@
             "Repository",
             [
               {
-                "insert": "Committed to "
+                "insert": "On "
               },
               {
-                "insert": "transcriber-identity",
+                "insert": "main",
                 "attributes": {
                   "code": true
                 }
+              },
+              {
+                "insert": ", pushed"
               }
             ],
             [
@@ -146,7 +149,25 @@
                 }
               },
               {
-                "insert": ". Commits "
+                "insert": ". "
+              },
+              {
+                "insert": "origin/main",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " is at "
+              },
+              {
+                "insert": "50120b3",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " and includes commits "
               },
               {
                 "insert": "deb2c36",
@@ -164,16 +185,7 @@
                 }
               },
               {
-                "insert": " add the Transcriber Dev build, the key-down trigger, the ready microphone, and kept takes. They are not on "
-              },
-              {
-                "insert": "main",
-                "attributes": {
-                  "code": true
-                }
-              },
-              {
-                "insert": " or pushed. The GitHub repository was renamed to "
+                "insert": ", which add the Transcriber Dev build, the key-down trigger, the ready microphone, and kept takes. The GitHub repository was renamed to "
               },
               {
                 "insert": "Codecaine-AI/transcriber",
@@ -190,21 +202,21 @@
             "Source rename",
             [
               {
-                "insert": "Done on "
+                "insert": "Merged to "
               },
               {
-                "insert": "transcriber-rename",
+                "insert": "main",
                 "attributes": {
                   "code": true
                 }
               },
               {
-                "insert": ", not merged or installed"
+                "insert": " and installed"
               }
             ],
             [
               {
-                "insert": "Commit "
+                "insert": "Commits "
               },
               {
                 "insert": "85b8ffc",
@@ -213,7 +225,16 @@
                 }
               },
               {
-                "insert": " on 2026-10-15 renames the Swift modules, files, binaries, "
+                "insert": " to "
+              },
+              {
+                "insert": "50120b3",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " on 2026-10-15 rename the Swift modules, files, binaries, "
               },
               {
                 "insert": "TRANSCRIBER_*",
@@ -222,7 +243,16 @@
                 }
               },
               {
-                "insert": " variables, and bundle and log identifiers. The installed app and server still run builds from before the rename"
+                "insert": " variables, and bundle and log identifiers. The app and server refuse to start if any "
+              },
+              {
+                "insert": "V07_*",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " environment variable is set"
               }
             ]
           ],
@@ -294,16 +324,16 @@
                 "insert": " reinstalled it from "
               },
               {
-                "insert": "transcriber-identity",
+                "insert": "main",
                 "attributes": {
                   "code": true
                 }
               },
               {
-                "insert": " on 2026-10-09 at 11:36. The rollback copy is "
+                "insert": " on 2026-10-15 without a change of signing identity or a reset of macOS permissions. The rollback copy is "
               },
               {
-                "insert": ".local/install-backups/20261009-113647-769849/Transcriber.app",
+                "insert": ".local/install-backups/20261015-142908-109296/Transcriber.app",
                 "attributes": {
                   "code": true
                 }
@@ -406,13 +436,13 @@
                 "insert": ", which starts "
               },
               {
-                "insert": "build/server/v07-server",
+                "insert": "build/server/transcriber-server",
                 "attributes": {
                   "code": true
                 }
               },
               {
-                "insert": ", a build from before the source rename, on "
+                "insert": " on "
               },
               {
                 "insert": "127.0.0.1:8391",
@@ -430,7 +460,25 @@
                 }
               },
               {
-                "insert": ". The service restarted on the new build on 2026-10-09 at 11:26, and "
+                "insert": ". The server uses the helpers "
+              },
+              {
+                "insert": "transcriber-engine",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " and "
+              },
+              {
+                "insert": "transcriber-text-engine",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ". launchd restarted the rebuilt server on 2026-10-15, and "
               },
               {
                 "insert": "/v1/health",
@@ -439,7 +487,7 @@
                 }
               },
               {
-                "insert": " reports speech and proofreading ready"
+                "insert": " reports Deepgram speech and MLX proofreading ready"
               }
             ]
           ],
@@ -1332,89 +1380,57 @@
       ],
       "children": []
     },
-    "open-work-rename-install": {
-      "id": "open-work-rename-install",
+    "open-work-sotto-migration": {
+      "id": "open-work-sotto-migration",
       "type": "list-item",
       "props": {
         "ordered": false
       },
       "text": [
         {
-          "insert": "Merge "
+          "insert": "Migrate the "
         },
         {
-          "insert": "transcriber-rename",
+          "insert": "sotto",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " and reinstall from it."
+          "insert": " identifiers that the source rename kept."
         }
       ],
       "children": [
-        "open-work-rename-server",
-        "open-work-rename-app"
+        "open-work-sotto-migration-names"
       ]
     },
-    "open-work-rename-server": {
-      "id": "open-work-rename-server",
+    "open-work-sotto-migration-names": {
+      "id": "open-work-sotto-migration-names",
       "type": "list-item",
       "props": {
         "ordered": false
       },
       "text": [
         {
-          "insert": "Run "
+          "insert": "They are the archive source ID, the "
         },
         {
-          "insert": "./scripts/build-server.sh",
+          "insert": "ai.codecaine.sotto.*",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " and restart "
+          "insert": " launchd labels, the "
         },
         {
-          "insert": "ai.codecaine.sotto.server",
+          "insert": "--sotto-data",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": ", which then starts "
-        },
-        {
-          "insert": "build/server/transcriber-server",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " without a plist edit."
-        }
-      ],
-      "children": []
-    },
-    "open-work-rename-app": {
-      "id": "open-work-rename-app",
-      "type": "list-item",
-      "props": {
-        "ordered": false
-      },
-      "text": [
-        {
-          "insert": "Run "
-        },
-        {
-          "insert": "./scripts/rebuild-local.sh",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": ". The bundle identifier and settings directory do not change, so permissions and settings carry over."
+          "insert": " flag, and the checkout folder."
         }
       ],
       "children": []
