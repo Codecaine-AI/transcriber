@@ -14,7 +14,14 @@ set -euo pipefail
 
 OLD=/Users/Ford/workspace/codebases/codecaine/utilities/sotto
 NEW=/Users/Ford/workspace/codebases/codecaine/utilities/transcriber
-TRANSCRIPTS="$HOME/Transcripts"
+TRANSCRIPTS=${MIGRATE_TRANSCRIPTS:-$HOME/Transcripts}
+AGENTS=${MIGRATE_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}
+if [[ -n ${MIGRATE_PHASE2_OLD:-}${MIGRATE_PHASE2_NEW:-} ]]; then # scratch rehearsals only
+    [[ ${MIGRATE_PHASE2_OLD:-} == /private/tmp/* && ${MIGRATE_PHASE2_NEW:-} == /private/tmp/* ]] ||
+        { printf '[FAIL] scratch folder overrides must both be under /private/tmp\n' >&2; exit 2; }
+    OLD=$MIGRATE_PHASE2_OLD NEW=$MIGRATE_PHASE2_NEW
+    printf '[scratch] OLD=%s NEW=%s agents=%s transcripts=%s\n' "$OLD" "$NEW" "$AGENTS" "$TRANSCRIPTS"
+fi
 
 die() {
     printf '[FAIL] %s\n' "$*" >&2
@@ -69,8 +76,12 @@ inside() { # inside ROOT...: processes whose cwd or executable lies under any RO
         # shellcheck disable=SC2046,SC2086
         [[ -z $pid ]] || skip+="$(ptree $pid)"
     done
+    local listing
     for kind in cwd txt; do
-        lsof -nP -d "$kind" -Fpcn 2>/dev/null | ROOTS="$(printf '%s\034' "$@")" awk -v kind="$kind" -v skip="$skip" '
+        # lsof exits 1 when it could not inspect some process; an empty listing means the check itself failed.
+        listing=$(lsof -nP -d "$kind" -Fpcn 2>/dev/null) || true
+        [[ -n $listing || -n ${MIGRATE_PHASE2_OLD:-} ]] || { printf '    lsof listed no processes; cannot prove the repository is unused\n'; continue; }
+        printf '%s\n' "$listing" | ROOTS="$(printf '%s\034' "$@")" awk -v kind="$kind" -v skip="$skip" '
             BEGIN {n = split(ENVIRON["ROOTS"], r, "\034")}
             /^p/ {pid = substr($0, 2)}
             /^c/ {cmd = substr($0, 2)}
@@ -140,8 +151,8 @@ preflight() {
     [[ -d $OLD && $(git -C "$OLD" rev-parse --show-toplevel) == "$OLD" ]] || die "$OLD is not the repository root"
     [[ ! -e $NEW ]] || die "$NEW already exists"
     for label in server archive app; do
-        [[ -f $HOME/Library/LaunchAgents/ai.codecaine.transcriber.$label.plist ]] || die "Phase 1 is not done (ai.codecaine.transcriber.$label.plist)"
-        [[ ! -e $HOME/Library/LaunchAgents/ai.codecaine.sotto.$label.plist ]] || die "Phase 1 is not done (ai.codecaine.sotto.$label.plist)"
+        [[ -f $AGENTS/ai.codecaine.transcriber.$label.plist ]] || die "Phase 1 is not done (ai.codecaine.transcriber.$label.plist)"
+        [[ ! -e $AGENTS/ai.codecaine.sotto.$label.plist ]] || die "Phase 1 is not done (ai.codecaine.sotto.$label.plist)"
     done
     [[ -f $OLD/.local/archive-cache/transcriber-state.json && ! -e $OLD/.local/archive-cache/sotto-state.json ]] ||
         die "Phase 1 is not done: worker state is not transcriber-state.json"
@@ -151,20 +162,62 @@ preflight() {
     worktrees "$OLD" | sed 's/^/    /'
 }
 
+child=""
+launchd() { # launchd ROOT ARGS...: run the launchd tool as a child we can pass a TERM on to
+    bash "$1/scripts/archive/migrate-sotto-launchd.sh" "${@:2}" &
+    child=$!
+    wait "$child"
+}
+
+forward() { # forward CODE: on Ctrl-C or kill, stop the child (a background child ignores Ctrl-C), then report
+    [[ -z $child ]] || kill -TERM "$child" 2>/dev/null || true
+    [[ -z $child ]] || wait "$child" 2>/dev/null || true
+    exit "$1"
+}
+
+transcriber_active() { # any transcriber label loaded, or any transcriber plist installed
+    local label
+    for label in server archive app; do
+        if launchctl print "gui/$(id -u)/ai.codecaine.transcriber.$label" >/dev/null 2>&1; then return 0; fi
+        if [[ -f $AGENTS/ai.codecaine.transcriber.$label.plist ]]; then return 0; fi
+    done
+    return 1
+}
+
+plists_name() { # which folder the stashed plists point at: OLD, NEW or unknown
+    local f
+    for f in "$work"/launchd/stopped/LaunchAgents/*.plist; do
+        [[ -f $f ]] || continue
+        if grep -q -F "$NEW/" "$f"; then echo NEW; return; fi
+        if grep -q -F "$OLD/" "$f"; then echo OLD; return; fi
+    done
+    echo unknown
+}
+
 recovery() { # EXIT trap on failure: say exactly where things stand and how to continue
-    printf '\n[RECOVER] Phase 2 stopped part-way. The services may be stopped; their plists are in %s/launchd/stopped.\n' "$work"
-    if [[ -d $NEW && ! -e $OLD ]]; then
-        printf '  The folder is at %s. Finish (repair, rewrite, start; safe to rerun):\n    cd ~ && bash %s/migrate-repo-folder.sh resume --work %s\n' "$NEW" "$work" "$work"
-    elif [[ -d $OLD && ! -e $NEW ]]; then
-        printf '  The folder is still at %s. If the services are stopped, restart them as before:\n    bash %s/scripts/archive/migrate-sotto-launchd.sh start --dir %s\n' "$OLD" "$OLD" "$work"
+    local at named
+    at=$([[ -d $NEW && ! -e $OLD ]] && echo NEW || ([[ -d $OLD && ! -e $NEW ]] && echo OLD || echo unknown))
+    named=$(plists_name)
+    printf '\n[RECOVER] Phase 2 stopped part-way. Folder: %s. Stashed plists point at: %s.\n' \
+        "$([[ $at == NEW ]] && echo "$NEW" || ([[ $at == OLD ]] && echo "$OLD" || echo unclear))" "$named"
+    if transcriber_active; then
+        printf '  Transcriber services are installed or running; nothing is stranded.\n'
+    elif [[ $at == NEW && $named != OLD ]]; then
+        printf '  Finish (repair, rewrite, start):  cd ~ && bash %s/migrate-repo-folder.sh resume --work %s\n' "$work" "$work"
+    elif [[ $at == NEW ]]; then
+        printf '  Finish (the paths are not rewritten yet):  cd ~ && bash %s/migrate-repo-folder.sh resume --work %s\n' "$work" "$work"
+    elif [[ $at == OLD && $named == OLD ]]; then
+        printf '  Restart as before:  bash %s/scripts/archive/migrate-sotto-launchd.sh start --dir %s\n' "$OLD" "$work"
+    elif [[ $at == OLD ]]; then
+        printf '  The folder is back but the paths still name %s; finish the undo with the rollback below.\n' "$NEW"
     fi
-    printf '  Or undo everything:  cd ~ && bash %s/migrate-repo-folder.sh rollback --work %s\n' "$work" "$work"
+    printf '  Undo everything (safe to rerun):  cd ~ && bash %s/migrate-repo-folder.sh rollback --work %s\n' "$work" "$work"
 }
 
 finish() { # after the move: each step is safe to rerun
     repair "$NEW" "$work/worktrees.new"
     rewrite "$OLD" "$NEW" "$work"
-    bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" start --dir "$work"
+    launchd "$NEW" start --dir "$work"
 }
 
 follow_ups() {
@@ -185,11 +238,13 @@ check)
 run)
     exec > >(tee -i -a "$work/run.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
+    trap 'forward 130' INT
+    trap 'forward 143' TERM
     say info "work directory: $work"
     preflight
     worktrees "$OLD" >"$work/worktrees.old"
     relocate "$work/worktrees.old" "$OLD" "$NEW" >"$work/worktrees.new"
-    bash "$OLD/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
+    launchd "$OLD" stop --dir "$work"
     require_quiet "$OLD"
     mv "$OLD" "$NEW"
     say did "moved $OLD -> $NEW"
@@ -201,6 +256,8 @@ resume)
     [[ -f $work/worktrees.new && -d $NEW && ! -e $OLD ]] || die "resume needs the folder at $NEW and --work from the run"
     exec > >(tee -i -a "$work/resume.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
+    trap 'forward 130' INT
+    trap 'forward 143' TERM
     finish
     say PASS "repository is now $NEW"
     follow_ups
@@ -209,22 +266,25 @@ rollback)
     [[ -f $work/worktrees.old ]] || die "--work must be the directory from a run"
     exec > >(tee -i -a "$work/rollback.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
+    trap 'forward 130' INT
+    trap 'forward 143' TERM
     # Every step is safe to rerun: stop treats stopped services as stopped, the move and the rewrite skip
     # what is already done.
     if [[ -d $NEW && ! -e $OLD ]]; then
-        bash "$NEW/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
+        if transcriber_active; then launchd "$NEW" stop --dir "$work"; else say info "services already stopped"; fi
         require_quiet "$NEW"
         mv "$NEW" "$OLD"
         say did "moved $NEW -> $OLD"
     elif [[ -d $OLD && ! -e $NEW ]]; then
-        bash "$OLD/scripts/archive/migrate-sotto-launchd.sh" stop --dir "$work"
+        # Interrupted after the move back: the stashed paths may still name NEW, so stop only what is running.
+        if transcriber_active; then launchd "$OLD" stop --dir "$work"; else say info "services already stopped"; fi
         say info "$OLD already in place"
     else
         die "expected exactly one of $OLD and $NEW"
     fi
     repair "$OLD" "$work/worktrees.old"
     rewrite "$NEW" "$OLD" "$work"
-    bash "$OLD/scripts/archive/migrate-sotto-launchd.sh" start --dir "$work"
+    launchd "$OLD" start --dir "$work"
     say PASS "repository is back at $OLD"
     ;;
 *)

@@ -57,10 +57,12 @@ labels=(server archive app)
 lock="$repo/.local/archive-cache/migration.lock"
 app_id=ai.codecaine.transcriber
 
-on_exit() { # on any failure or interruption: where things stand, and the exact commands to continue
-    local rc=$? p label plist
+mutated=0 # set by the first step that changes anything; failures before that print no recovery block
+
+on_exit() { # on a failure or interruption after something changed: where things stand, and what to run next
+    local rc=$? p label plist js why=""
     trap - EXIT INT TERM
-    if [[ $rc -ne 0 && -n $command && -n $dir ]]; then
+    if [[ $rc -ne 0 && $mutated -eq 1 && -n $dir && $command =~ ^(down|up|stop|start|rollback)$ ]]; then
         printf '\n[RECOVER] %s stopped (exit %s). Current state:\n' "$command" "$rc"
         for p in sotto transcriber; do
             for label in "${labels[@]}"; do
@@ -71,14 +73,37 @@ on_exit() { # on any failure or interruption: where things stand, and the exact 
             done
         done
         printf '    lock %s\n' "$([[ -e $lock ]] && echo "present: $lock" || echo absent)"
+        js=$(journal status)
+        printf '    archive journal %s\n' "${js:-absent}"
+        if [[ $js == running || $js == rolling-back ]]; then
+            printf '  The archive data is part-way through a %s. Do not start any service. Finish it or undo it:\n' \
+                "$([[ $js == running ]] && echo migration || echo rollback)"
+            printf '    python3 %s/migrate-sotto.py %s --backup %s\n' "$script_dir" \
+                "$([[ $js == running ]] && echo migrate || echo rollback)" "$dir"
+            printf '    python3 %s/migrate-sotto.py rollback --backup %s\n' "$script_dir" "$dir"
+            exit $rc
+        fi
         printf '  Every step is safe to rerun. Retry:  bash %s %s --dir %s\n' "$0" "$command" "$dir"
+        p=sotto
+        [[ $command == up || $command == start || $command == stop ]] && p=transcriber
+        # Which services may run depends on the data and on the code in the main checkout.
+        if [[ $p == transcriber ]]; then
+            if [[ -n $js || -f $dir/backup.json ]] && ! [[ $js == complete && -n $(journal verified_at) ]]; then
+                why="the archive journal is '${js:-missing}', not verified"
+            elif ! grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py"; then why="main runs the sotto code"; fi
+        else
+            if [[ -n $js && $js != new && $js != rolled-back ]]; then why="the archive journal is '$js'"
+            elif ! grep -q "'--sotto-data'" "$repo/scripts/archive/archive.py"; then why="main runs the transcriber code"; fi
+        fi
+        if [[ -n $why ]]; then
+            printf '  The %s services must not start now: %s.\n' "$p" "$why"
+            exit $rc
+        fi
         case $command in
         down) printf '  Or go back to the sotto services:  bash %s rollback --dir %s\n' "$0" "$dir" ;;
         up | start) printf '  Or stop the transcriber services again:  bash %s stop --dir %s\n' "$0" "$dir" ;;
         stop) printf '  Or start the transcriber services again:  bash %s start --dir %s\n' "$0" "$dir" ;;
         esac
-        p=sotto
-        [[ $command == up || $command == start || $command == stop ]] && p=transcriber
         printf '  Last resort, by hand (%s services):\n' "$p"
         for label in "${labels[@]}"; do
             plist="$agents/ai.codecaine.$p.$label.plist"
@@ -98,7 +123,15 @@ trap 'exit 143' TERM
 loaded() { launchctl print "$domain/$1" >/dev/null 2>&1; }
 listeners() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fpc 2>/dev/null | tr '\n' ' ' || true; }
 tool() { python3 "$script_dir/migrate-sotto.py" --repo "$repo" --transcripts "$transcripts" "$@"; }
-app_running() { [[ $(osascript -e "application id \"$app_id\" is running" 2>/dev/null) == true ]]; }
+app_running() { # true/false from osascript; anything else means the quit cannot be confirmed, so stop here
+    local answer
+    answer=$(osascript -e "application id \"$app_id\" is running" 2>/dev/null) || answer="error"
+    case $answer in
+    true) return 0 ;;
+    false) return 1 ;;
+    *) die "could not confirm whether Transcriber.app is running (osascript said: $answer); quit it by hand and rerun" ;;
+    esac
+}
 journal() {
     python3 -c 'import json,sys,os; p=sys.argv[1]; print((json.load(open(p)).get(sys.argv[2]) or "") if os.path.exists(p) else "")' \
         "$dir/journal.json" "$1"
@@ -135,6 +168,7 @@ labels_gone() { # labels_gone PREFIX
 }
 
 place() { # place SRC DEST MODE: copy into place, refusing to replace a different file
+    mutated=1
     if [[ ! -e $1 && -e $2 ]]; then return 0; fi # an earlier run already placed it and moved the source on
     [[ -e $1 ]] || die "neither $1 nor $2 exists"
     if [[ -e $2 ]]; then
@@ -148,6 +182,7 @@ place() { # place SRC DEST MODE: copy into place, refusing to replace a differen
 }
 
 stash() { # stash FILE DESTDIR: copy FILE into DESTDIR, then remove it. Safe to rerun after an interruption.
+    mutated=1
     local target
     target="$2/$(basename "$1")"
     [[ -e $1 ]] || return 0
@@ -168,6 +203,7 @@ note() { # note TEXT: append to DIR/launchd/journal.log
 }
 
 bootstrap() { # bootstrap PREFIX: load the three labels; already-loaded labels are left alone
+    mutated=1
     local label
     for label in "${labels[@]}"; do
         if loaded "ai.codecaine.$1.$label"; then
@@ -180,6 +216,7 @@ bootstrap() { # bootstrap PREFIX: load the three labels; already-loaded labels a
 }
 
 stop_label() { # stop_label LABEL: bootout (if loaded) and disable
+    mutated=1
     if loaded "$1"; then
         launchctl bootout "$domain/$1"
         say did "bootout $1"
@@ -195,6 +232,8 @@ drain_and_stop() { # drain_and_stop PREFIX DESTDIR: idempotent; already-stopped 
         launchctl print-disabled "$domain" | grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dir/launchd/disabled-before.txt" || true
     fi
     say info "a dictation still being recorded when the app quits is kept in Recovered Recordings, not lost"
+    app_running >/dev/null || true # dies here, before anything stops, if osascript cannot answer
+    stop_label "ai.codecaine.$prefix.app" # its RunAtLoad must not reopen the app while the server drains
     local attempt
     for attempt in 1 2 3; do
         if app_running; then
@@ -227,7 +266,6 @@ drain_and_stop() { # drain_and_stop PREFIX DESTDIR: idempotent; already-stopped 
     [[ -e $lock ]] || printf 'migration started %s\n' "$(date -u +%FT%TZ)" >"$lock"
     say did "lock $lock"
     stop_label "ai.codecaine.$prefix.archive"
-    stop_label "ai.codecaine.$prefix.app"
     wait_until 30 "ports 8391 and 8392 to close" ports_closed
     for label in "${labels[@]}"; do stash "$agents/ai.codecaine.$prefix.$label.plist" "$dest/LaunchAgents"; done
     for label in archive server; do stash "$repo/.local/ai.codecaine.$prefix.$label.plist" "$dest/repo-local"; done
@@ -317,6 +355,7 @@ PY
 }
 
 restore_enabled() { # restore_enabled PREFIX: enable labels unless they were disabled before the migration
+    mutated=1
     local label file="$dir/launchd/disabled-before.txt"
     for label in "${labels[@]}"; do
         if grep -q "\"ai.codecaine.$1.$label\" => disabled" "$file" 2>/dev/null; then

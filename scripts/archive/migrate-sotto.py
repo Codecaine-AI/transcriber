@@ -107,12 +107,17 @@ def journal_temp(name):
 
 
 def write(path, data, mode=0o600):
-    """archive.atomic() plus an explicit mode and a parent-directory fsync. The temp name is journaled first, so a
-    crash leftover can be told apart from anyone else's file."""
+    """archive.atomic() plus an explicit mode and a parent-directory fsync. The temp file is created exclusively
+    (an existing file of that name is never touched) and journaled only once it is ours."""
     path = Path(path)
-    name = str(path.parent / f'.{path.name}-{secrets.token_hex(4)}')
+    while True:
+        name = str(path.parent / f'.{path.name}-{secrets.token_hex(4)}')
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            continue
     journal_temp(name)
-    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, 'wb') as f:
             f.write(data)
@@ -231,31 +236,43 @@ def is_meta(rel):
     return re.fullmatch(r'records/sotto/[^/]+/metadata\.json', rel) is not None
 
 
-def clean_temp_files(ctx, known, dest):
-    """After a crash, remove the temp files this tool journaled. Any other temp-looking file is refused, not deleted."""
-    log = dest / 'temp-files.log'
-    journaled = set(log.read_text().split('\n')) if log.exists() else set()
-    dirs = [ctx.transcripts, ctx.cache, ctx.local, dest]
+OWN_NAMES = {'cache': (f'{OLD}-state.json', f'{NEW}-state.json', 'index.sqlite'), 'repo-local': ('archive-config.json',),
+             'migration': ('journal.json', 'backup.json', 'inventory-before.json', 'temp-files.log')}
+
+
+def quarantine_temp_files(ctx, known, dest):
+    """Move every leftover temp-looking file (ours from a crash or anyone else's) into DIR/quarantine/<where>/<path>.
+    Nothing is deleted; an existing quarantine entry is never replaced. Returns the moved paths."""
+    places = [('Transcripts', ctx.transcripts, None)]
     for d in (ctx.new_dir, ctx.old_dir):
         if d.is_dir():
-            dirs += [x for x in d.iterdir() if x.is_dir()]
-    strange, ours = [], []
-    for d in dirs:
+            places += [('Transcripts', x, None) for x in d.iterdir() if x.is_dir()]
+    places += [('cache', ctx.cache, OWN_NAMES['cache']), ('repo-local', ctx.local, OWN_NAMES['repo-local']),
+               ('migration', dest, OWN_NAMES['migration'])]
+    found = []
+    for where, d, names in places:
         for p in d.iterdir():
             if not (p.is_file() and TEMP_FILE.match(p.name)):
                 continue
-            rel = os.path.relpath(p, ctx.transcripts)
-            if rel in known or rel.replace(f'records/{NEW}/', f'records/{OLD}/', 1) in known:
-                continue  # present at backup time: archive data, not ours
-            names = {str(p), str(p).replace(f'/records/{OLD}/', f'/records/{NEW}/', 1),
-                     str(p).replace(f'/records/{NEW}/', f'/records/{OLD}/', 1)}
-            (ours if names & journaled else strange).append(p)
-    if strange:  # refuse before deleting anything
-        raise Surprise(f'temp-looking files this tool did not create: {[str(p) for p in strange[:5]]}; inspect them, '
-                       'move them out of the archive/cache/repo, then rerun')
-    for p in ours:
-        unlink(p)
-        say('did', f'removed this tool\'s leftover temp file {p}')
+            if names is not None and p.name[1:-9] not in names:
+                continue  # outside the archive only our own write targets are considered
+            rel = os.path.relpath(p, ctx.transcripts) if where == 'Transcripts' else p.name
+            if where == 'Transcripts' and (rel in known or rel.replace(f'records/{NEW}/', f'records/{OLD}/', 1) in known):
+                continue  # present at backup time: archive data
+            found.append((p, dest / 'quarantine' / where / rel))
+    for src, dst in found:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        os.link(src, dst)  # fails if dst exists: nothing in quarantine is ever replaced
+        fsync_dir(dst.parent)
+        unlink(src)
+        with open(dest / 'quarantine.log', 'a') as f:
+            f.write(f'{now()} {src} -> {dst}\n')
+            f.flush()
+            os.fsync(f.fileno())
+        say('did', f'quarantined leftover temp file {src} -> {dst}')
+    if found:
+        say('info', f'{len(found)} leftover temp file(s) moved to {dest / "quarantine"}; review them, nothing was deleted')
+    return found
 
 
 # ---------------------------------------------------------------- metadata transform
@@ -748,7 +765,7 @@ def cmd_migrate(ctx, args):
     authenticate(ctx, dest, info, before)
     if journal['status'] == 'running':
         say('info', f'resuming; finished: {[k for k, v in journal["steps"].items() if "finished_at" in v]}')
-        clean_temp_files(ctx, before, dest)
+        quarantine_temp_files(ctx, before, dest)
         fail_if(check_all(ctx, dest, info, before, {'old', 'new'})[0], 'archive is neither the backup nor its transform')
     else:
         fail_if(check_all(ctx, dest, info, before, {'old'})[0], 'archive changed since the backup')
@@ -854,6 +871,7 @@ def cmd_verify(ctx, args):
     if journal['status'] != 'complete':
         raise Surprise(f'journal status is {journal["status"]!r}, expected complete')
     authenticate(ctx, dest, info, before)
+    quarantine_temp_files(ctx, before, dest)  # compare the tree without leftover temp files
     fail_if(check_all(ctx, dest, info, before, {'new'})[0], 'archive is not the transformed backup')
     say('ok', f'every path equals the backup apart from records/sotto -> records/transcriber, {info["records"]} '
               'metadata files and dataset.json (exactly the intended fields); index rows, worker state and config '
@@ -890,8 +908,7 @@ def cmd_rollback(ctx, args):
     if status == 'rolled-back':
         raise Surprise('already rolled back')
     authenticate(ctx, dest, info, before)  # every input rollback restores, before it changes anything
-    if status in ('running', 'rolling-back'):
-        clean_temp_files(ctx, before, dest)  # an interrupted write leaves only these behind
+    quarantine_temp_files(ctx, before, dest)  # compare the tree without leftover temp files
     problems, _ = check_all(ctx, dest, info, before, {'old', 'new'})
     if problems:
         print(f'Rollback is refused: {len(problems)} path(s) differ from both the backup and its intended transform:')
