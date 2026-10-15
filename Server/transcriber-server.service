@@ -1,0 +1,29 @@
+[Unit]
+Description=Transcriber dictation server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=transcriber
+Group=transcriber
+ExecStart=/opt/transcriber/transcriber-server
+Environment=TRANSCRIBER_SERVER_HOST=127.0.0.1
+Environment=TRANSCRIBER_SERVER_PORT=8391
+Environment=TRANSCRIBER_SERVER_DATA_DIR=/var/lib/transcriber
+Environment=TRANSCRIBER_SERVER_TOKEN_FILE=/etc/transcriber/token
+Environment=TRANSCRIBER_ENGINE_PATH=/opt/transcriber/helpers/transcriber-engine
+Environment=TRANSCRIBER_TEXT_ENGINE_PATH=/opt/transcriber/helpers/transcriber-text-engine
+Environment=TRANSCRIBER_VAD_PATH=/opt/transcriber/resources/silero-vad.bin
+Environment=TRANSCRIBER_SPEECH_MODEL=/var/lib/transcriber/models/ggml-large-v3-turbo.bin
+Environment=TRANSCRIBER_TEXT_MODEL=/var/lib/transcriber/models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+# Optional: DEEPGRAM_API_KEY=... makes Deepgram primary; Whisper stays the fallback.
+EnvironmentFile=-/etc/transcriber/deepgram.env
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/transcriber
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -37,7 +37,7 @@ ARG CUDA_ARCHITECTURES=80;86;89;90;120;121
 RUN TRANSCRIBER_CUDA=ON TRANSCRIBER_CUDA_ARCHITECTURES="${CUDA_ARCHITECTURES}" ./scripts/build-server.sh
 
 FROM ${UBUNTU_IMAGE} AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 \
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl libstdc++6 tini \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 transcriber \
     && mkdir -p /data /models && chown transcriber:transcriber /data
@@ -53,13 +53,19 @@ WORKDIR /opt/transcriber
 EXPOSE 8391
 HEALTHCHECK --interval=30s --timeout=3s --start-period=120s \
     CMD curl --fail --silent http://127.0.0.1:8391/v1/health > /dev/null || exit 1
-ENTRYPOINT ["/opt/transcriber/transcriber-server"]
+# Native helpers do not start when the server runs as PID 1.
+ENTRYPOINT ["/usr/bin/tini", "--", "/opt/transcriber/transcriber-server"]
 
 FROM runtime AS cuda
 COPY --from=cuda-build /src/build/server/ /opt/transcriber/
 COPY --from=cuda-toolkit /usr/local/cuda-13.0/ /usr/local/cuda/
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64
 ENV NVIDIA_VISIBLE_DEVICES=all NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+# Tarball export. Helpers link cudart/cublas statically and load libcuda.so.1
+# from the host driver, so this stage copies none of the toolkit.
+FROM scratch AS cuda-package
+COPY --from=cuda-build /src/build/server /server
 
 # CPU is the default target, useful for a portable build. Use the
 # cuda target for a GPU server and install NVIDIA Container Toolkit on its host.
