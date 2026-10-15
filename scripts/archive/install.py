@@ -41,7 +41,10 @@ def main():
     args=parser.parse_args()
     os.umask(0o077)
     repo=Path(__file__).resolve().parents[2]
-    if (repo/'.local/archive-cache'/MIGRATION_LOCK).exists():
+    # The lock lives in the main checkout, which a worktree reaches through git's common directory.
+    common=subprocess.run(['git','-C',str(repo),'rev-parse','--path-format=absolute','--git-common-dir'],
+        capture_output=True,text=True,check=True).stdout.strip()
+    if (Path(common).parent/'.local/archive-cache'/MIGRATION_LOCK).exists() or (repo/'.local/archive-cache'/MIGRATION_LOCK).exists():
         raise SystemExit('A transcript archive migration is in progress; finish it before installing.')
     root=Path(args.root).expanduser().resolve()
     if not (root/'dataset.json').is_file():

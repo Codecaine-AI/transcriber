@@ -19,12 +19,12 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import shutil
 import sqlite3
 import stat
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -94,10 +94,25 @@ def fsync_dir(path):
         os.close(fd)
 
 
+TEMP_LOG = None  # DIR/temp-files.log: every temp path this tool creates, appended before it exists
+
+
+def journal_temp(name):
+    if TEMP_LOG is None:
+        raise RuntimeError('no temp-file journal for this command')
+    with open(TEMP_LOG, 'a') as f:
+        f.write(f'{name}\n')
+        f.flush()
+        os.fsync(f.fileno())
+
+
 def write(path, data, mode=0o600):
-    """archive.atomic() plus an explicit mode and a parent-directory fsync."""
+    """archive.atomic() plus an explicit mode and a parent-directory fsync. The temp name is journaled first, so a
+    crash leftover can be told apart from anyone else's file."""
     path = Path(path)
-    fd, name = tempfile.mkstemp(prefix='.' + path.name + '-', dir=path.parent)
+    name = str(path.parent / f'.{path.name}-{secrets.token_hex(4)}')
+    journal_temp(name)
+    fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, 'wb') as f:
             f.write(data)
@@ -216,25 +231,31 @@ def is_meta(rel):
     return re.fullmatch(r'records/sotto/[^/]+/metadata\.json', rel) is not None
 
 
-TEMP_NAMES = ('metadata.json', 'dataset.json', 'verification.json', f'{OLD}-state.json', f'{NEW}-state.json',
-              'archive-config.json', 'journal.json', 'backup.json', 'inventory-before.json', '.DS_Store')
-
-
 def clean_temp_files(ctx, known, dest):
-    """After a crash, remove only our own mkstemp leftovers ('.<name>-xxxxxxxx') that the backup never saw."""
+    """After a crash, remove the temp files this tool journaled. Any other temp-looking file is refused, not deleted."""
+    log = dest / 'temp-files.log'
+    journaled = set(log.read_text().split('\n')) if log.exists() else set()
     dirs = [ctx.transcripts, ctx.cache, ctx.local, dest]
     for d in (ctx.new_dir, ctx.old_dir):
         if d.is_dir():
             dirs += [x for x in d.iterdir() if x.is_dir()]
+    strange, ours = [], []
     for d in dirs:
         for p in d.iterdir():
-            if not (p.is_file() and TEMP_FILE.match(p.name) and p.name[1:-9] in TEMP_NAMES):
+            if not (p.is_file() and TEMP_FILE.match(p.name)):
                 continue
             rel = os.path.relpath(p, ctx.transcripts)
             if rel in known or rel.replace(f'records/{NEW}/', f'records/{OLD}/', 1) in known:
-                continue
-            unlink(p)
-            say('did', f'removed leftover temp file {p}')
+                continue  # present at backup time: archive data, not ours
+            names = {str(p), str(p).replace(f'/records/{OLD}/', f'/records/{NEW}/', 1),
+                     str(p).replace(f'/records/{NEW}/', f'/records/{OLD}/', 1)}
+            (ours if names & journaled else strange).append(p)
+    if strange:  # refuse before deleting anything
+        raise Surprise(f'temp-looking files this tool did not create: {[str(p) for p in strange[:5]]}; inspect them, '
+                       'move them out of the archive/cache/repo, then rerun')
+    for p in ours:
+        unlink(p)
+        say('did', f'removed this tool\'s leftover temp file {p}')
 
 
 # ---------------------------------------------------------------- metadata transform
@@ -319,32 +340,49 @@ def require_stopped(ctx):
     say('ok', 'services stopped: no sotto/transcriber labels loaded, ports 8391/8392 closed')
 
 
+KNOWN_STATUS = IN_FLIGHT + ('completed', 'failed', 'cancelled')
+
+
 def drain(ctx, namespace):
-    """Server takes not yet terminal, and finished takes the archive worker has not copied yet.
-    A missing generations directory counts as unreadable, so callers fail closed."""
-    if not ctx.generations.is_dir():
-        return {'receiving': 0, 'in_flight': 0, 'unarchived': 0, 'unreadable': 1,
-                'examples': [f'missing {ctx.generations}']}
+    """Server takes not yet terminal, and finished takes the archive worker has not copied yet. Strict: any listing
+    or read error, a take folder without readable metadata, or an unknown status counts as unreadable, so callers
+    fail closed."""
+    receiving, in_flight, unarchived, unreadable = [], [], [], []
+    try:
+        with os.scandir(ctx.generations) as it:
+            takes = sorted(it, key=lambda e: e.name)
+    except OSError as e:
+        return {'receiving': 0, 'in_flight': 0, 'unarchived': 0, 'unreadable': 1, 'examples': [str(e)]}
     state_path = ctx.cache / f'{namespace}-state.json'
     state = load_json(state_path) if state_path.exists() else {}
-    receiving, in_flight, unarchived, unreadable = [], [], [], []
-    for path in sorted(ctx.generations.glob('*/metadata.json')):
-        try:
-            m = load_json(path)
-        except (OSError, ValueError):
-            unreadable.append(path.parent.name)
+    for take in takes:
+        if take.name == '.DS_Store':
             continue
-        st = path.stat()
-        if m.get('status') == 'receiving':
-            receiving.append(path.parent.name)
-        if m.get('status') in IN_FLIGHT:
-            in_flight.append(path.parent.name)
+        path = Path(take.path) / 'metadata.json'
+        try:
+            if not take.is_dir(follow_symlinks=False):
+                raise OSError(f'not a take folder: {take.name}')
+            with os.scandir(take.path) as it:
+                names = {x.name for x in it}
+            if 'metadata.json' not in names:
+                raise OSError(f'{take.name} has no metadata.json')
+            m = load_json(path)
+            st = path.stat()
+            if m.get('status') not in KNOWN_STATUS:
+                raise ValueError(f'{take.name} has unknown status {m.get("status")!r}')
+        except (OSError, ValueError) as e:
+            unreadable.append(str(e) or take.name)
+            continue
+        if m['status'] == 'receiving':
+            receiving.append(take.name)
+        if m['status'] in IN_FLIGHT:
+            in_flight.append(take.name)
         elif not m.get('importedSource') and (
                 state.get(str(path)) != [st.st_mtime_ns, st.st_size]
-                or not (ctx.records / namespace / safe_id(path.parent.name) / 'metadata.json').exists()):
-            unarchived.append(path.parent.name)
+                or not (ctx.records / namespace / safe_id(take.name) / 'metadata.json').exists()):
+            unarchived.append(take.name)
     return {'receiving': len(receiving), 'in_flight': len(in_flight), 'unarchived': len(unarchived),
-            'unreadable': len(unreadable), 'examples': (receiving + in_flight + unarchived + unreadable)[:5]}
+            'unreadable': len(unreadable), 'examples': (unreadable + receiving + in_flight + unarchived)[:5]}
 
 
 # ---------------------------------------------------------------- inspection
@@ -469,8 +507,12 @@ def inspect(ctx, plists):
     return f, s
 
 
+RUN_ORDER = 'plan -> down -> plan --dir -> backup -> migrate -> verify -> merge into main -> up'
+
+
 def cmd_plan(ctx, args):
     say('info', f'transcripts={ctx.transcripts} cache={ctx.cache} repo={ctx.repo}')
+    say('info', f'run order: {RUN_ORDER}')
     plists = ctx.agents
     if args.dir and not list(ctx.agents.glob(f'ai.codecaine.{OLD}.*.plist')):
         plists = Path(args.dir).expanduser().resolve() / 'launchd' / 'LaunchAgents'
@@ -502,9 +544,17 @@ def new_config(ctx):
                    'viewer_url': cfg.get('viewer_url', 'http://127.0.0.1:8392')})
 
 
-def new_bytes(clone, rel):
-    """The transformed bytes of a file migrate rewrites, built from the backup clone."""
-    data = json.loads((clone / rel).read_bytes())
+def clone_bytes(clone, before, rel):
+    """Bytes of a clone file, only if they still match the backup inventory."""
+    data = (clone / rel).read_bytes()
+    if sha_bytes(data) != before[rel]['sha']:
+        raise Surprise(f'the backup clone copy of {rel} no longer matches inventory-before.json')
+    return data
+
+
+def new_bytes(clone, before, rel):
+    """The transformed bytes of a file migrate rewrites, built from the authenticated backup clone."""
+    data = json.loads(clone_bytes(clone, before, rel))
     if rel == 'dataset.json':
         if data.get('sources') != ['wispr-flow', OLD]:
             raise Surprise(f'dataset.json sources {data.get("sources")}')
@@ -544,7 +594,7 @@ def check_all(ctx, dest, info, before, allowed, label='live archive'):
         elif rewritten(rel) and x['t'] == y['t'] == 'f' and x['mode'] == y['mode']:
             if y['sha'] == x['sha']:
                 seen.add('old')
-            elif y['sha'] == sha_bytes(new_bytes(clone, rel)):
+            elif y['sha'] == sha_bytes(new_bytes(clone, before, rel)):
                 seen.add('new')
             else:
                 problems.append(f'changed beyond the intended fields: {shown(rel)}')
@@ -575,6 +625,30 @@ def check_all(ctx, dest, info, before, allowed, label='live archive'):
     return problems, seen
 
 
+def authenticate(ctx, dest, info, before):
+    """Before anything changes: every backup input migrate, verify or rollback will read must match its record."""
+    started = time.monotonic()
+    clone = dest / 'Transcripts'
+    rels = [r for r, e in before.items() if e['t'] == 'f' and (rewritten(r) or r == UNSTABLE or junk(r))]
+    bad = [r for r in rels if not (clone / r).is_file() or hash_file(clone / r) != before[r]['sha']]
+    snapshot = dest / 'cache' / 'index.sqlite'
+    db = ro(snapshot)
+    try:
+        integrity = db.execute('pragma integrity_check').fetchone()[0]
+    finally:
+        db.close()
+    if integrity != 'ok' or rows_digest(index_rows(snapshot)) != info['index_old']:
+        bad.append('cache/index.sqlite snapshot')
+    for path, sha in ((dest / 'cache' / ctx.old_state.name, info['state_sha']),
+                      (dest / 'repo-local' / ctx.config.name, info['config_sha'])):
+        if not path.is_file() or hash_file(path) != sha:
+            bad.append(str(path.relative_to(dest)))
+    if bad:
+        raise Surprise(f'the backup in {dest} is damaged; nothing was changed. Damaged: {bad[:5]}')
+    say('ok', f'backup inputs authenticated: {len(rels)} clone files, index snapshot (integrity ok, rows match), '
+              f'state and config copies ({time.monotonic() - started:.1f}s)')
+
+
 def fail_if(problems, what):
     if problems:
         raise Surprise(f'{what}: {len(problems)} difference(s): {problems[:5]}')
@@ -598,6 +672,8 @@ def cmd_backup(ctx, args):
     if s:
         raise Surprise(f'{len(s)} precondition(s) failed; run plan --dir DEST')
     dest.mkdir(parents=True, exist_ok=True)
+    global TEMP_LOG
+    TEMP_LOG = dest / 'temp-files.log'
     if dest.stat().st_dev != ctx.transcripts.stat().st_dev:
         raise Surprise('the backup must be on the archive volume so cp -c can clone')
 
@@ -655,6 +731,8 @@ def load_backup(ctx, path):
     for key, value in (('transcripts', ctx.transcripts), ('cache', ctx.cache), ('repo', ctx.repo)):
         if info[key] != str(value):
             raise Surprise(f'backup was taken for {key}={info[key]}, not {value}')
+    global TEMP_LOG
+    TEMP_LOG = dest / 'temp-files.log'
     journal_path = dest / 'journal.json'
     journal = load_json(journal_path) if journal_path.exists() else {'status': 'new', 'steps': {}}
     return dest, info, load_json(dest / 'inventory-before.json'), journal_path, journal
@@ -667,6 +745,7 @@ def cmd_migrate(ctx, args):
     if journal['status'] not in ('new', 'running'):
         raise Surprise(f'migration is {journal["status"]} for this backup; refusing to run again')
     require_stopped(ctx)
+    authenticate(ctx, dest, info, before)
     if journal['status'] == 'running':
         say('info', f'resuming; finished: {[k for k, v in journal["steps"].items() if "finished_at" in v]}')
         clean_temp_files(ctx, before, dest)
@@ -701,7 +780,7 @@ def cmd_migrate(ctx, args):
             if not rewritten(rel):
                 continue
             live = ctx.transcripts / re.sub(rf'^records/{OLD}/', f'records/{NEW}/', rel)
-            target = new_bytes(clone, rel)
+            target = new_bytes(clone, before, rel)
             sha = hash_file(live)
             if sha == e['sha']:
                 write(live, target, e['mode'])
@@ -774,6 +853,7 @@ def cmd_verify(ctx, args):
     dest, info, before, journal_path, journal = load_backup(ctx, args.backup)
     if journal['status'] != 'complete':
         raise Surprise(f'journal status is {journal["status"]!r}, expected complete')
+    authenticate(ctx, dest, info, before)
     fail_if(check_all(ctx, dest, info, before, {'new'})[0], 'archive is not the transformed backup')
     say('ok', f'every path equals the backup apart from records/sotto -> records/transcriber, {info["records"]} '
               'metadata files and dataset.json (exactly the intended fields); index rows, worker state and config '
@@ -809,6 +889,7 @@ def cmd_rollback(ctx, args):
                        'migrate-sotto-launchd.sh rollback --dir DIR')
     if status == 'rolled-back':
         raise Surprise('already rolled back')
+    authenticate(ctx, dest, info, before)  # every input rollback restores, before it changes anything
     if status in ('running', 'rolling-back'):
         clean_temp_files(ctx, before, dest)  # an interrupted write leaves only these behind
     problems, _ = check_all(ctx, dest, info, before, {'old', 'new'})
@@ -837,10 +918,7 @@ def cmd_rollback(ctx, args):
         if e['t'] == 'f' and (rewritten(rel) or rel == UNSTABLE or junk(rel)):
             p = ctx.transcripts / rel
             if not p.is_file() or hash_file(p) != e['sha']:
-                data = (clone / rel).read_bytes()
-                if sha_bytes(data) != e['sha']:
-                    raise Surprise(f'clone copy of {rel} no longer matches the backup inventory')
-                write(p, data, e['mode'])
+                write(p, clone_bytes(clone, before, rel), e['mode'])
                 restored += 1
     for rel, e in inventory(ctx.transcripts, hashed=False).items():
         if junk(rel) and rel not in before:

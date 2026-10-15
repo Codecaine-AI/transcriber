@@ -42,6 +42,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ -n $dir || -z $command ]] || die "pass --dir DIR"
+ORDER='plan -> down -> plan --dir -> backup -> migrate -> verify -> merge into main -> up'
 
 script_dir=$(cd "$(dirname "$0")" && pwd -P)
 # Scratch rehearsals only: point at copies. Real runs use the defaults.
@@ -55,6 +56,44 @@ domain="gui/$uid"
 labels=(server archive app)
 lock="$repo/.local/archive-cache/migration.lock"
 app_id=ai.codecaine.transcriber
+
+on_exit() { # on any failure or interruption: where things stand, and the exact commands to continue
+    local rc=$? p label plist
+    trap - EXIT INT TERM
+    if [[ $rc -ne 0 && -n $command && -n $dir ]]; then
+        printf '\n[RECOVER] %s stopped (exit %s). Current state:\n' "$command" "$rc"
+        for p in sotto transcriber; do
+            for label in "${labels[@]}"; do
+                plist="$agents/ai.codecaine.$p.$label.plist"
+                printf '    ai.codecaine.%-18s %-10s plist %s\n' "$p.$label" \
+                    "$(loaded "ai.codecaine.$p.$label" && echo loaded || echo stopped)" \
+                    "$([[ -f $plist ]] && echo installed || echo 'not installed')"
+            done
+        done
+        printf '    lock %s\n' "$([[ -e $lock ]] && echo "present: $lock" || echo absent)"
+        printf '  Every step is safe to rerun. Retry:  bash %s %s --dir %s\n' "$0" "$command" "$dir"
+        case $command in
+        down) printf '  Or go back to the sotto services:  bash %s rollback --dir %s\n' "$0" "$dir" ;;
+        up | start) printf '  Or stop the transcriber services again:  bash %s stop --dir %s\n' "$0" "$dir" ;;
+        stop) printf '  Or start the transcriber services again:  bash %s start --dir %s\n' "$0" "$dir" ;;
+        esac
+        p=sotto
+        [[ $command == up || $command == start || $command == stop ]] && p=transcriber
+        printf '  Last resort, by hand (%s services):\n' "$p"
+        for label in "${labels[@]}"; do
+            plist="$agents/ai.codecaine.$p.$label.plist"
+            [[ -f $plist ]] || for stashed in "$dir/launchd/LaunchAgents" "$dir/launchd/stopped/LaunchAgents"; do
+                [[ -f $stashed/ai.codecaine.$p.$label.plist ]] && printf '    cp -p %q %q\n' "$stashed/ai.codecaine.$p.$label.plist" "$plist" && break
+            done
+            printf '    launchctl enable %s/ai.codecaine.%s.%s; launchctl bootstrap %s %q\n' "$domain" "$p" "$label" "$domain" "$plist"
+        done
+        [[ $p == transcriber ]] && printf '    rm -f %q   # the transcriber worker refuses to run while this lock exists\n' "$lock"
+    fi
+    exit $rc
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 loaded() { launchctl print "$domain/$1" >/dev/null 2>&1; }
 listeners() { lsof -nP -iTCP:"$1" -sTCP:LISTEN -Fpc 2>/dev/null | tr '\n' ' ' || true; }
@@ -96,6 +135,8 @@ labels_gone() { # labels_gone PREFIX
 }
 
 place() { # place SRC DEST MODE: copy into place, refusing to replace a different file
+    if [[ ! -e $1 && -e $2 ]]; then return 0; fi # an earlier run already placed it and moved the source on
+    [[ -e $1 ]] || die "neither $1 nor $2 exists"
     if [[ -e $2 ]]; then
         cmp -s "$1" "$2" || die "$2 exists and differs from $1"
         return 0
@@ -154,19 +195,25 @@ drain_and_stop() { # drain_and_stop PREFIX DESTDIR: idempotent; already-stopped 
         launchctl print-disabled "$domain" | grep -E 'ai\.codecaine\.(sotto|transcriber)\.' >"$dir/launchd/disabled-before.txt" || true
     fi
     say info "a dictation still being recorded when the app quits is kept in Recovered Recordings, not lost"
-    if app_running; then
-        wait_until 180 "the current dictation to finish uploading (do not start a new one)" drained "$prefix" receiving
-        osascript -e "tell application id \"$app_id\" to quit" >/dev/null
-        wait_until 60 "Transcriber.app to quit" eval '! app_running'
-        say ok "Transcriber.app quit (no new takes)"
-    fi
-    # The server runs until it is idle, then stops, so nothing it holds can be cancelled.
-    if loaded "ai.codecaine.$prefix.server"; then
-        wait_until 900 "the server to finish every queued and in-progress take" drained "$prefix" in_flight
-    else
-        drained "$prefix" in_flight || die "the server is stopped with unfinished takes; start it to finish them"
-    fi
-    say ok "server has no unfinished takes"
+    local attempt
+    for attempt in 1 2 3; do
+        if app_running; then
+            wait_until 180 "the current dictation to finish uploading (do not start a new one)" drained "$prefix" receiving
+            osascript -e "tell application id \"$app_id\" to quit" >/dev/null
+            wait_until 60 "Transcriber.app to quit" eval '! app_running'
+            say ok "Transcriber.app quit (no new takes)"
+        fi
+        # The server runs until it is idle, then stops, so nothing it holds can be cancelled.
+        if loaded "ai.codecaine.$prefix.server"; then
+            wait_until 900 "the server to finish every queued and in-progress take" drained "$prefix" in_flight
+        else
+            drained "$prefix" in_flight || die "the server is stopped with unfinished takes; start it to finish them"
+        fi
+        if ! app_running; then break; fi
+        say info "Transcriber.app reopened (a Login Item?); quitting it again before the server stops"
+    done
+    ! app_running || die "Transcriber.app keeps reopening; quit it and remove its Login Item, then rerun"
+    say ok "server has no unfinished takes and the app is closed"
     stop_label "ai.codecaine.$prefix.server"
     note "server stopped"
     # The archive worker keeps running until it has copied every finished take.
@@ -282,11 +329,15 @@ restore_enabled() { # restore_enabled PREFIX: enable labels unless they were dis
 
 case $command in
 down)
+    say info "run order: $ORDER"
+    grep -q "'--sotto-data'" "$repo/scripts/archive/archive.py" ||
+        die "$repo/scripts/archive/archive.py already has the transcriber code: the rename was merged before down. Revert the merge in the main checkout, then run in order: $ORDER"
     for label in "${labels[@]}"; do
         [[ -f $agents/ai.codecaine.sotto.$label.plist || -f $dir/launchd/LaunchAgents/ai.codecaine.sotto.$label.plist ]] ||
             die "ai.codecaine.sotto.$label.plist is neither installed nor stashed in $dir"
     done
     drain_and_stop sotto "$dir/launchd"
+    for label in "${labels[@]}"; do stop_label "ai.codecaine.transcriber.$label"; done # nothing may start in between
     say PASS "down. Next: migrate-sotto.py plan --dir $dir, then backup --dest $dir.
        To go back instead (before migrate): migrate-sotto-launchd.sh rollback --dir $dir"
     ;;
@@ -336,29 +387,30 @@ stop)
     say PASS "transcriber services stopped and disabled; plists in $dir/launchd/stopped"
     ;;
 start)
+    status=$(journal status)
+    if [[ -n $status || -f $dir/backup.json ]]; then # Phase 1 directory; Phase 2 work directories have no journal
+        [[ $status == complete && -n $(journal verified_at) ]] ||
+            die "the archive journal is '${status:-missing}': start needs a migrated and verified archive (verify --backup $dir)"
+    fi
     stopped="$dir/launchd/stopped"
-    [[ -d $stopped/LaunchAgents ]] || die "nothing to start: $stopped/LaunchAgents is missing"
     grep -q "'--transcriber-data'" "$repo/scripts/archive/archive.py" || die "$repo runs the sotto archive code"
     labels_gone sotto || die "a sotto label is loaded"
-    for f in "$stopped"/LaunchAgents/*.plist "$stopped"/repo-local/*.plist; do
-        plutil -lint "$f" >/dev/null || die "plutil -lint failed for $f"
-    done
-    for label in "${labels[@]}"; do
+    for label in "${labels[@]}"; do # each label may still be stashed or already installed by an earlier run
         place "$stopped/LaunchAgents/ai.codecaine.transcriber.$label.plist" "$agents/ai.codecaine.transcriber.$label.plist" 600
+        plutil -lint "$agents/ai.codecaine.transcriber.$label.plist" >/dev/null || die "plutil -lint failed"
     done
     for label in archive server; do
         f="$stopped/repo-local/ai.codecaine.transcriber.$label.plist"
-        if [[ -f $f ]]; then place "$f" "$repo/.local/$(basename "$f")" 600; fi
+        if [[ -f $f || -f $repo/.local/$(basename "$f") ]]; then place "$f" "$repo/.local/$(basename "$f")" 600; fi
     done
-    if [[ -f "$stopped/repo-local/Start Transcriber.command" ]]; then
-        place "$stopped/repo-local/Start Transcriber.command" "$repo/.local/Start Transcriber.command" 755
-    fi
+    f="$stopped/repo-local/Start Transcriber.command"
+    if [[ -f $f || -f $repo/.local/Start\ Transcriber.command ]]; then place "$f" "$repo/.local/Start Transcriber.command" 755; fi
     restore_enabled transcriber
     rm -f "$lock"
     say did "removed $lock"
     bootstrap transcriber
     health transcriber
-    mv "$stopped" "$dir/launchd/started-$(date +%Y%m%d-%H%M%S)" # kept until health passed
+    if [[ -d $stopped ]]; then mv "$stopped" "$dir/launchd/started-$(date +%Y%m%d-%H%M%S)"; fi # kept until health passed
     note "start: transcriber running"
     say PASS "ai.codecaine.transcriber.* running"
     ;;
@@ -370,7 +422,6 @@ rollback)
         [[ $status == rolled-back && -n $(journal rolled_back_verified_at) ]] ||
             die "the archive journal is '$status': run migrate-sotto.py rollback --backup $dir first (it must pass)"
     fi
-    [[ -d $dir/launchd/LaunchAgents ]] || die "no stashed sotto plists in $dir/launchd"
     ! ls "$agents"/ai.codecaine.transcriber.*.plist >/dev/null 2>&1 || die "transcriber plists are installed; run stop first"
     labels_gone transcriber || die "transcriber services are still running; run stop first"
     grep -q "'--sotto-data'" "$repo/scripts/archive/archive.py" ||

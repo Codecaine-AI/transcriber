@@ -9,6 +9,7 @@ import difflib
 import json
 import os
 import plistlib
+import shlex
 import sys
 from pathlib import Path
 
@@ -54,11 +55,17 @@ def main():
             after = before if moved == data else \
                 (json.dumps(moved, indent=2, ensure_ascii=False) + ('\n' if before.endswith(b'\n') else '')).encode()
         elif p.name == 'Start Transcriber.command':
-            text = before.decode()
-            line = f'transcriber_root={old}\n'
-            if text.count(line) != 1:
-                raise SystemExit(f'[FAIL] {p}: expected one line {line.strip()!r}')
-            after = text.replace(line, f'transcriber_root={new}\n').encode()
+            # Exactly one assignment, equal to OLD (rewrite it) or NEW (an earlier run already did); anything else stops.
+            lines = before.decode().split('\n')
+            hits = [i for i, line in enumerate(lines) if line.startswith('transcriber_root=')]
+            if len(hits) != 1:
+                raise SystemExit(f'[FAIL] {p}: expected exactly one transcriber_root= line, found {len(hits)}')
+            words = shlex.split(lines[hits[0]][len('transcriber_root='):])
+            value = words[0] if len(words) == 1 else None
+            if value not in (old, new):
+                raise SystemExit(f'[FAIL] {p}: transcriber_root is {value!r}, neither {old!r} nor {new!r}')
+            lines[hits[0]] = 'transcriber_root=' + shlex.quote(new)
+            after = '\n'.join(lines).encode()
         else:
             raise SystemExit(f'[FAIL] {p}: not a file this tool knows')
         if old.encode() in after:

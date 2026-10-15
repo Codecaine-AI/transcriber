@@ -94,7 +94,7 @@ rewrite() { # rewrite FROM TO WORK: swap paths with the helper in TO, then prove
     local from=$1 to=$2 list=()
     while IFS= read -r f; do list+=("$f"); done < <(files_to_rewrite "$to" "$3")
     local keep
-    keep="$3/before-rewrite-$(date +%Y%m%d-%H%M%S)"
+    keep=$(mktemp -d "$3/before-rewrite-$(date +%Y%m%d-%H%M%S)-XXXXXX") # never reused, so no copy is overwritten
     for f in "${list[@]}"; do
         [[ -f $f ]] || die "missing $f"
         mkdir -p "$keep$(dirname "$f")"
@@ -183,7 +183,7 @@ check)
     say PASS "preflight passed; nothing changed"
     ;;
 run)
-    exec > >(tee -a "$work/run.log") 2>&1
+    exec > >(tee -i -a "$work/run.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
     say info "work directory: $work"
     preflight
@@ -199,7 +199,7 @@ run)
     ;;
 resume)
     [[ -f $work/worktrees.new && -d $NEW && ! -e $OLD ]] || die "resume needs the folder at $NEW and --work from the run"
-    exec > >(tee -a "$work/resume.log") 2>&1
+    exec > >(tee -i -a "$work/resume.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
     finish
     say PASS "repository is now $NEW"
@@ -207,7 +207,7 @@ resume)
     ;;
 rollback)
     [[ -f $work/worktrees.old ]] || die "--work must be the directory from a run"
-    exec > >(tee -a "$work/rollback.log") 2>&1
+    exec > >(tee -i -a "$work/rollback.log") 2>&1
     trap 'status=$?; [[ $status -eq 0 ]] || recovery' EXIT
     # Every step is safe to rerun: stop treats stopped services as stopped, the move and the rewrite skip
     # what is already done.
