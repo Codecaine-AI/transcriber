@@ -1,7 +1,9 @@
 {
-  "name": "Sotto",
+  "name": "Transcriber",
   "docsRoot": "docs",
   "products": [
     "docs"
-  ]
+  ],
+  "id": "ent_01M4F6XQRM1C8Y0NEMPPZEJXPG",
+  "kind": "utility"
 }
