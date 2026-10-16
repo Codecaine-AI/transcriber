@@ -33,4 +33,4 @@ The server keeps the model warm. Terminating the helper cancels active work. `{"
 
 ## Verify
 
-Build with `./scripts/build-server.sh`, then use **Transcriber Dev** to record speech and inspect progress, transcripts, and vocabulary hints in history. Verify cancellation and subsequent recordings interactively when changing helper lifecycle behavior. See [the development guide](../docs/development.md). Automated test harnesses are not allowed.
+Build with `./scripts/build-server.sh`, then use **Transcriber Dev** to record speech and inspect progress, transcripts, and vocabulary hints in history. Verify cancellation and subsequent recordings interactively when changing helper lifecycle behavior. See [the development guide](../docs/40-guides/50-source-development/). Automated test harnesses are not allowed.

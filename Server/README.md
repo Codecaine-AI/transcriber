@@ -155,7 +155,7 @@ Bind to a reachable address and pass `--token-file /absolute/path/to/token`. Non
 - HTTP is accepted for localhost and literal Tailscale IPs in `100.64.0.0/10` or `fd7a:115c:a1e0::/48` on your connected tailnet. Transcriber checks the address range, not routing; use HTTPS if that private route cannot be assured.
 - Ordinary LAN IPs require HTTPS. Endpoints cannot contain credentials, queries, or fragments. Credential-bearing redirects are not followed.
 
-Keep the data directory on persistent storage and back it up. Only one runner can own it. See [storage](../docs/architecture.md#storage) and the [HTTP API](../docs/client-server-contract.md).
+Keep the data directory on persistent storage and back it up. Only one runner can own it. See [storage](../docs/10-system-design/10-architecture/) and the [HTTP API](../docs/10-system-design/20-http-api/).
 
 ## Containers
 
@@ -201,4 +201,4 @@ bun run check
 
 `check` runs strict TypeScript checking and verifies generated TypeScript bindings against OpenAPI. `lint` runs type-aware correctness rules with zero warnings, including promise handling and a ban on explicit `any`. `fmt` and `fmt:check` cover first-party TypeScript, JSON, YAML, and Markdown while excluding vendor/build/data directories. On macOS with Swift 6.2+, also run `bun run generate:api --check` and `swift build --force-resolved-versions` when changing Swift or the API.
 
-Automated tests and test harnesses are not allowed. Use the native **Transcriber Dev** app through computer use to verify changed behavior, including real dictation, progress, preferences, history, and delivery. The API rejects browser-origin requests and has no web UI. Follow [the development guide](../docs/development.md); report missing model/device access as unverified behavior.
+Automated tests and test harnesses are not allowed. Use the native **Transcriber Dev** app through computer use to verify changed behavior, including real dictation, progress, preferences, history, and delivery. The API rejects browser-origin requests and has no web UI. Follow [the development guide](../docs/40-guides/50-source-development/); report missing model/device access as unverified behavior.

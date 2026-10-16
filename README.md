@@ -62,7 +62,7 @@ bun run lint
 bun run check
 ```
 
-Automated tests are not allowed. Verify behavior by using **Transcriber Dev** through computer use; this is a native Mac app, so the browser health endpoint alone cannot verify dictation or insertion. See [the development guide](docs/development.md) for setup and verification.
+Automated tests are not allowed. Verify behavior by using **Transcriber Dev** through computer use; this is a native Mac app, so the browser health endpoint alone cannot verify dictation or insertion. See [the development guide](docs/40-guides/50-source-development/) for setup and verification.
 
 For the packaged Mac app and server:
 
@@ -84,9 +84,9 @@ All connected Macs share history, tagged by device. Both original and inference 
 ## Reference
 
 - [Server setup and models](Server/README.md)
-- [Architecture, configuration, and storage](docs/architecture.md)
-- [Dictionary and cleanup instructions](docs/text-correction.md)
-- [HTTP API](docs/client-server-contract.md)
+- [Architecture, configuration, and storage](docs/10-system-design/10-architecture/)
+- [Dictionary and cleanup instructions](docs/10-system-design/30-text-correction/)
+- [HTTP API](docs/10-system-design/20-http-api/)
 - [Whisper helper](Engine/README.md) and [Qwen helpers](TextEngine/README.md)
 
 [MIT](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

@@ -99,9 +99,12 @@
           "insert": " and "
         },
         {
-          "insert": "docs/development.md",
+          "insert": "Source Development",
           "attributes": {
-            "code": true
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/50-source-development"
+            }
           }
         },
         {

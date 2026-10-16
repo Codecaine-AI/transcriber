@@ -1,0 +1,220 @@
+{
+  "schemaVersion": 1,
+  "id": "typescript-server-validation",
+  "title": "TypeScript Server Verification",
+  "root": "b-typescript-server-validation-root-7",
+  "blocks": {
+    "b-typescript-server-validation-root-7": {
+      "id": "b-typescript-server-validation-root-7",
+      "type": "paragraph",
+      "props": {},
+      "children": [
+        "tsv-opening",
+        "b-typescript-server-validation-run-bun-run-check-for-2",
+        "b-typescript-server-validation-verify-generated-swift-b-3",
+        "b-typescript-server-validation-start-an-isolated-source-4",
+        "b-typescript-server-validation-native-helpers-metal-as-5",
+        "b-typescript-server-validation-linux-packages-target-ub-6",
+        "tsv-hardware"
+      ]
+    },
+    "tsv-opening": {
+      "id": "tsv-opening",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "These checks verify the Bun TypeScript server before a change merges. They cover static checks, generated Swift bindings, computer-use verification in "
+        },
+        {
+          "insert": "Transcriber Dev",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ", and the platforms that need their own hardware."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-validation-run-bun-run-check-for-2": {
+      "id": "b-typescript-server-validation-run-bun-run-check-for-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Run "
+        },
+        {
+          "insert": "bun run check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " for strict TypeScript and generated TypeScript/OpenAPI consistency, "
+        },
+        {
+          "insert": "bun run lint",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " for type-aware correctness, and "
+        },
+        {
+          "insert": "bun run fmt:check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " for formatting."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-validation-verify-generated-swift-b-3": {
+      "id": "b-typescript-server-validation-verify-generated-swift-b-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Verify generated Swift bindings with "
+        },
+        {
+          "insert": "bun run generate:api --check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and compile with "
+        },
+        {
+          "insert": "swift build --force-resolved-versions",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on macOS with Swift 6.2+. CI also compiles standalone coordinators and complete CPU packages for supported platforms."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-validation-start-an-isolated-source-4": {
+      "id": "b-typescript-server-validation-start-an-isolated-source-4",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Start an isolated source instance with "
+        },
+        {
+          "insert": "bun run dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and follow "
+        },
+        {
+          "insert": "the development guide",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/50-source-development",
+              "label": "the development guide"
+            }
+          }
+        },
+        {
+          "insert": " to verify changed behavior with computer use in "
+        },
+        {
+          "insert": "Transcriber Dev",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ". Automated tests, fixtures, and smoke harnesses are not allowed."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-validation-native-helpers-metal-as-5": {
+      "id": "b-typescript-server-validation-native-helpers-metal-as-5",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Native helpers, Metal assets, and pinned model weights are required for real dictation. A reachable health endpoint with "
+        },
+        {
+          "insert": "ready: false",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " proves only that the HTTP server is running."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-validation-linux-packages-target-ub-6": {
+      "id": "b-typescript-server-validation-linux-packages-target-ub-6",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Linux packages target Ubuntu 24.04 or compatible glibc environments."
+        }
+      ],
+      "children": [
+        "tsv-linux-baseline"
+      ]
+    },
+    "tsv-linux-baseline": {
+      "id": "tsv-linux-baseline",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The x64 coordinator uses Bun's baseline CPU target."
+        }
+      ],
+      "children": []
+    },
+    "tsv-hardware": {
+      "id": "tsv-hardware",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "CUDA, macOS signing and notarization, and native UI behavior require verification on suitable hardware with the necessary credentials."
+        }
+      ],
+      "children": []
+    }
+  }
+}

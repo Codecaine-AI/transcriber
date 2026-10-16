@@ -1,0 +1,592 @@
+{
+  "schemaVersion": 1,
+  "id": "typescript-server-plan",
+  "title": "Bun TypeScript Server Plan",
+  "root": "b-typescript-server-plan-root-36",
+  "blocks": {
+    "b-typescript-server-plan-root-36": {
+      "id": "b-typescript-server-plan-root-36",
+      "type": "paragraph",
+      "props": {},
+      "children": [
+        "b-typescript-server-plan-keep-the-native-swift-cl-2",
+        "b-typescript-server-plan-phase-1-contract-and-pr-3",
+        "b-typescript-server-plan-add-a-root-bun-workspace-4",
+        "b-typescript-server-plan-define-every-implemented-5",
+        "b-typescript-server-plan-generate-typescript-type-6",
+        "b-typescript-server-plan-generate-public-swift-tr-7",
+        "b-typescript-server-plan-yaml-8",
+        "b-typescript-server-plan-make-swift-client-s-json-9",
+        "b-typescript-server-plan-phase-2-deterministic-d-10",
+        "b-typescript-server-plan-port-transcript-cleanup-11",
+        "b-typescript-server-plan-preserve-utf-16-diagnost-12",
+        "b-typescript-server-plan-use-typed-arrays-for-bou-13",
+        "b-typescript-server-plan-compare-the-swift-and-ty-14",
+        "b-typescript-server-plan-phase-3-native-inferenc-15",
+        "b-typescript-server-plan-supervise-existing-whisp-16",
+        "b-typescript-server-plan-preserve-pinned-model-ve-17",
+        "b-typescript-server-plan-port-generation-admissio-18",
+        "b-typescript-server-plan-keep-private-file-permis-19",
+        "b-typescript-server-plan-phase-4-fastify-http-an-20",
+        "b-typescript-server-plan-preserve-http-paths-stat-21",
+        "b-typescript-server-plan-stream-bounded-ndjson-su-22",
+        "b-typescript-server-plan-compile-standalone-bun-c-23",
+        "b-typescript-server-plan-update-full-server-packa-24",
+        "b-typescript-server-plan-add-cpu-cuda-container-b-25",
+        "b-typescript-server-plan-phase-5-isolated-verifi-26",
+        "b-typescript-server-plan-use-port-8392-and-a-new-27",
+        "b-typescript-server-plan-run-bun-run-check-bu-28",
+        "b-typescript-server-plan-have-two-independent-age-29",
+        "b-typescript-server-plan-commit-all-implementatio-30",
+        "b-typescript-server-plan-intended-result-31",
+        "b-typescript-server-plan-bun-managed-fastify-serv-32",
+        "b-typescript-server-plan-full-v1-contract-with-ge-33",
+        "b-typescript-server-plan-native-swift-client-beha-34",
+        "b-typescript-server-plan-isolated-verified-draft-35"
+      ]
+    },
+    "b-typescript-server-plan-keep-the-native-swift-cl-2": {
+      "id": "b-typescript-server-plan-keep-the-native-swift-cl-2",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Keep the native Swift client and replace the packaged HTTP coordinator with TypeScript, Fastify, and a Bun executable. Preserve API v1, existing archive layout, text behavior, and native inference helpers. The reference Swift server and domain packages remain available for source comparison. Verification follows "
+        },
+        {
+          "insert": "the development guide",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/50-source-development",
+              "label": "the development guide"
+            }
+          }
+        },
+        {
+          "insert": "; automated tests are not allowed."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-phase-1-contract-and-pr-3": {
+      "id": "b-typescript-server-plan-phase-1-contract-and-pr-3",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Phase 1: Contract and project foundation"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-add-a-root-bun-workspace-4": {
+      "id": "b-typescript-server-plan-add-a-root-bun-workspace-4",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Add a root Bun workspace/package and pinned lockfile. All JavaScript dependency installation, scripts, static checks, and executable compilation use Bun."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-define-every-implemented-5": {
+      "id": "b-typescript-server-plan-define-every-implemented-5",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Define every implemented route and nested wire model in "
+        },
+        {
+          "insert": "Server/api/openapi.yaml",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " (OpenAPI 3.1), including Wispr Flow imports, binary float32 uploads, and full-record NDJSON events."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-generate-typescript-type-6": {
+      "id": "b-typescript-server-plan-generate-typescript-type-6",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Generate TypeScript types with "
+        },
+        {
+          "insert": "openapi-typescript",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Validate JSON at runtime using schemas from the same contract; semantic validation stays in the services."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-generate-public-swift-tr-7": {
+      "id": "b-typescript-server-plan-generate-public-swift-tr-7",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Generate public Swift transport types with Apple Swift OpenAPI Generator in a new "
+        },
+        {
+          "insert": "TranscriberAPIWire",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " target. Preserve existing client-facing DTO conveniences through typed bridges rather than changing SwiftUI callers."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-yaml-8": {
+      "id": "b-typescript-server-plan-yaml-8",
+      "type": "code",
+      "props": {
+        "language": "yaml"
+      },
+      "text": [
+        {
+          "insert": "generate: [types]\naccessModifier: public\nnamingStrategy: idiomatic\ntypeOverrides:\n  schemas:\n    UUID: Foundation.UUID"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-make-swift-client-s-json-9": {
+      "id": "b-typescript-server-plan-make-swift-client-s-json-9",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Make Swift client's JSON/NDJSON transport consume the generated types. Preserve existing default decoding and conveniences ("
+        },
+        {
+          "insert": "isTerminal",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "audioSeconds",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", dictionary validation). Verify UUID/date/optional/default round trips and compile the client without launching it."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-phase-2-deterministic-d-10": {
+      "id": "b-typescript-server-plan-phase-2-deterministic-d-10",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Phase 2: Deterministic domain port"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-port-transcript-cleanup-11": {
+      "id": "b-typescript-server-plan-port-transcript-cleanup-11",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Port transcript cleanup, personal dictionary matching/validation, spoken lists, correction alignment and rejection guards, and continuation composition into pure TypeScript modules."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-preserve-utf-16-diagnost-12": {
+      "id": "b-typescript-server-plan-preserve-utf-16-diagnost-12",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Preserve UTF-16 diagnostic offsets, grapheme limits, canonical Unicode matching, non-cascading longest dictionary matches, byte limits, numeric/negation/answer preservation, and control-only continuation behavior."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-use-typed-arrays-for-bou-13": {
+      "id": "b-typescript-server-plan-use-typed-arrays-for-bou-13",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Use typed arrays for bounded alignment storage and move expensive text work off the HTTP event loop where needed."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-compare-the-swift-and-ty-14": {
+      "id": "b-typescript-server-plan-compare-the-swift-and-ty-14",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Compare the Swift and TypeScript implementations and verify output text, status, spans, continuation, and rejection decisions by using the native app."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-phase-3-native-inferenc-15": {
+      "id": "b-typescript-server-plan-phase-3-native-inferenc-15",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Phase 3: Native inference and durable coordinator"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-supervise-existing-whisp-16": {
+      "id": "b-typescript-server-plan-supervise-existing-whisp-16",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Supervise existing Whisper and Qwen helpers with fixed argument arrays, bounded JSON-lines parsing, one outstanding request per helper, readiness, warm reuse, deadlines, output validation, and stale-process generation guards."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-preserve-pinned-model-ve-17": {
+      "id": "b-typescript-server-plan-preserve-pinned-model-ve-17",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Preserve pinned model verification, optional proofreading fallback, and cancellation by terminating/replacing busy helpers. Preserve idle warm helpers on cancellation."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-port-generation-admissio-18": {
+      "id": "b-typescript-server-plan-port-generation-admissio-18",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Port generation admission, per-device request idempotency, preference compare-and-swap revisions, chunk sequence/replay validation, finite samples, exact final frame counts, WAV sealing, disk checks, and serial FIFO processing."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-keep-private-file-permis-19": {
+      "id": "b-typescript-server-plan-keep-private-file-permis-19",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Keep private file permissions, exclusive directory ownership, atomic metadata writes, paginated shared history, allowlisted artifacts, restart recovery, upload expiry, and Wispr Flow staging/reconciliation."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-phase-4-fastify-http-an-20": {
+      "id": "b-typescript-server-plan-phase-4-fastify-http-an-20",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Phase 4: Fastify HTTP and executable packaging"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-preserve-http-paths-stat-21": {
+      "id": "b-typescript-server-plan-preserve-http-paths-stat-21",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Preserve HTTP paths/status/error shapes and authentication, tokenless loopback Host validation, Origin rejection, body limits, and diagnostics that omit user text."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-stream-bounded-ndjson-su-22": {
+      "id": "b-typescript-server-plan-stream-bounded-ndjson-su-22",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Stream bounded NDJSON subscriptions with current state, updates, two-second heartbeats, terminal completion, and slow-consumer backpressure. A subscriber disconnect does not cancel completed uploads."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-compile-standalone-bun-c-23": {
+      "id": "b-typescript-server-plan-compile-standalone-bun-c-23",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Compile standalone Bun coordinators for macOS arm64, Linux x64, and Linux arm64. Disable compiled executable dotenv/bunfig autoloading. Cross compilation covers the coordinator; native helpers must be built on the matching platform."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-update-full-server-packa-24": {
+      "id": "b-typescript-server-plan-update-full-server-packa-24",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Update full server packaging to retain native helpers, VAD, licenses, and Mac MLX bundles/Metal library. Preserve Bun's required Mac signing entitlements. Models and personal data remain outside packages."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-add-cpu-cuda-container-b-25": {
+      "id": "b-typescript-server-plan-add-cpu-cuda-container-b-25",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Add CPU/CUDA container builds and CI for Bun checks, contract generation, Swift compatibility, standalone executable builds, and platform artifacts."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-phase-5-isolated-verifi-26": {
+      "id": "b-typescript-server-plan-phase-5-isolated-verifi-26",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Phase 5: Isolated verification, review, and PR"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-use-port-8392-and-a-new-27": {
+      "id": "b-typescript-server-plan-use-port-8392-and-a-new-27",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Use port 8392 and a new "
+        },
+        {
+          "insert": ".local/typescript-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " data directory for development. Never invoke the client dev runner or operate the installed server at port 8391 or its data directory."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-run-bun-run-check-bu-28": {
+      "id": "b-typescript-server-plan-run-bun-run-check-bu-28",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Run "
+        },
+        {
+          "insert": "bun run check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "bun run lint",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "bun run fmt:check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Compile the Swift client and standalone coordinator, then verify changed behavior with computer use and real inference where model/device access is available. Do not add automated tests."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-have-two-independent-age-29": {
+      "id": "b-typescript-server-plan-have-two-independent-age-29",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Have two independent agents review correctness/security and API/domain/build parity. Fix material findings and re-run relevant checks."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-commit-all-implementatio-30": {
+      "id": "b-typescript-server-plan-commit-all-implementatio-30",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Commit all implementation changes on "
+        },
+        {
+          "insert": "codex/bun-typescript-server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", push, open a PR, and monitor CI/bot reviews until green and conflict-free. Leave the isolated server available and report its endpoint and limitations."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-intended-result-31": {
+      "id": "b-typescript-server-plan-intended-result-31",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Intended result"
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-bun-managed-fastify-serv-32": {
+      "id": "b-typescript-server-plan-bun-managed-fastify-serv-32",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Bun-managed Fastify server and standalone coordinators for the supported platforms."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-full-v1-contract-with-ge-33": {
+      "id": "b-typescript-server-plan-full-v1-contract-with-ge-33",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Full v1 contract with generated TypeScript and Swift transport models."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-native-swift-client-beha-34": {
+      "id": "b-typescript-server-plan-native-swift-client-beha-34",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Native Swift client behavior, native model helpers, and archive compatibility preserved."
+        }
+      ],
+      "children": []
+    },
+    "b-typescript-server-plan-isolated-verified-draft-35": {
+      "id": "b-typescript-server-plan-isolated-verified-draft-35",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Isolated verified draft, independent reviews, committed branch, and a green PR."
+        }
+      ],
+      "children": []
+    }
+  }
+}

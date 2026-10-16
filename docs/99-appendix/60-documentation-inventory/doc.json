@@ -24,6 +24,11 @@
         "b-60-documentation-inventory-users-ford-documents-c-13",
         "b-60-documentation-inventory-docs-wispr-flow-import-14",
         "b-60-documentation-inventory-third-party-notices-md-15",
+        "inv-later-heading",
+        "inv-later-lead",
+        "inv-later-development",
+        "inv-later-plan",
+        "inv-later-verification",
         "b-60-documentation-inventory-scope-16",
         "b-60-documentation-inventory-vendor-documentation-mo-17",
         "b-60-documentation-inventory-maintenance-18",
@@ -36,7 +41,16 @@
       "props": {},
       "text": [
         {
-          "insert": "The migration covers all first-party Markdown documentation in this checkout plus the setup, data audit, and migration report from the task outputs. Original Markdown files remain unchanged, except for added navigation pointers after migration. The source hashes below identify the imported versions."
+          "insert": "The migration covers all first-party Markdown documentation in this checkout plus the setup, data audit, and migration report from the task outputs. The source hashes below identify the imported versions. The "
+        },
+        {
+          "insert": "docs/*.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " sources were removed on 2026-10-16, and the other Markdown sources remain in the repository."
         }
       ],
       "children": []
@@ -574,6 +588,159 @@
       ],
       "children": []
     },
+    "inv-later-heading": {
+      "id": "inv-later-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Later Migrations"
+        }
+      ],
+      "children": []
+    },
+    "inv-later-lead": {
+      "id": "inv-later-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Three "
+        },
+        {
+          "insert": "docs/*.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " files had no native page after the first migration. The docs CLI migrated them on 2026-10-16, and the hashes identify the imported versions."
+        }
+      ],
+      "children": []
+    },
+    "inv-later-development": {
+      "id": "inv-later-development",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "docs/development.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " maps to "
+        },
+        {
+          "insert": "50-source-development",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/50-source-development"
+            }
+          }
+        },
+        {
+          "insert": ". Source SHA-256: "
+        },
+        {
+          "insert": "a7a932594f78cd55ba996437c7ccc7b2ae3250cc1d1033accf8be340c1ec2bf0",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "inv-later-plan": {
+      "id": "inv-later-plan",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "docs/typescript-server-plan.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " maps to "
+        },
+        {
+          "insert": "70-typescript-server-plan",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "99-appendix/70-typescript-server-plan"
+            }
+          }
+        },
+        {
+          "insert": ". Source SHA-256: "
+        },
+        {
+          "insert": "6f1bbf4137e22e833b5d8285730488839d3267493607ab9cef98b7c0e48f8bae",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "inv-later-verification": {
+      "id": "inv-later-verification",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "docs/typescript-server-validation.md",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " maps to "
+        },
+        {
+          "insert": "80-typescript-server-verification",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "99-appendix/80-typescript-server-verification"
+            }
+          }
+        },
+        {
+          "insert": ". Source SHA-256: "
+        },
+        {
+          "insert": "ab5a2929641df7327698f5da3fb05b7d1bb9ecf2b6b0c300861ab7e5568e5f68",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
     "b-60-documentation-inventory-scope-16": {
       "id": "b-60-documentation-inventory-scope-16",
       "type": "heading",
@@ -617,7 +784,7 @@
       "props": {},
       "text": [
         {
-          "insert": "Use the connected Docs tools or their supported CLI bridge. Begin a task, read the page, apply typed operations with the current revision hash, run completion checks, and end the task. Never hand-edit doc.json or component sidecars. Native pages are canonical; retained Markdown is a migration reference."
+          "insert": "Use the connected Docs tools or their supported CLI bridge. Begin a task, read the page, apply typed operations with the current revision hash, run completion checks, and end the task. Never hand-edit doc.json or component sidecars. Native pages are canonical, and any remaining Markdown source is a migration reference."
         }
       ],
       "children": []

@@ -1,0 +1,786 @@
+{
+  "schemaVersion": 1,
+  "id": "development",
+  "title": "Source Development",
+  "root": "b-development-root-27",
+  "blocks": {
+    "b-development-root-27": {
+      "id": "b-development-root-27",
+      "type": "paragraph",
+      "props": {},
+      "children": [
+        "srcdev-opening",
+        "b-development-install-bun-1-4-2-and-ru-2",
+        "b-development-run-bun-run-fmt-bun-3",
+        "b-development-automated-tests-are-not-4",
+        "b-development-source-server-5",
+        "b-development-sh-6",
+        "b-development-bun-reloads-source-chang-7",
+        "b-development-the-default-listener-is-8",
+        "b-development-the-launcher-ignores-inh-9",
+        "b-development-a-private-token-is-creat-10",
+        "b-development-on-siva-open-server-he-11",
+        "b-development-the-server-starts-withou-12",
+        "b-development-pass-normal-server-argum-13",
+        "b-development-native-app-14",
+        "b-development-transcriber-has-no-brows-15",
+        "b-development-on-an-apple-silicon-mac-16",
+        "b-development-sh-17",
+        "b-development-under-this-mac-sele-18",
+        "b-development-grant-transcriber-dev-19",
+        "b-development-scripts-run-dev-sh-r-20",
+        "b-development-computer-use-verificatio-21",
+        "b-development-exercise-the-behavior-yo-22",
+        "b-development-for-inference-changes-u-23",
+        "b-development-for-lifecycle-or-recover-24",
+        "b-development-record-what-you-used-and-25",
+        "b-development-when-changing-swift-or-t-26"
+      ]
+    },
+    "srcdev-opening": {
+      "id": "srcdev-opening",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "This guide runs the TypeScript server from source and verifies changes in "
+        },
+        {
+          "insert": "Transcriber Dev",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ". It covers the static checks, the hot-reload server on port 8392, the isolated native app, and computer-use verification. "
+        },
+        {
+          "insert": "Development",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "40-guides/40-development"
+            }
+          }
+        },
+        {
+          "insert": " covers building and installing the daily-use app."
+        }
+      ],
+      "children": []
+    },
+    "b-development-install-bun-1-4-2-and-ru-2": {
+      "id": "b-development-install-bun-1-4-2-and-ru-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Install Bun 1.4.2 and run "
+        },
+        {
+          "insert": "bun install --frozen-lockfile",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from the repository root."
+        }
+      ],
+      "children": []
+    },
+    "b-development-run-bun-run-fmt-bun-3": {
+      "id": "b-development-run-bun-run-fmt-bun-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Run "
+        },
+        {
+          "insert": "bun run fmt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "bun run fmt:check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "bun run lint",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "bun run check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " before you commit."
+        }
+      ],
+      "children": [
+        "srcdev-check-detail",
+        "srcdev-lint-detail"
+      ]
+    },
+    "srcdev-check-detail": {
+      "id": "srcdev-check-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "bun run check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " checks strict TypeScript and generated TypeScript/OpenAPI consistency."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-lint-detail": {
+      "id": "srcdev-lint-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Lint includes type-aware correctness and promise handling, and warnings fail the command."
+        }
+      ],
+      "children": []
+    },
+    "b-development-automated-tests-are-not-4": {
+      "id": "b-development-automated-tests-are-not-4",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Automated tests are not allowed. Do not add suites, test dependencies, fixtures, mocks, or assertion harnesses. CI runs static checks, generated API verification, and compilation/packaging."
+        }
+      ],
+      "children": []
+    },
+    "b-development-source-server-5": {
+      "id": "b-development-source-server-5",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Source Server"
+        }
+      ],
+      "children": []
+    },
+    "b-development-sh-6": {
+      "id": "b-development-sh-6",
+      "type": "code",
+      "props": {
+        "language": "sh"
+      },
+      "text": [
+        {
+          "insert": "bun run dev"
+        }
+      ],
+      "children": []
+    },
+    "b-development-bun-reloads-source-chang-7": {
+      "id": "b-development-bun-reloads-source-chang-7",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Bun reloads source changes. Stop this foreground instance with Ctrl-C."
+        }
+      ],
+      "children": []
+    },
+    "b-development-the-default-listener-is-8": {
+      "id": "b-development-the-default-listener-is-8",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The default listener is "
+        },
+        {
+          "insert": "0.0.0.0:8392",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "; development data lives in "
+        },
+        {
+          "insert": ".local/dev-server/data",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". This differs from the packaged Mac runner's port 8391 and "
+        },
+        {
+          "insert": ".local/server",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " archive."
+        }
+      ],
+      "children": []
+    },
+    "b-development-the-launcher-ignores-inh-9": {
+      "id": "b-development-the-launcher-ignores-inh-9",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The launcher ignores inherited "
+        },
+        {
+          "insert": "TRANSCRIBER_SERVER_DATA_DIR",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " settings. Select another development archive explicitly with "
+        },
+        {
+          "insert": "--data-dir",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "b-development-a-private-token-is-creat-10": {
+      "id": "b-development-a-private-token-is-creat-10",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A private token is created once at "
+        },
+        {
+          "insert": ".local/dev-server/token",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and reused on reload. Do not print or commit its value. Use the token in the native client's server settings; "
+        },
+        {
+          "insert": "TRANSCRIBER_SERVER_TOKEN_FILE",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " or "
+        },
+        {
+          "insert": "--token-file",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " can select an existing token file."
+        }
+      ],
+      "children": []
+    },
+    "b-development-on-siva-open-server-he-11": {
+      "id": "b-development-on-siva-open-server-he-11",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "On Siva, open "
+        },
+        {
+          "insert": "server health",
+          "attributes": {
+            "link": "http://siva.otter-hawksbill.ts.net:8392/v1/health"
+          }
+        },
+        {
+          "insert": " in the collaborative browser. For another machine, use its reachable hostname or Tailscale address and the selected port."
+        }
+      ],
+      "children": []
+    },
+    "b-development-the-server-starts-withou-12": {
+      "id": "b-development-the-server-starts-withou-12",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server starts without native assets and reports "
+        },
+        {
+          "insert": "ready: false",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "srcdev-enable-dictation",
+        "srcdev-existing-helpers"
+      ]
+    },
+    "srcdev-enable-dictation": {
+      "id": "srcdev-enable-dictation",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "To enable dictation, follow "
+        },
+        {
+          "insert": "model setup",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Server/README.md"
+            }
+          }
+        },
+        {
+          "insert": ", set "
+        },
+        {
+          "insert": "TRANSCRIBER_SPEECH_MODEL",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "TRANSCRIBER_TEXT_MODEL",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and run "
+        },
+        {
+          "insert": "./scripts/build-server.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " once to build the real helpers and VAD."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-existing-helpers": {
+      "id": "srcdev-existing-helpers",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Select existing helpers with "
+        },
+        {
+          "insert": "TRANSCRIBER_ENGINE_PATH",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "TRANSCRIBER_TEXT_ENGINE_PATH",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "TRANSCRIBER_VAD_PATH",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "b-development-pass-normal-server-argum-13": {
+      "id": "b-development-pass-normal-server-argum-13",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Pass normal server arguments to override defaults, for example "
+        },
+        {
+          "insert": "bun run dev --port 8393 --data-dir \"$PWD/.local/another-dev-archive\"",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Use "
+        },
+        {
+          "insert": "bun run dev --help",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " for arguments. Keep model files outside Git."
+        }
+      ],
+      "children": []
+    },
+    "b-development-native-app-14": {
+      "id": "b-development-native-app-14",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Native App"
+        }
+      ],
+      "children": []
+    },
+    "b-development-transcriber-has-no-brows-15": {
+      "id": "b-development-transcriber-has-no-brows-15",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcriber has no browser UI. Browser-origin API requests are rejected; do not weaken that policy to create a verification shortcut."
+        }
+      ],
+      "children": []
+    },
+    "b-development-on-an-apple-silicon-mac-16": {
+      "id": "b-development-on-an-apple-silicon-mac-16",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "On an Apple Silicon Mac with Xcode 26+ and Swift 6.2+, run "
+        },
+        {
+          "insert": "./scripts/build-dev-app.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Launch "
+        },
+        {
+          "insert": "build/Transcriber Dev.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with "
+        },
+        {
+          "insert": "TRANSCRIBER_CLIENT_DATA_DIR",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " set to a new workspace-local client directory, so its preferences and credentials remain separate from the regular app:"
+        }
+      ],
+      "children": []
+    },
+    "b-development-sh-17": {
+      "id": "b-development-sh-17",
+      "type": "code",
+      "props": {
+        "language": "sh"
+      },
+      "text": [
+        {
+          "insert": "mkdir -p .local/dev-client\nchmod 700 .local/dev-client\nopen --env \"TRANSCRIBER_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \"build/Transcriber Dev.app\""
+        }
+      ],
+      "children": []
+    },
+    "b-development-under-this-mac-sele-18": {
+      "id": "b-development-under-this-mac-sele-18",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Under "
+        },
+        {
+          "insert": "This Mac",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ", select the development server and its token. The client requires HTTPS for remote hostnames; on the connected tailnet, a literal Tailscale IP may use HTTP. For Siva's default development server, use "
+        },
+        {
+          "insert": "http://100.100.40.20:8392",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " in the native client, or an HTTPS reverse proxy you already have configured."
+        }
+      ],
+      "children": []
+    },
+    "b-development-grant-transcriber-dev-19": {
+      "id": "b-development-grant-transcriber-dev-19",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Grant "
+        },
+        {
+          "insert": "Transcriber Dev",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " Microphone and Accessibility permissions. Use "
+        },
+        {
+          "insert": "Test microphone",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " for an in-app transcript; use the recording shortcut in a separate editable app to verify insertion."
+        }
+      ],
+      "children": []
+    },
+    "b-development-scripts-run-dev-sh-r-20": {
+      "id": "b-development-scripts-run-dev-sh-r-20",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "./scripts/run-dev.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " remains available to build/start the packaged server and Mac client together. It uses port 8391 by default; choose an unused "
+        },
+        {
+          "insert": "TRANSCRIBER_SERVER_PORT",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and a separate archive before using it alongside an existing installation. Do not stop or restart an existing server without authorization."
+        }
+      ],
+      "children": []
+    },
+    "b-development-computer-use-verificatio-21": {
+      "id": "b-development-computer-use-verificatio-21",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Computer-Use Verification"
+        }
+      ],
+      "children": []
+    },
+    "b-development-exercise-the-behavior-yo-22": {
+      "id": "b-development-exercise-the-behavior-yo-22",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Exercise the behavior you changed using the actual app: save and reload preferences, navigate history, record speech, inspect progress and the finished transcript, or insert dictation into an editable field as appropriate."
+        }
+      ],
+      "children": []
+    },
+    "b-development-for-inference-changes-u-23": {
+      "id": "b-development-for-inference-changes-u-23",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "For inference changes, use real helpers and pinned models. Inspect raw/cleaned transcripts and model readiness; "
+        },
+        {
+          "insert": "ready: false",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " is not successful dictation verification."
+        }
+      ],
+      "children": []
+    },
+    "b-development-for-lifecycle-or-recover-24": {
+      "id": "b-development-for-lifecycle-or-recover-24",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "For lifecycle or recovery changes, use only the instance and archive created for this task. Reopen the app or restart that isolated server as needed, then inspect persisted state through the app."
+        }
+      ],
+      "children": []
+    },
+    "b-development-record-what-you-used-and-25": {
+      "id": "b-development-record-what-you-used-and-25",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Record what you used and observed. State which flows could not be exercised because a Mac, microphone, permissions, or model assets were unavailable. Static checks and an HTTP health page do not establish native UI or inference behavior."
+        }
+      ],
+      "children": []
+    },
+    "b-development-when-changing-swift-or-t-26": {
+      "id": "b-development-when-changing-swift-or-t-26",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "When changing Swift or the transport contract, run "
+        },
+        {
+          "insert": "bun run generate:api --check",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "swift build --force-resolved-versions",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on macOS. Compile affected native helpers when changing C++ or MLX. These are build/static checks, not behavioral test suites."
+        }
+      ],
+      "children": []
+    }
+  }
+}
