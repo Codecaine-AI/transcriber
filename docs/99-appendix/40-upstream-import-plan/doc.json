@@ -360,7 +360,7 @@
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/SottoAPI/API.swift"
+              "path": "Sources/TranscriberAPI/API.swift"
             }
           }
         },
@@ -548,11 +548,11 @@
           "insert": "Add authenticated import routes in "
         },
         {
-          "insert": "`SottoHTTPServer.swift`",
+          "insert": "`TranscriberHTTPServer.swift`",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/SottoServerKit/SottoHTTPServer.swift"
+              "path": "Sources/TranscriberServerKit/TranscriberHTTPServer.swift"
             }
           }
         },
@@ -564,7 +564,7 @@
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/SottoServerKit/GenerationService.swift"
+              "path": "Sources/TranscriberServerKit/GenerationService.swift"
             }
           }
         },
@@ -658,7 +658,7 @@
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/Sotto/Views/HistoryPage.swift"
+              "path": "Sources/Transcriber/Views/HistoryPage.swift"
             }
           }
         },
@@ -666,11 +666,11 @@
           "insert": ", with orchestration in "
         },
         {
-          "insert": "`SottoController.swift`",
+          "insert": "`TranscriberController.swift`",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/Sotto/SottoController.swift"
+              "path": "Sources/Transcriber/TranscriberController.swift"
             }
           }
         },
@@ -682,7 +682,7 @@
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/Sotto/ServerClient.swift"
+              "path": "Sources/Transcriber/ServerClient.swift"
             }
           }
         },
