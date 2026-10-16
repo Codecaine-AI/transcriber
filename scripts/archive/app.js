@@ -81,7 +81,7 @@ async function summary() {
   $("stats").replaceChildren();
   for (const [label, value] of [
     ["Total records", number(sums("records"))],
-    ["Transcriber", number(d.sources.find((s) => s.source === "sotto")?.records)],
+    ["Transcriber", number(d.sources.find((s) => s.source === "transcriber")?.records)],
     ["Wispr history", number(d.sources.find((s) => s.source === "wispr-flow")?.records)],
     ["With audio", number(sums("audio"))],
     ["Unknown date", number(sums("undated"))],
@@ -94,9 +94,9 @@ async function summary() {
   $("health").className = d.error ? "error" : "";
   $("health").textContent = d.error
     ? "Archive needs attention: " + d.error
-    : d.last_sotto_sync
+    : d.last_transcriber_sync
       ? "Transcriber archive checked " +
-        when(d.last_sotto_sync) +
+        when(d.last_transcriber_sync) +
         ". New recordings are saved automatically."
       : "Loading archive status…";
 }
@@ -118,7 +118,7 @@ async function records() {
     const top = node("span", undefined, "top");
     top.append(
       node("span", when(r.timestamp)),
-      node("span", r.source === "sotto" ? "Transcriber" : "Wispr"),
+      node("span", r.source === "transcriber" ? "Transcriber" : "Wispr"),
     );
     b.append(
       top,
@@ -151,7 +151,7 @@ async function detail(key) {
   root.replaceChildren(node("h2", when(m.timestamp)));
   const badges = node("div", undefined, "recordmeta");
   for (const text of [
-    m.source === "sotto" ? "Transcriber" : "Wispr history",
+    m.source === "transcriber" ? "Transcriber" : "Wispr history",
     m.status || "Status not recorded",
     m.mode,
     m.text.clean_variant ? "Clean text: " + m.text.clean_variant : null,
