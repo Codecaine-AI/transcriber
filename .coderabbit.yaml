@@ -1,0 +1,59 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review config. Shared settings from Codecaine-AI/docs-system; path filters tuned for this repo.
+language: en-US
+
+reviews:
+  profile: chill # balanced feedback; "assertive" adds nitpicks
+  auto_approvals:
+    enabled: false # current key for the deprecated request_changes_workflow: comment only, never approve or block
+  high_level_summary: true
+  poem: false
+  review_status: true # say when a review is skipped, so babysit-pr can tell skipped from clean
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+  # Each reviewed file beyond the plan is billed, so skip files nobody writes by hand.
+  path_filters:
+    - "!**/dist/**"
+    - "!**/dist-static/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!bun.lock"
+    - "!**/package-lock.json"
+    - "!**/__snapshots__/**"
+    - "!**/*.snap"
+    - "!**/__fixtures__/**"
+    - "!**/fixtures/**"
+    - "!**/*.log"
+    # Docs pages (doc.json) and component sidecars are written by the docs tools
+    - "!docs/**/*.json"
+    # OpenAPI codegen output (edit Server/api/openapi.yaml, then run Server/scripts/generate-api.ts)
+    - "!Server/src/generated/**"
+    - "!Sources/TranscriberAPIWire/**"
+    # SwiftPM lockfiles
+    - "!**/*Package.resolved"
+    # Vendored submodules (whisper.cpp, llama.cpp) and copied third-party license texts
+    - "!vendor/**"
+    - "!Resources/*-LICENSE.txt"
+  path_instructions:
+    - path: "{Sources,TextEngine/Sources}/**/*.swift"
+      instructions: >-
+        Flag correctness bugs, unsafe or loose types, unhandled errors, and changed
+        behavior without a matching test. Skip style and formatting nits.
+    - path: "Server/{src,scripts}/**/*.ts"
+      instructions: >-
+        Flag correctness bugs, unsafe or loose types, unhandled errors, and changed
+        behavior without a matching test. Skip style and formatting nits.
+    - path: "**/*.py"
+      instructions: >-
+        Flag correctness bugs, missing or loose type hints, unhandled errors, and changed
+        behavior without a matching test. Skip style and formatting nits.
+    - path: "**/test_*.py"
+      instructions: >-
+        Flag tests that assert implementation details instead of behavior, or that
+        cannot fail. Skip naming and formatting nits.
+
+chat:
+  auto_reply: true
