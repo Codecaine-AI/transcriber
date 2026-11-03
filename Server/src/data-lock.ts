@@ -2,8 +2,8 @@ import { dlopen } from "bun:ffi";
 import { closeSync, constants, fstatSync, mkdirSync, openSync } from "node:fs";
 import { join } from "node:path";
 
-// Keep the same inode and advisory lock used by the Swift server. An exclusive
-// create/PID file would not prevent the two implementations sharing an archive.
+// One inode and one advisory lock guard each data directory. An exclusive
+// create or PID file would not stop two runners from sharing an archive.
 export function acquireDataDirectoryLock(directory: string) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const libraryPath = process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6";
@@ -13,11 +13,18 @@ export function acquireDataDirectoryLock(directory: string) {
   const library = dlopen(libraryPath, {
     flock: { args: ["i32", "i32"], returns: "i32" },
   });
+  // `bun --watch` reloads by exec in place. Close-on-exec drops the old lock so the
+  // reloaded server can take it again. fs.constants does not expose O_CLOEXEC.
+  const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0o2000000;
   let descriptor: number | undefined;
   try {
     descriptor = openSync(
       join(directory, ".server.lock"),
-      constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      constants.O_RDWR |
+        constants.O_CREAT |
+        constants.O_NOFOLLOW |
+        constants.O_NONBLOCK |
+        closeOnExec,
       0o600,
     );
     if (!fstatSync(descriptor).isFile()) {

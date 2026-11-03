@@ -284,7 +284,7 @@ final class TranscriberController: ObservableObject {
         // Fork: a take left behind by a crash is kept for recovery, not deleted.
         // Server history is never examined here.
         RecordingStorage.recoverRemnants()
-        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview"))
+        try? FileManager.default.removeItem(at: TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview"))
         hasInitialized = true
         updateLoginItem()
         refreshServer()
@@ -895,7 +895,7 @@ final class TranscriberController: ObservableObject {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let lockObserver { DistributedNotificationCenter.default().removeObserver(lockObserver) }
-        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview"))
+        try? FileManager.default.removeItem(at: TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview"))
     }
 
     private func bindServices() {
