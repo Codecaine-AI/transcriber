@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sqlite3
+import sys
 import tempfile
 import threading
 import time
@@ -21,6 +22,8 @@ from pathlib import Path
 CHUNK = 1024 * 1024
 # A one-off data migration holds this file in the cache directory; nothing may copy records meanwhile.
 MIGRATION_LOCK = 'migration.lock'
+# Transcriber record folders are UUIDs; anything else (such as <ID>.quarantined) is not a record.
+UUID_NAME = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 TEXT_COLUMNS = ('asrText', 'formattedText', 'editedText', 'pastedText', 'serverFinalizedText',
                 'defaultAsrText', 'fallbackAsrText', 'defaultFormattedText', 'fallbackFormattedText',
                 'editedTextUnbounded', 'toneMatchedText', 'desiredAsr', 'desiredFormatted')
@@ -110,6 +113,8 @@ class Archive:
         self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
         self.last_error = None
         self.last_sync = None
+        # Metadata stamp of each record's last printed failure, so one bad record prints once per change.
+        self.reported = {}
         marker = self.root / 'dataset.json'
         if marker.exists():
             marker_data = json.loads(marker.read_text())
@@ -352,42 +357,58 @@ class Archive:
         source = Path(source).expanduser().resolve()
         if not source.is_dir():
             raise FileNotFoundError("Transcriber data directory is unavailable")
+        self.last_error = None
+        failures = []
         changed = 0
         for path in sorted((source / 'generations').glob('*/metadata.json')):
-            stamp = [path.stat().st_mtime_ns, path.stat().st_size]
-            key = str(path)
-            # Also check destination: a rebuilt cache or manually moved archive must recover.
-            if self.state.get(key) == stamp and (self.record_dir('transcriber', path.parent.name) / 'metadata.json').exists():
+            if not UUID_NAME.match(path.parent.name):
                 continue
-            original = json.loads(path.read_text())
-            if original['status'] not in ('completed', 'failed', 'cancelled'):
-                continue
-            if original.get('importedSource'):
-                continue  # Wispr history is imported directly and losslessly, not through the server's legacy adapter.
-            m = self.load('transcriber', original['id'])
-            folder = self.record_dir('transcriber', original['id'])
-            m.update(timestamp=original['createdAt'], status=original['status'],
-                text={'raw': original.get('rawText'), 'clean': original.get('finalText'),
-                      'clean_variant': 'finalText', 'variants': {k:original.get(k) for k in ('rawText','finalText','insertionText','previewText')}},
-                context={'app': None, 'device': original.get('device'), 'language': original.get('detectedLanguage')},
-                mode=original.get('mode'), selected_source='transcriber')
-            self.version(folder, m, original, 'transcriber-metadata', 'metadata.json')
-            for field, kind in [('inferenceAudio', 'audio'), ('originalAudio', 'original-audio')]:
-                if not original.get(field):
+            try:
+                stamp = [path.stat().st_mtime_ns, path.stat().st_size]
+                key = str(path)
+                # Also check destination: a rebuilt cache or manually moved archive must recover.
+                if self.state.get(key) == stamp and (self.record_dir('transcriber', path.parent.name) / 'metadata.json').exists():
                     continue
-                name = original[field]['filename']
-                p = (path.parent / name).resolve()
-                if not p.is_relative_to(path.parent.resolve()) or not p.is_file():
-                    raise ValueError('Transcriber metadata references missing or invalid audio')
-                with p.open('rb') as f:
-                    self.add_artifact(m, self.blob(folder, f, kind, p.suffix, name))
-            self.save(m)
-            self.state[key] = stamp
-            changed += 1
+                original = json.loads(path.read_text())
+                if original['status'] not in ('completed', 'failed', 'cancelled'):
+                    continue
+                if original.get('importedSource'):
+                    continue  # Wispr history is imported directly and losslessly, not through the server's legacy adapter.
+                m = self.load('transcriber', original['id'])
+                folder = self.record_dir('transcriber', original['id'])
+                m.update(timestamp=original['createdAt'], status=original['status'],
+                    text={'raw': original.get('rawText'), 'clean': original.get('finalText'),
+                          'clean_variant': 'finalText', 'variants': {k:original.get(k) for k in ('rawText','finalText','insertionText','previewText')}},
+                    context={'app': None, 'device': original.get('device'), 'language': original.get('detectedLanguage')},
+                    mode=original.get('mode'), selected_source='transcriber')
+                self.version(folder, m, original, 'transcriber-metadata', 'metadata.json')
+                for field, kind in [('inferenceAudio', 'audio'), ('originalAudio', 'original-audio')]:
+                    if not original.get(field):
+                        continue
+                    name = original[field]['filename']
+                    p = (path.parent / name).resolve()
+                    if not p.is_relative_to(path.parent.resolve()) or not p.is_file():
+                        raise ValueError('Transcriber metadata references missing or invalid audio')
+                    with p.open('rb') as f:
+                        self.add_artifact(m, self.blob(folder, f, kind, p.suffix, name))
+                self.save(m)
+                self.state[key] = stamp
+                changed += 1
+            except Exception as error:
+                # Keep syncing past one bad record. Its state stays unwritten, so it retries every pass.
+                failures.append(path.parent.name)
+                try:
+                    failed_stamp = [path.stat().st_mtime_ns, path.stat().st_size]
+                except OSError:
+                    failed_stamp = None
+                if self.reported.get(path.parent.name) != failed_stamp:
+                    self.reported[path.parent.name] = failed_stamp
+                    print(f'archive_record_failed id={path.parent.name} error={type(error).__name__}: {error}', file=sys.stderr, flush=True)
         self.commit()
         atomic(self.state_path, encode(self.state))
         self.last_sync = now()
-        self.last_error = None
+        if failures:
+            self.last_error = f'{len(failures)} Transcriber record(s) could not be archived and will retry. First: {failures[0]}'
         return changed
 
     def summary(self):
@@ -455,6 +476,9 @@ def main():
         archive.reindex(); print(json.dumps(archive.summary(), indent=2))
     elif args.command == 'sync':
         print('Archived', archive.sync_transcriber(args.transcriber_data), 'Transcriber records')
+        if archive.last_error:
+            print(archive.last_error, file=sys.stderr)
+            sys.exit(1)
     elif args.command == 'serve':
         archive.require_unlocked()
         from viewer import serve
