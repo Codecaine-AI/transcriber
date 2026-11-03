@@ -24,6 +24,11 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     }
   }
   const isMac = process.platform === "darwin";
+  const described = Bun.spawnSync(["git", "describe", "--always", "--dirty"], {
+    cwd: projectDirectory,
+    stderr: "ignore",
+  });
+  const revision = described.success ? described.stdout.toString().trim() : "unknown";
   const environment = {
     TRANSCRIBER_SERVER_HOST: "127.0.0.1",
     TRANSCRIBER_SERVER_PORT: "8393",
@@ -40,6 +45,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     TRANSCRIBER_TEXT_MODEL: isMac
       ? resolve(homedir(), ".transcriber/models/Qwen3-4B-Instruct-2507-MLX-4bit")
       : resolve(directory, "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+    TRANSCRIBER_SERVER_VERSION: `dev-${revision}`,
     ...process.env,
     // A regular server's exported archive must never become the dev default.
     // Explicit --data-dir arguments still take precedence in parseConfiguration.

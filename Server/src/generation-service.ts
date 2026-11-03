@@ -41,6 +41,7 @@ import {
   type DeepgramTranscript,
 } from "./inference/deepgram.ts";
 import { ServiceError } from "./errors.ts";
+import { SERVER_VERSION } from "./version.ts";
 import { logError, logInfo, logWarn } from "./log.ts";
 import {
   atomicPrivateWrite,
@@ -554,7 +555,7 @@ export class GenerationService {
         this.beginWarmup();
       return {
         apiVersion: 1,
-        serverVersion: "0.1.0",
+        serverVersion: SERVER_VERSION,
         isDev: this.configuration.development,
         ready,
         speech: this.speechRuntime(deepgram, state),

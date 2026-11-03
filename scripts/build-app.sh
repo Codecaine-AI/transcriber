@@ -36,6 +36,11 @@ staged_app="$staging_dir/$app_name.app"
 mkdir -p "$staged_app/Contents/MacOS" "$staged_app/Contents/Resources"
 cp "$swift_bin/Transcriber" "$staged_app/Contents/MacOS/Transcriber"
 cp "$info_plist" "$staged_app/Contents/Info.plist"
+source_revision=$(git describe --always --dirty 2>/dev/null || true)
+if [[ -n "$source_revision" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :TranscriberSourceRevision string $source_revision" \
+        "$staged_app/Contents/Info.plist"
+fi
 cp Resources/swift-openapi-runtime-LICENSE.txt Resources/swift-http-types-LICENSE.txt \
     THIRD_PARTY_NOTICES.md "$staged_app/Contents/Resources/"
 swift scripts/make-icon.swift "$project_dir/.build/Transcriber.iconset"

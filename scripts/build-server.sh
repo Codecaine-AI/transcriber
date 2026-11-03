@@ -76,6 +76,12 @@ test -x "$text_helper"
 test -f "$vad_model"
 bun install --frozen-lockfile
 
+if [[ -z "${TRANSCRIBER_SERVER_VERSION:-}" ]]; then
+    TRANSCRIBER_SERVER_VERSION=$(git describe --always --dirty 2>/dev/null || true)
+    [[ -n "$TRANSCRIBER_SERVER_VERSION" ]] || TRANSCRIBER_SERVER_VERSION="0.0.0-dev"
+fi
+export TRANSCRIBER_SERVER_VERSION
+
 mkdir -p build
 staging_dir=$(mktemp -d "$project_dir/build/.server.XXXXXX")
 trap 'rm -rf "$staging_dir"' EXIT
