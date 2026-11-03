@@ -969,6 +969,56 @@ export class GenerationService {
   cancel(id: string) {
     return this.mutate(() => this.cancelRecord(id));
   }
+  reprocess(id: string) {
+    return this.mutate(async () => {
+      const record = this.getInternal(id);
+      if (record.importedSource)
+        throw new ServiceError(
+          400,
+          "imported_reprocess",
+          "Imported history cannot be reprocessed.",
+        );
+      if (this.stopping)
+        throw new ServiceError(503, "server_stopping", "The server is shutting down.");
+      if (!terminal(record))
+        throw new ServiceError(
+          409,
+          "generation_active",
+          "This recording is still being processed.",
+        );
+      if (record.status === "completed")
+        throw new ServiceError(
+          409,
+          "already_completed",
+          "A completed recording cannot be transcribed again.",
+        );
+      const directory = this.directory(record.id);
+      if (!record.inferenceAudio || !(await sealedAudioExists(directory, "inference")))
+        throw new ServiceError(404, "artifact_not_found", "This recording has no sealed audio.");
+      // Fork: the previous attempt is kept on disk, synced, before the record changes.
+      const attempts = join(directory, "attempts");
+      await ensureDirectory(attempts);
+      await syncDirectory(directory);
+      await atomicPrivateWrite(
+        join(attempts, `${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
+        JSON.stringify(record),
+      );
+      // Outcome fields are cleared. Text fields stay until a new success replaces them.
+      record.status = "queued";
+      record.progress = 0;
+      record.updatedAt = now();
+      delete record.error;
+      delete record.delivery;
+      delete record.continuation;
+      delete record.textProcessing;
+      delete record.proofreading;
+      delete record.proofreadingHints;
+      await this.save(record);
+      logInfo("generation_reprocess_queued", { id: record.id });
+      this.enqueueProcessing(record.id, undefined);
+      return copy(record);
+    });
+  }
   private async cancelRecord(id: string) {
     const record = this.getInternal(id);
     if (terminal(record)) return record;

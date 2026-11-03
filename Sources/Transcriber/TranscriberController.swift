@@ -700,6 +700,25 @@ final class TranscriberController: ObservableObject {
         }
     }
 
+    func transcribeAgain(_ id: UUID) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let connection = try client()
+                replaceGeneration(try await connection.reprocess(id))
+                // The 15 s History refresh covers a stream that ends early.
+                _ = try await connection.events(id) { [weak self] record in
+                    await self?.replaceGeneration(record)
+                }
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func replaceGeneration(_ record: GenerationRecord) {
+        guard let index = generations.firstIndex(where: { $0.id == record.id }) else { return }
+        generations[index] = record
+    }
+
     func deleteGeneration(_ id: UUID) {
         Task { [weak self] in
             guard let self else { return }

@@ -372,6 +372,9 @@ extension ServerClient {
     func cancel(_ id: UUID) async throws {
         try await send(path: "v1/generations/\(id)/cancel", method: "POST")
     }
+    func reprocess(_ id: UUID) async throws -> GenerationRecord {
+        try await json(path: "v1/generations/\(id)/reprocess", method: "POST")
+    }
     func delete(_ id: UUID) async throws {
         try await send(path: "v1/generations/\(id)", method: "DELETE")
     }

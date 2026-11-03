@@ -42,6 +42,9 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/generations/{id}/cancel`.
     /// - Remark: Generated from `#/paths//v1/generations/{id}/cancel/post(cancelGeneration)`.
     func cancelGeneration(_ input: Operations.CancelGeneration.Input) async throws -> Operations.CancelGeneration.Output
+    /// - Remark: HTTP `POST /v1/generations/{id}/reprocess`.
+    /// - Remark: Generated from `#/paths//v1/generations/{id}/reprocess/post(reprocessGeneration)`.
+    func reprocessGeneration(_ input: Operations.ReprocessGeneration.Input) async throws -> Operations.ReprocessGeneration.Output
     /// - Remark: HTTP `POST /v1/generations/{id}/delivery`.
     /// - Remark: Generated from `#/paths//v1/generations/{id}/delivery/post(recordDelivery)`.
     func recordDelivery(_ input: Operations.RecordDelivery.Input) async throws -> Operations.RecordDelivery.Output
@@ -175,6 +178,17 @@ extension APIProtocol {
         headers: Operations.CancelGeneration.Input.Headers = .init()
     ) async throws -> Operations.CancelGeneration.Output {
         try await cancelGeneration(Operations.CancelGeneration.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/generations/{id}/reprocess`.
+    /// - Remark: Generated from `#/paths//v1/generations/{id}/reprocess/post(reprocessGeneration)`.
+    public func reprocessGeneration(
+        path: Operations.ReprocessGeneration.Input.Path,
+        headers: Operations.ReprocessGeneration.Input.Headers = .init()
+    ) async throws -> Operations.ReprocessGeneration.Output {
+        try await reprocessGeneration(Operations.ReprocessGeneration.Input(
             path: path,
             headers: headers
         ))
