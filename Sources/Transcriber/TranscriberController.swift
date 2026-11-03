@@ -120,6 +120,7 @@ final class TranscriberController: ObservableObject {
         }
     }
     @Published var statusMessage = "Connecting to server…"
+    @Published private(set) var hudProgressText: String?
     @Published private(set) var serverHealth: ServerHealth?
     @Published private(set) var serverStatusMessage = "Connecting…"
     @Published private(set) var isCheckingServer = false
@@ -148,7 +149,8 @@ final class TranscriberController: ObservableObject {
     var isCapturing: Bool { activity.isCapturing }
     var recordingUsesClipboard: Bool { isCapturing && insertionDestination == .clipboard }
     var isBusy: Bool { activity.isBusy || !pendingDictations.isEmpty }
-    var canCancelWithEscape: Bool { !hotkey.isHoldingFn }
+    var pendingDictationCount: Int { pendingDictations.count }
+    var canCancelWithEscape: Bool { isCapturing && !hotkey.isHoldingFn }
     var isServerReady: Bool { serverHealth?.ready == true && serverHealth?.apiVersion == TranscriberAPI.version }
     var canTest: Bool { isServerReady && permissions.microphone && microphones.resolution.device != nil && !isCapturing }
     var selectedInputName: String { microphones.resolution.device?.name ?? "No microphone available" }
@@ -354,8 +356,7 @@ final class TranscriberController: ObservableObject {
             guard endpoint == preferences.endpoint, !Task.isCancelled else { return }
             serverHealth = nil
             serverStatusMessage = Self.connectionMessage(error)
-            if isCapturing { failSession(serverStatusMessage, cancelServer: true) }
-            else if !isBusy, activity == .idle { statusMessage = serverStatusMessage }
+            if !isBusy, activity == .idle { statusMessage = serverStatusMessage }
         }
     }
 
@@ -759,6 +760,9 @@ final class TranscriberController: ObservableObject {
         let remaining = pendingDictations.last?.session
         sessionID = remaining ?? UUID()
         activity = remaining == nil ? .idle : .transcribing
+        // Fork: clear even when an earlier take remains, so its HUD never shows
+        // the cancelled take's stage. It reads "Processing" until its next event.
+        hudProgressText = nil
         statusMessage = remaining == nil ? "Cancelled" : "Cancelled · Earlier dictation is still processing"
         errorMessage = nil
         onHUDVisibility?(remaining != nil)
@@ -929,8 +933,8 @@ final class TranscriberController: ObservableObject {
         hotkey.onCancel = { [weak self] in
             guard let self else { return }
             if isCheckingShortcut { appendShortcutCheck("Hold cancelled; microphone stayed off.") }
-            else if isBusy { cancelDictation() }
-            else { dismissFeedback() }
+            else if canCancelWithEscape { cancelDictation() }
+            else if !isBusy { dismissFeedback() }
         }
     }
 
@@ -940,10 +944,10 @@ final class TranscriberController: ObservableObject {
     private func beginDictation(isTest: Bool) -> Bool {
         guard !isCapturing, !isShuttingDown else { return false }
         stopShortcutCheck()
-        guard isServerReady else { showError(serverStatusMessage); refreshServer(); onShowWindow?(); return false }
-        guard permissions.microphone else { showError("Allow microphone access, then try again."); onShowWindow?(); return false }
+        guard isServerReady else { showError(serverStatusMessage); refreshServer(); return false }
+        guard permissions.microphone else { showError("Allow microphone access, then try again."); return false }
         guard let input = microphones.resolution.device, let deviceID = audioDevices.deviceID(for: input.uid) else {
-            showError("No microphone is available. Connect an input and try again."); onShowWindow?(); return false
+            showError("No microphone is available. Connect an input and try again."); return false
         }
         hudTask?.cancel(); errorMessage = nil
         // Confirmed cursor moves matter only to takes that overlap them.
@@ -1067,6 +1071,7 @@ final class TranscriberController: ObservableObject {
         recordingFeedback.finish(atLimit: atLimit)
         activity = .transcribing
         statusMessage = "Finishing upload…"
+        hudProgressText = "Uploading"
         let current = sessionID
         let test = isTestSession
         let capturedDestination = insertionDestination
@@ -1158,6 +1163,7 @@ final class TranscriberController: ObservableObject {
                 // Other takes can change the shared last-delivery state during the receipt request.
                 let delivered = DictationDeliveryStatus(rawValue: receipt.status) ?? .failed
                 if sessionID == current {
+                    hudProgressText = nil
                     activity = delivered == .failed ? .failed : .success
                     dismissHUDAfter(seconds: delivered.needsAttention ? 4 : 1.7)
                 } else if delivered.needsAttention {
@@ -1219,12 +1225,12 @@ final class TranscriberController: ObservableObject {
     private func applyProgress(_ generation: GenerationRecord, session: UUID) {
         guard sessionID == session, !isCapturing else { return }
         switch generation.status {
-        case .receiving: statusMessage = "Finishing upload…"
-        case .queued: statusMessage = "Queued on server…"
-        case .transcribing: statusMessage = "Transcribing on server…"
-        case .proofreading: statusMessage = "Proofreading on server…"
-        case .completed: statusMessage = "Preparing result…"
-        case .failed, .cancelled: statusMessage = generation.error ?? "Processing stopped"
+        case .receiving: statusMessage = "Finishing upload…"; hudProgressText = "Uploading"
+        case .queued: statusMessage = "Queued on server…"; hudProgressText = "Queued"
+        case .transcribing: statusMessage = "Transcribing on server…"; hudProgressText = "Transcribing"
+        case .proofreading: statusMessage = "Proofreading on server…"; hudProgressText = "Proofreading"
+        case .completed: statusMessage = "Preparing result…"; hudProgressText = "Preparing"
+        case .failed, .cancelled: statusMessage = generation.error ?? "Processing stopped"; hudProgressText = nil
         }
     }
 
@@ -1252,7 +1258,7 @@ final class TranscriberController: ObservableObject {
             }
             status = message
         } else {
-            if sessionID == session { activity = .delivering; statusMessage = "Inserting at your cursor…" }
+            if sessionID == session { activity = .delivering; statusMessage = "Inserting at your cursor…"; hudProgressText = "Inserting" }
             let inserter = TextInserter()
             let outcome = await inserter.deliver(record.insertionText, copying: record.finalText,
                                                   to: destination, clipboardUnchangedSince: clipboardCount,
@@ -1331,6 +1337,7 @@ final class TranscriberController: ObservableObject {
     }
 
     private func showError(_ message: String) {
+        hudProgressText = nil
         recordingFeedback.reset()
         activity = .failed; errorMessage = message; statusMessage = message
         onHUDVisibility?(true)

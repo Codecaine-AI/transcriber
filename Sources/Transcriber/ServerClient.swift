@@ -504,21 +504,41 @@ extension ServerClient {
                                        originalFrames: preserveOriginal ? original.frames : nil)
     }
 
+    /// Resends the same chunk until the server accepts it, a non-transient error
+    /// occurs, or 60 s pass, then throws the last error. The server replays a
+    /// byte-identical resend. Fork: the deadline and backoff use SuspendingClock,
+    /// so a take that meets system sleep does not give up at wake.
     private func flush(_ buffer: inout UploadBuffer, to id: UUID) async throws {
         guard !buffer.data.isEmpty, let format = buffer.format else { return }
-        let query = [URLQueryItem(name: "sequence", value: String(buffer.sequence)),
+        let payload = buffer.data
+        let sequence = buffer.sequence
+        let expectedFrames = buffer.frames
+        let query = [URLQueryItem(name: "sequence", value: String(sequence)),
                      URLQueryItem(name: "sampleRate", value: String(format.sampleRate)),
                      URLQueryItem(name: "channels", value: String(format.channels))]
-        let request = try request(path: "v1/generations/\(id)/audio/\(buffer.kind.rawValue)", method: "POST",
-                                  body: buffer.data, contentType: "application/octet-stream", query: query)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response, data: data)
-        let receipt = try TranscriberAPI.decodeWire(AudioChunkReceipt.self, from: data)
-        guard receipt.nextSequence == buffer.sequence + 1, receipt.frameCount == buffer.frames else {
-            throw ServerClientError.invalidResponse
+        let uploadRequest = try request(path: "v1/generations/\(id)/audio/\(buffer.kind.rawValue)", method: "POST",
+                                        body: payload, contentType: "application/octet-stream", query: query)
+        let clock = SuspendingClock()
+        let deadline = clock.now.advanced(by: .seconds(60))
+        var delay: Duration = .milliseconds(500)
+        while true {
+            do {
+                let (data, response) = try await session.data(for: uploadRequest)
+                try Self.validate(response, data: data)
+                let receipt = try TranscriberAPI.decodeWire(AudioChunkReceipt.self, from: data)
+                guard receipt.nextSequence == sequence + 1, receipt.frameCount == expectedFrames else {
+                    throw ServerClientError.invalidResponse
+                }
+                buffer.sequence = receipt.nextSequence
+                buffer.data.removeAll(keepingCapacity: true)
+                return
+            } catch {
+                try Task.checkCancellation()
+                guard Self.isTransient(error), clock.now < deadline else { throw error }
+                try await clock.sleep(for: delay)
+                delay = min(delay * 2, .seconds(8))
+            }
         }
-        buffer.sequence = receipt.nextSequence
-        buffer.data.removeAll(keepingCapacity: true)
     }
 }
 
