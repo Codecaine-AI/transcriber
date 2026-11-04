@@ -276,7 +276,10 @@ export class HelperProcess {
       this.transportFailed(current, `Could not launch ${configuration.name}.`),
     );
     child.on("close", (code, signal) => {
-      if (this.generation === current)
+      // A crash closes stdout first, so reset() has already moved past this child.
+      // A planned retirement ends with SIGTERM, SIGKILL, or a clean exit.
+      const unplanned = signal !== "SIGTERM" && signal !== "SIGKILL" && code !== 0;
+      if (this.generation === current || unplanned)
         logError("helper_exited", undefined, {
           helper: configuration.name,
           exitCode: code,

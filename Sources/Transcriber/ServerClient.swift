@@ -416,8 +416,12 @@ extension ServerClient {
         while true {
             try Task.checkCancellation()
             guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
-            do { return try await readEvents(id, onUpdate: onUpdate) }
-            catch {
+            do {
+                let record = try await readEvents(id, onUpdate: onUpdate)
+                // A stream can outlast the deadline. A late result is left for copy-only recovery.
+                guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
+                return record
+            } catch {
                 try Task.checkCancellation()
                 guard Self.isTransient(error) else { throw error }
             }
@@ -429,7 +433,10 @@ extension ServerClient {
                 guard record.id == id else { throw ServerClientError.invalidResponse }
                 try Task.checkCancellation()
                 await onUpdate(record)
-                if record.status.isTerminal { return record }
+                if record.status.isTerminal {
+                    guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
+                    return record
+                }
                 recoveryFailures = 0
             } catch {
                 try Task.checkCancellation()
