@@ -1383,7 +1383,7 @@
           "insert": ", hot reloads and listens on "
         },
         {
-          "insert": "0.0.0.0:8392",
+          "insert": "127.0.0.1:8393",
           "attributes": {
             "code": true
           }
@@ -1398,16 +1398,16 @@
           }
         },
         {
-          "insert": ". Port 8392 is also the archive viewer's port on Ford's Mac. There, start the source server on a free port, for example "
+          "insert": ". On Ford's Mac, the installed server holds port 8391 and the archive viewer holds port 8392. Pass "
         },
         {
-          "insert": "bun run dev --port 8393",
+          "insert": "--host",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": "."
+          "insert": " to serve another machine."
         }
       ],
       "children": []

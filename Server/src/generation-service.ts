@@ -41,6 +41,8 @@ import {
   type DeepgramTranscript,
 } from "./inference/deepgram.ts";
 import { ServiceError } from "./errors.ts";
+import { SERVER_VERSION } from "./version.ts";
+import { logError, logInfo, logWarn } from "./log.ts";
 import {
   atomicPrivateWrite,
   ensureDirectory,
@@ -74,6 +76,8 @@ import { maxInputCharacters, modelHints, processingRecord } from "./domain/corre
 const MAX_METADATA_BYTES = 1_048_576;
 const MAX_PREFERENCES_BYTES = 262_144;
 const MAX_CHUNK_BYTES = 1_048_576;
+const RECEIVING_IDLE_MS = 120_000;
+const RECEIVING_TOTAL_MS = 900_000;
 const terminal = (record: GenerationRecord) =>
   ["completed", "failed", "cancelled"].includes(record.status);
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -220,11 +224,16 @@ export class GenerationService {
   private warmTask?: Promise<void>;
   private warming = false;
   private speechLoadFailed = false;
+  private proofLoadError?: string;
+  private warmupFailures = 0;
+  private nextWarmupAt = 0;
   private stopping = false;
   private timer?: ReturnType<typeof setInterval>;
   private queue: Promise<unknown> = Promise.resolve();
   private subscribers = new Map<string, Set<Watcher>>();
   private liveSpeech = new Map<string, LiveSpeech>();
+  /** Fork: in-memory monotonic marks per live take, so receiving expiry ignores wall-clock jumps. */
+  private receivingMarks = new Map<string, { created: number; touched: number }>();
   /** Takes created with Deepgram enabled but no API key; their Whisper result records why. */
   private deepgramKeyMissing = new Set<string>();
   private speechPreload?: Promise<void>;
@@ -285,66 +294,164 @@ export class GenerationService {
         );
       this.preferences = loaded;
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT"))
+        throw new Error(
+          `Server preferences at ${path} are invalid: ${error instanceof Error ? error.message : "unreadable"}`,
+          { cause: error },
+        );
       await atomicPrivateWrite(path, JSON.stringify(this.preferences));
     }
+    const requeue: { id: string; createdAt: string }[] = [];
+    let quarantined = 0;
+    let skipped = 0;
     for (const name of await readdir(join(data, "generations"))) {
       if (!isUUID(name)) continue;
       const id = name.toUpperCase();
-      await requireRegularDirectory(join(data, "generations", name));
-      // Swift UUID filenames are uppercase; normalize migrated lowercase dirs.
-      if (name !== id) await rename(join(data, "generations", name), this.directory(id));
-      let record: GenerationRecord;
       try {
-        record = validateBody(
-          "GenerationRecord",
-          JSON.parse(
-            (
-              await readRegularFile(join(this.directory(id), "metadata.json"), MAX_METADATA_BYTES)
-            ).toString("utf8"),
-          ),
-        ) as GenerationRecord;
+        await requireRegularDirectory(join(data, "generations", name));
+        // Swift UUID filenames are uppercase; normalize migrated lowercase dirs.
+        if (name !== id) await rename(join(data, "generations", name), this.directory(id));
+        let record: GenerationRecord;
+        try {
+          record = validateBody(
+            "GenerationRecord",
+            JSON.parse(
+              (
+                await readRegularFile(join(this.directory(id), "metadata.json"), MAX_METADATA_BYTES)
+              ).toString("utf8"),
+            ),
+          ) as GenerationRecord;
+        } catch (error) {
+          if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+            logWarn("generation_metadata_missing", { id });
+            continue;
+          }
+          throw error;
+        }
+        record.settings.preferences = normalizeRecordPreferences(record.settings.preferences);
+        if (
+          record.id.toUpperCase() !== id ||
+          record.schemaVersion !== 1 ||
+          ![
+            "receiving",
+            "queued",
+            "transcribing",
+            "proofreading",
+            "completed",
+            "failed",
+            "cancelled",
+          ].includes(record.status)
+        )
+          throw new ServiceError(500, "invalid_archive", "A generation has invalid metadata.");
+        record.id = id;
+        let requeuedFrom: GenerationRecord["status"] | undefined;
+        // Terminal records are History and are never requeued.
+        if (!terminal(record)) {
+          if (
+            record.status !== "receiving" &&
+            record.inferenceAudio !== undefined &&
+            (await sealedAudioExists(this.directory(id), "inference"))
+          ) {
+            // A sealed take finishes after a restart; any text it already has is kept.
+            requeuedFrom = record.status;
+            record.status = "queued";
+            record.progress = 0;
+            record.updatedAt = now();
+            delete record.error;
+          } else {
+            record.error =
+              record.status === "receiving"
+                ? "Server restarted before this generation completed."
+                : "Sealed audio is missing, so this generation cannot be transcribed.";
+            record.status = "failed";
+            record.updatedAt = now();
+            delete record.progress;
+            // Fork: acknowledged audio is recovered and attached instead of deleted.
+            await this.preserveAudio(record);
+          }
+          if (Buffer.byteLength(JSON.stringify(record)) <= MAX_METADATA_BYTES)
+            await this.save(record);
+        }
+        this.records.set(id, record);
+        this.imports.indexRecord(record);
+        if (requeuedFrom) {
+          requeue.push({ id, createdAt: record.createdAt });
+          logInfo("generation_requeued", { id, from: requeuedFrom });
+        }
       } catch (error) {
-        if (error instanceof Error && "code" in error && error.code === "ENOENT") continue;
-        throw error;
+        this.records.delete(id);
+        const corrupt =
+          error instanceof SyntaxError ||
+          (error instanceof ServiceError &&
+            ["invalid_json", "invalid_archive", "invalid_preferences"].includes(error.code));
+        // An I/O error can clear on its own, so that record is skipped and left in place.
+        if (!corrupt) {
+          logError("generation_load_skipped", error, { id });
+          skipped += 1;
+          continue;
+        }
+        // Fork: quarantine only renames; nothing in the record is deleted.
+        try {
+          let source = this.directory(id);
+          for (const candidate of [this.directory(id), join(data, "generations", name)])
+            if (
+              await access(candidate).then(
+                () => true,
+                () => false,
+              )
+            ) {
+              source = candidate;
+              break;
+            }
+          let target = `${this.directory(id)}.quarantined`;
+          for (
+            let suffix = 2;
+            await access(target).then(
+              () => true,
+              () => false,
+            );
+            suffix++
+          )
+            target = `${this.directory(id)}.quarantined-${suffix}`;
+          await rename(source, target);
+          quarantined++;
+          await atomicPrivateWrite(
+            join(target, "quarantine-reason.txt"),
+            `${now()}\n${error.message}\n`,
+          ).catch(() => {});
+          // A parse error message can quote the file, so the log names only the error kind.
+          logWarn("generation_quarantined", {
+            id,
+            to: target,
+            errorCode: error instanceof ServiceError ? error.code : "SyntaxError",
+          });
+        } catch (quarantineError) {
+          logError("generation_quarantine_failed", quarantineError, { id });
+        }
       }
-      record.settings.preferences = normalizeRecordPreferences(record.settings.preferences);
-      if (
-        record.id.toUpperCase() !== id ||
-        record.schemaVersion !== 1 ||
-        ![
-          "receiving",
-          "queued",
-          "transcribing",
-          "proofreading",
-          "completed",
-          "failed",
-          "cancelled",
-        ].includes(record.status)
-      )
-        throw new ServiceError(500, "invalid_archive", "A generation has invalid metadata.");
-      record.id = id;
-      if (!terminal(record)) {
-        record.status = "failed";
-        record.error = "Server restarted before this generation completed.";
-        record.updatedAt = now();
-        delete record.progress;
-        // Fork: acknowledged audio is recovered and attached instead of deleted.
-        await this.preserveAudio(record);
-        if (Buffer.byteLength(JSON.stringify(record)) <= MAX_METADATA_BYTES)
-          await this.save(record);
-      }
-      this.records.set(id, record);
-      this.imports.indexRecord(record);
     }
+    logInfo("archive_loaded", {
+      records: this.records.size,
+      requeued: requeue.length,
+      quarantined,
+      skipped,
+    });
+    requeue.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    for (const entry of requeue) this.enqueueProcessing(entry.id, undefined);
   }
   start() {
     if (this.stopping || this.timer) return;
     this.beginWarmup();
     this.timer = setInterval(() => {
-      void this.tick().catch(() => {});
+      void this.tick().catch((error) => logError("tick_failed", error));
     }, 2000);
     this.timer.unref();
+  }
+  private touchReceiving(id: string) {
+    const touched = performance.now();
+    const mark = this.receivingMarks.get(id);
+    if (mark) mark.touched = touched;
+    else this.receivingMarks.set(id, { created: touched, touched });
   }
   private async tick() {
     await this.mutate(async () => {
@@ -355,12 +462,17 @@ export class GenerationService {
       await this.imports.expireImportStages();
     });
     await this.mutate(async () => {
+      const at = performance.now();
+      for (const id of this.receivingMarks.keys())
+        if (this.records.get(id)?.status !== "receiving") this.receivingMarks.delete(id);
       for (const record of this.records.values()) {
-        if (
-          record.status === "receiving" &&
-          (Date.now() - Date.parse(record.updatedAt) > 45_000 ||
-            Date.now() - Date.parse(record.createdAt) > 300_000)
-        )
+        if (record.status !== "receiving") continue;
+        const mark = this.receivingMarks.get(record.id);
+        if (!mark) {
+          this.receivingMarks.set(record.id, { created: at, touched: at });
+          continue;
+        }
+        if (at - mark.touched > RECEIVING_IDLE_MS || at - mark.created > RECEIVING_TOTAL_MS)
           await this.cancelRecord(record.id);
       }
     });
@@ -371,9 +483,8 @@ export class GenerationService {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     this.warmController?.abort();
-    await this.mutate(async () => {
-      for (const record of this.records.values())
-        if (!terminal(record)) await this.cancelRecord(record.id);
+    for (const controller of this.processingControllers.values()) controller.abort();
+    await this.mutate(() => {
       for (const id of this.liveSpeech.keys()) this.discardLiveSpeech(id);
     });
     await this.inference.shutdown();
@@ -382,6 +493,23 @@ export class GenerationService {
         (task): task is Promise<void> => Boolean(task),
       ),
     );
+    // Sealed work survives shutdown as queued; only unsealed receiving takes are
+    // cancelled, and cancelRecord keeps their audio. This runs after the queue
+    // drains so the queued state is the final write.
+    await this.mutate(async () => {
+      for (const record of this.records.values()) {
+        if (record.status === "receiving") await this.cancelRecord(record.id);
+        else if (!terminal(record) && record.inferenceAudio) {
+          const queued = copy(record);
+          queued.status = "queued";
+          delete queued.progress;
+          delete queued.error;
+          queued.updatedAt = now();
+          await this.save(queued).catch(() => this.publish(queued));
+          logInfo("generation_requeued_on_shutdown", { id: queued.id });
+        }
+      }
+    });
     await this.mutate(() => {
       for (const watchers of this.subscribers.values())
         for (const watcher of watchers) {
@@ -427,7 +555,7 @@ export class GenerationService {
         this.beginWarmup();
       return {
         apiVersion: 1,
-        serverVersion: "0.1.0",
+        serverVersion: SERVER_VERSION,
         isDev: this.configuration.development,
         ready,
         speech: this.speechRuntime(deepgram, state),
@@ -438,7 +566,7 @@ export class GenerationService {
           message: this.preferences.preferences.textCorrectionEnabled
             ? state.proofLoaded
               ? undefined
-              : "Unavailable; deterministic text is preserved."
+              : (this.proofLoadError ?? "Unavailable; deterministic text is preserved.")
             : "Disabled",
         },
         message,
@@ -472,7 +600,7 @@ export class GenerationService {
         );
       await atomicPrivateWrite(join(this.configuration.dataDirectory, "preferences.json"), data);
       this.preferences = next;
-      this.beginWarmup();
+      this.beginWarmup(true);
       return copy(next);
     });
   }
@@ -508,7 +636,12 @@ export class GenerationService {
           state.available ? "Speech model failed to load." : state.message,
         );
       }
-      if (!state.speechLoaded) this.beginWarmup();
+      // Starting a take loads any cold model now, not when the recording is sealed.
+      if (
+        (!deepgramKey && !state.speechLoaded) ||
+        (this.preferences.preferences.textCorrectionEnabled && !state.proofLoaded)
+      )
+        this.beginWarmup();
       await requireDiskSpace(this.configuration.dataDirectory);
       const record = this.newRecord(
         uuid(),
@@ -520,6 +653,7 @@ export class GenerationService {
       await mkdir(this.directory(record.id), { mode: 0o700 });
       await this.save(record);
       this.uploads.set(record.id, {});
+      this.touchReceiving(record.id);
       if (deepgramKey) this.openLiveSpeech(record, deepgramKey);
       else if (this.preferences.preferences.deepgramSpeechEnabled)
         this.deepgramKeyMissing.add(record.id);
@@ -634,6 +768,10 @@ export class GenerationService {
             "conflicting_chunk",
             "A repeated audio chunk did not match the original.",
           );
+        // A replayed chunk proves the client is still sending, so it keeps the take alive.
+        record.updatedAt = now();
+        this.records.set(id, record);
+        this.touchReceiving(id);
         return {
           nextSequence: upload.chunks.length,
           frameCount: upload.bytes / (format.channels * 4),
@@ -656,6 +794,7 @@ export class GenerationService {
       streams[kind] = upload;
       this.uploads.set(id, streams);
       record.updatedAt = now();
+      this.touchReceiving(id);
       this.records.set(id, record);
       // Only newly accepted chunks reach Deepgram, in sequence order.
       if (kind === "inference") this.liveSpeech.get(id)?.session.send(bytes);
@@ -743,7 +882,8 @@ export class GenerationService {
         record.updatedAt = now();
         record.progress = 0;
         await this.save(record);
-      } catch {
+      } catch (error) {
+        logError("seal_failed", error, { id });
         record.status = "failed";
         record.error = "The server could not preserve the complete recording.";
         record.updatedAt = now();
@@ -850,6 +990,56 @@ export class GenerationService {
 
   cancel(id: string) {
     return this.mutate(() => this.cancelRecord(id));
+  }
+  reprocess(id: string) {
+    return this.mutate(async () => {
+      const record = this.getInternal(id);
+      if (record.importedSource)
+        throw new ServiceError(
+          400,
+          "imported_reprocess",
+          "Imported history cannot be reprocessed.",
+        );
+      if (this.stopping)
+        throw new ServiceError(503, "server_stopping", "The server is shutting down.");
+      if (!terminal(record))
+        throw new ServiceError(
+          409,
+          "generation_active",
+          "This recording is still being processed.",
+        );
+      if (record.status === "completed")
+        throw new ServiceError(
+          409,
+          "already_completed",
+          "A completed recording cannot be transcribed again.",
+        );
+      const directory = this.directory(record.id);
+      if (!record.inferenceAudio || !(await sealedAudioExists(directory, "inference")))
+        throw new ServiceError(404, "artifact_not_found", "This recording has no sealed audio.");
+      // Fork: the previous attempt is kept on disk, synced, before the record changes.
+      const attempts = join(directory, "attempts");
+      await ensureDirectory(attempts);
+      await syncDirectory(directory);
+      await atomicPrivateWrite(
+        join(attempts, `${new Date().toISOString().replace(/[:.]/g, "-")}.json`),
+        JSON.stringify(record),
+      );
+      // Outcome fields are cleared. Text fields stay until a new success replaces them.
+      record.status = "queued";
+      record.progress = 0;
+      record.updatedAt = now();
+      delete record.error;
+      delete record.delivery;
+      delete record.continuation;
+      delete record.textProcessing;
+      delete record.proofreading;
+      delete record.proofreadingHints;
+      await this.save(record);
+      logInfo("generation_reprocess_queued", { id: record.id });
+      this.enqueueProcessing(record.id, undefined);
+      return copy(record);
+    });
   }
   private async cancelRecord(id: string) {
     const record = this.getInternal(id);
@@ -1034,6 +1224,7 @@ export class GenerationService {
     return copy(previous.continuation);
   }
   private enqueueProcessing(id: string, previous: DictationContinuation | undefined) {
+    const enqueuedAt = performance.now();
     const controller = new AbortController();
     this.processingControllers.set(id, controller);
     // A sealed recording waits for all earlier processing and cancellation cleanup.
@@ -1042,10 +1233,12 @@ export class GenerationService {
       .then(async () => {
         // Helper loads join any in-flight warmup, so jobs never wait for proofreading to load.
         if (!this.stopping && !controller.signal.aborted)
-          await this.process(id, previous, controller.signal);
+          await this.process(id, previous, controller.signal, enqueuedAt);
       })
-      .catch(() => {})
+      .catch((error) => logError("processing_chain_failed", error, { id }))
       .finally(() => {
+        // A cancelled attempt can drain after reprocess registered a new one; leave that one alone.
+        if (this.processingControllers.get(id) !== controller) return;
         this.processingControllers.delete(id);
         this.discardLiveSpeech(id);
         this.beginWarmup();
@@ -1055,7 +1248,11 @@ export class GenerationService {
     id: string,
     previous: DictationContinuation | undefined,
     signal: AbortSignal,
+    enqueuedAt = performance.now(),
   ) {
+    const startedAt = performance.now();
+    let speechMs = 0;
+    let proofMs = 0;
     const live = this.liveSpeech.get(id);
     this.liveSpeech.delete(id);
     const deepgramKeyMissing = this.deepgramKeyMissing.delete(id);
@@ -1074,7 +1271,9 @@ export class GenerationService {
       if (!record) return;
       working = record;
       const settings = record.settings.preferences;
+      const speechStartedAt = performance.now();
       const speech = await this.recognize(id, settings, live, deepgramKeyMissing, signal);
+      speechMs = Math.round(performance.now() - speechStartedAt);
       signal.throwIfAborted();
       record.rawText = speech.text;
       record.detectedLanguage = speech.language;
@@ -1099,6 +1298,7 @@ export class GenerationService {
         return true;
       });
       void checkpoint.catch(() => {});
+      const proofStartedAt = performance.now();
       const processing = await this.proofread(
         structured.text,
         settings,
@@ -1106,6 +1306,7 @@ export class GenerationService {
         speech.language,
         signal,
       );
+      proofMs = Math.round(performance.now() - proofStartedAt);
       signal.throwIfAborted();
       if (!(await checkpoint)) return;
       record.textProcessing = processing;
@@ -1134,16 +1335,47 @@ export class GenerationService {
       record.status = "completed";
       record.updatedAt = now();
       record.progress = 1;
-      await this.mutate(async () => {
+      const saved = await this.mutate(async () => {
         signal.throwIfAborted();
-        if (terminal(this.getInternal(id))) return;
+        if (terminal(this.getInternal(id))) return false;
         // Fork: save() stages transcript.txt with raw.txt and clean.txt.
         await this.save(record!);
+        return true;
       });
+      if (saved)
+        logInfo("generation_processed", {
+          id,
+          queueWaitMs: Math.round(startedAt - enqueuedAt),
+          speechMs,
+          speechBackend: record.speech?.backend,
+          fallbackReason: record.speech?.fallbackReason,
+          proofMs,
+          totalMs: Math.round(performance.now() - startedAt),
+        });
     } catch (error) {
+      if (!signal.aborted)
+        logError("generation_failed", error, {
+          id,
+          queueWaitMs: Math.round(startedAt - enqueuedAt),
+          speechMs,
+          proofMs,
+          totalMs: Math.round(performance.now() - startedAt),
+        });
       await this.mutate(async () => {
         const record = this.records.get(id);
         if (!record || terminal(record)) return;
+        // A cancelled run can drain after reprocess registered a new one; leave that one alone.
+        if (this.processingControllers.get(id)?.signal !== signal) return;
+        // Shutdown keeps sealed work queued for the next start, with any recognized text.
+        if (this.stopping && (working ?? record).inferenceAudio) {
+          const queued = copy(working ?? record);
+          queued.status = "queued";
+          delete queued.error;
+          delete queued.progress;
+          queued.updatedAt = now();
+          await this.save(queued).catch(() => this.publish(queued));
+          return;
+        }
         // Fork: fail from the working copy, never an older snapshot, so a failed
         // completion cannot replace saved text with less.
         const failed = copy(working ?? record);
@@ -1264,8 +1496,9 @@ export class GenerationService {
     record.progress = Math.max(0, Math.min(1, value));
     for (const watcher of this.subscribers.get(id) ?? []) this.yieldTo(watcher, record);
   }
-  private beginWarmup() {
+  private beginWarmup(force = false) {
     if (this.stopping || this.warming || this.processingControllers.size) return;
+    if (!force && Date.now() < this.nextWarmupAt) return;
     this.warming = true;
     const controller = new AbortController();
     this.warmController = controller;
@@ -1282,11 +1515,34 @@ export class GenerationService {
       .then(
         () => {
           if (speech) this.speechLoadFailed = false;
+          this.proofLoadError = undefined;
+          if (this.warmupFailures > 0) logInfo("warmup_succeeded");
+          this.warmupFailures = 0;
+          this.nextWarmupAt = 0;
         },
         async (error) => {
           // A cancelled take or shutdown can interrupt loading; that is not a failure.
-          if (!speech || (error instanceof InferenceError && error.code === "cancelled")) return;
-          this.speechLoadFailed = !(await this.inference.readiness(false)).speechLoaded;
+          if (error instanceof InferenceError && error.code === "cancelled") return;
+          const snapshot = await this.inference.readiness(false);
+          const speechFailed = speech && !snapshot.speechLoaded;
+          const proofFailed =
+            this.preferences.preferences.textCorrectionEnabled && !snapshot.proofLoaded;
+          if (speech) this.speechLoadFailed = speechFailed;
+          if (proofFailed && !speechFailed)
+            this.proofLoadError =
+              error instanceof InferenceError && error.code === "unavailable"
+                ? error.message
+                : "Proofreading model failed to load.";
+          // Every failure backs off, so a broken model is not reloaded on each health poll.
+          this.warmupFailures += 1;
+          const retryAfterMs = Math.min(300_000, 5_000 * 2 ** (this.warmupFailures - 1));
+          this.nextWarmupAt = Date.now() + retryAfterMs;
+          logWarn("warmup_failed", {
+            attempt: this.warmupFailures,
+            retryAfterMs,
+            speech: speechFailed,
+            proof: proofFailed,
+          });
         },
       )
       .catch(() => {})
@@ -1386,7 +1642,21 @@ export class GenerationService {
   }> {
     const path = join(this.directory(id), "inference.wav");
     let fallbackReason: string | undefined;
-    if (live) {
+    let keyMissing = deepgramKeyMissing;
+    let options = live?.options;
+    // Fork: a requeued or reprocessed take has no live session, so it sends the
+    // sealed file to Deepgram first, with the same keyterms and fallback reasons.
+    if (!live && !keyMissing && this.preferences.preferences.deepgramSpeechEnabled) {
+      const apiKey = await this.deepgramKey();
+      if (apiKey)
+        options = {
+          apiKey,
+          language: settings.language,
+          keyterms: recognitionVocabularyTerms(settings.dictionary, settings.vocabulary),
+        };
+      else keyMissing = true;
+    }
+    if (options) {
       const permanent: DeepgramFailureKind[] = ["offline", "auth", "rejected", "missingKey"];
       let attempts = 0;
       let failure: { kind: DeepgramFailureKind; message: string } = {
@@ -1397,9 +1667,9 @@ export class GenerationService {
         attempts += 1;
         try {
           const transcript =
-            attempts === 1
+            live && attempts === 1
               ? await abortable(live.result ?? live.session.finish(), signal)
-              : await transcribeFile(path, live.options, 15, signal);
+              : await transcribeFile(path, options, live ? 15 : 30, signal);
           signal.throwIfAborted();
           return {
             text: transcript.text,
@@ -1417,7 +1687,7 @@ export class GenerationService {
           failure = { kind, message: error instanceof Error ? error.message : failure.message };
           if (permanent.includes(kind)) break;
           // Live already preloads on failure; a failed retry makes sure Whisper is warming.
-          if (attempts >= 2) this.preloadSpeech();
+          if (attempts >= (live ? 2 : 1)) this.preloadSpeech();
         }
       }
       fallbackReason =
@@ -1430,7 +1700,7 @@ export class GenerationService {
               : failure.kind === "missingKey"
                 ? "Deepgram API key not found."
                 : `Deepgram failed after ${attempts} attempts: ${failure.message.replace(/\.$/, "")}.`;
-    } else if (deepgramKeyMissing) fallbackReason = "Deepgram API key not found.";
+    } else if (keyMissing) fallbackReason = "Deepgram API key not found.";
     this.localSpeechActive += 1;
     try {
       let speech;

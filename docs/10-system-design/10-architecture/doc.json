@@ -20,14 +20,37 @@
         "b-architecture-the-server-runs-whisper-9",
         "b-architecture-ndjson-events-carry-prog-10",
         "b-architecture-interrupted-partial-uplo-11",
+        "arch-wait-result",
+        "arch-wait-reconnect",
         "arch-durable-lead",
         "arch-durable-client",
         "arch-durable-server",
         "arch-durable-text",
+        "arch-cancel-lead",
+        "arch-cancel",
         "architecture-activation-modes",
         "architecture-mode-hold",
         "architecture-mode-double",
         "architecture-mode-single",
+        "arch-rr-heading",
+        "arch-rr-lead",
+        "arch-rr-requeue",
+        "arch-rr-shutdown",
+        "arch-rr-quarantine",
+        "arch-ta-heading",
+        "arch-ta-lead",
+        "arch-ta-route",
+        "arch-ta-attempts",
+        "arch-ta-fields",
+        "arch-ta-history",
+        "arch-it-heading",
+        "arch-it-lead",
+        "arch-it-salvage",
+        "arch-it-rest",
+        "arch-ud-heading",
+        "arch-ud-lead",
+        "arch-ud-store",
+        "arch-ud-recovery",
         "arch-speech-heading",
         "arch-speech-lead",
         "arch-speech-stream",
@@ -35,10 +58,14 @@
         "arch-speech-prewarm",
         "arch-speech-key",
         "arch-speech-lazy",
+        "arch-speech-helpers",
         "arch-speech-provenance",
         "b-architecture-text-delivery-12",
         "b-architecture-only-the-new-insertiont-13",
         "b-architecture-the-mac-rechecks-destina-14",
+        "arch-td-rest",
+        "arch-td-paste",
+        "arch-td-sounds",
         "b-architecture-microphone-capture-uses-15",
         "arch-ready-lead",
         "arch-ready-discard",
@@ -51,12 +78,18 @@
         "b-architecture-shared-saves-use-revisio-18",
         "b-architecture-the-regular-app-uses-19",
         "architecture-client-files",
+        "arch-client-tmp",
+        "arch-client-versions",
         "b-architecture-storage-20",
         "b-architecture-the-server-s-data-dir-21",
         "b-architecture-text-22",
         "b-architecture-metadata-includes-device-23",
         "b-architecture-all-clients-read-shared-24",
         "b-architecture-only-one-server-may-own-25",
+        "arch-logs-heading",
+        "arch-logs-lead",
+        "arch-logs-life",
+        "arch-logs-take",
         "b-architecture-see-the-http-contract-26",
         "b-architecture-the-separate-transcript-27"
       ]
@@ -80,7 +113,7 @@
       },
       "text": [
         {
-          "insert": "Code map"
+          "insert": "Code Map"
         }
       ],
       "children": []
@@ -104,6 +137,39 @@
               }
             ],
             "SwiftUI/AppKit app, device settings, HTTP client, capture, and guarded delivery."
+          ],
+          [
+            [
+              {
+                "insert": "Sources/Transcriber/PendingGenerationsStore.swift",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Pointers to sealed takes that the client has not delivered."
+          ],
+          [
+            [
+              {
+                "insert": "Sources/Transcriber/System/OutcomeFeedback.swift",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Start and outcome sounds and VoiceOver announcements."
+          ],
+          [
+            [
+              {
+                "insert": "Sources/Transcriber/System/TranscriberTemporaryDirectory.swift",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Temporary folder for each client data directory."
           ],
           [
             [
@@ -141,6 +207,17 @@
           [
             [
               {
+                "insert": "Sources/TranscriberDomain",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Wire types the client decodes for the personal dictionary, continuation, list context, text processing, and verified text repair."
+          ],
+          [
+            [
+              {
                 "insert": "Server/api/openapi.yaml",
                 "attributes": {
                   "code": true
@@ -163,46 +240,46 @@
           [
             [
               {
-                "insert": "Sources/TranscriberDomain",
+                "insert": "Server/src/log.ts",
                 "attributes": {
                   "code": true
                 }
               }
             ],
-            "Dictionary, list formatting, rewrite validation, and composition."
+            "Metadata-only JSON-line logs on stderr."
           ],
           [
             [
               {
-                "insert": "Sources/TranscriberServerKit",
+                "insert": "Server/src/version.ts",
                 "attributes": {
                   "code": true
                 }
               }
             ],
-            "Reference Swift server retained for source comparison."
-          ],
-          [
             [
               {
-                "insert": "Sources/TranscriberServer",
-                "attributes": {
-                  "code": true
-                }
-              }
-            ],
-            "Reference Swift server command-line entry point."
-          ],
-          [
-            [
+                "insert": "Server version from "
+              },
               {
-                "insert": "Engine",
+                "insert": "TRANSCRIBER_SERVER_VERSION",
                 "attributes": {
                   "code": true
                 }
+              },
+              {
+                "insert": ", default "
+              },
+              {
+                "insert": "0.0.0-dev",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": "."
               }
-            ],
-            "Persistent whisper.cpp speech helper. Metal on Mac, CPU/CUDA on Linux."
+            ]
           ],
           [
             [
@@ -225,6 +302,17 @@
               }
             ],
             "Codecaine take storage. Uploads stream into WAV staging files, and sealing renames them."
+          ],
+          [
+            [
+              {
+                "insert": "Engine",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Persistent whisper.cpp speech helper. Metal on Mac, CPU/CUDA on Linux."
           ],
           [
             [
@@ -293,7 +381,7 @@
       },
       "text": [
         {
-          "insert": "A recording"
+          "insert": "A Recording"
         }
       ],
       "children": []
@@ -341,7 +429,8 @@
         "arch-step2-original",
         "arch-step2-channels",
         "arch-step2-default",
-        "arch-step2-spill"
+        "arch-step2-spill",
+        "arch-step2-retry"
       ]
     },
     "arch-step2-original": {
@@ -416,6 +505,28 @@
       "text": [
         {
           "insert": "A slow server never ends a take. The client holds about 8 MiB of audio in memory, then spills to an unlinked temporary file until the upload catches up."
+        }
+      ],
+      "children": []
+    },
+    "arch-step2-retry": {
+      "id": "arch-step2-retry",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A failed chunk upload sends the same chunk again until the server accepts it or 60 s pass. The wait grows from 500 ms to 8 s, and "
+        },
+        {
+          "insert": "SuspendingClock",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " keeps time asleep out of the deadline."
         }
       ],
       "children": []
@@ -560,7 +671,81 @@
       "props": {},
       "text": [
         {
-          "insert": "Interrupted partial uploads expire. A complete upload can finish after the client disconnects. Pending takes recover interrupted event streams by checking their saved generation and reconnecting. Opening history never pastes an old result. There is no offline capture queue or automatic audio-upload retry."
+          "insert": "A partial upload expires after 120 s without a chunk or 900 s in total. The server measures both with in-memory "
+        },
+        {
+          "insert": "performance.now()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " marks, and a replayed chunk keeps the take alive. A complete upload can finish after the client disconnects. There is no offline capture queue."
+        }
+      ],
+      "children": []
+    },
+    "arch-wait-result": {
+      "id": "arch-wait-result",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client waits up to 900 s for a result, measured on "
+        },
+        {
+          "insert": "SuspendingClock",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "arch-wait-result-after"
+      ]
+    },
+    "arch-wait-result-after": {
+      "id": "arch-wait-result-after",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "After that, the HUD shows \"Still processing on the server\", and History keeps the result."
+        }
+      ],
+      "children": []
+    },
+    "arch-wait-reconnect": {
+      "id": "arch-wait-reconnect",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Pending takes recover interrupted event streams by checking their saved generation and reconnecting."
+        }
+      ],
+      "children": [
+        "arch-wait-history"
+      ]
+    },
+    "arch-wait-history": {
+      "id": "arch-wait-history",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Opening History never pastes an old result."
         }
       ],
       "children": []
@@ -648,11 +833,21 @@
       },
       "text": [
         {
-          "insert": "A server restart or a failed seal marks the record failed, and a cancel or an upload expiry marks it cancelled."
+          "insert": "A failed seal, or a restart while a take is still "
+        },
+        {
+          "insert": "receiving",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", marks the record failed. A cancel or an upload expiry marks it cancelled."
         }
       ],
       "children": [
-        "arch-durable-server-audio"
+        "arch-durable-server-audio",
+        "arch-durable-server-requeue"
       ]
     },
     "arch-durable-server-audio": {
@@ -664,6 +859,19 @@
       "text": [
         {
           "insert": "In each case the server attaches the acknowledged audio to the record instead of deleting it. The archive worker imports these records with their audio."
+        }
+      ],
+      "children": []
+    },
+    "arch-durable-server-requeue": {
+      "id": "arch-durable-server-requeue",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A restart requeues each sealed take instead, as Restart Recovery describes."
         }
       ],
       "children": []
@@ -692,6 +900,90 @@
       "text": [
         {
           "insert": "The server writes the transcript files in parallel and metadata last. A delivery receipt updates metadata only."
+        }
+      ],
+      "children": []
+    },
+    "arch-cancel-lead": {
+      "id": "arch-cancel-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Only an explicit cancel ends a released take."
+        }
+      ],
+      "children": []
+    },
+    "arch-cancel": {
+      "id": "arch-cancel",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Cancel after stop",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-cancel-escape",
+        "arch-cancel-hud",
+        "arch-cancel-health",
+        "arch-cancel-refusal"
+      ]
+    },
+    "arch-cancel-escape": {
+      "id": "arch-cancel-escape",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Escape cancels only a take that is recording. After stop, Escape goes to the focused app."
+        }
+      ],
+      "children": []
+    },
+    "arch-cancel-hud": {
+      "id": "arch-cancel-hud",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "After stop, the HUD shows the stage, such as Uploading or Transcribing, and \"· N more\" for other pending takes. Only its ✕ cancels the take."
+        }
+      ],
+      "children": []
+    },
+    "arch-cancel-health": {
+      "id": "arch-cancel-health",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A health poll changes only the status message and never ends a live take."
+        }
+      ],
+      "children": []
+    },
+    "arch-cancel-refusal": {
+      "id": "arch-cancel-refusal",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A refused key press shows its error in the HUD and leaves the main window closed."
         }
       ],
       "children": []
@@ -848,6 +1140,925 @@
       ],
       "children": []
     },
+    "arch-rr-heading": {
+      "id": "arch-rr-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Restart Recovery"
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-lead": {
+      "id": "arch-rr-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The server always starts, and it finishes sealed takes after a restart or a crash. "
+        },
+        {
+          "insert": "generation-service.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " does this work in "
+        },
+        {
+          "insert": "initialize()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "shutdown()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-requeue": {
+      "id": "arch-rr-requeue",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Requeue at startup",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-rr-requeue-1",
+        "arch-rr-requeue-2",
+        "arch-rr-requeue-3"
+      ]
+    },
+    "arch-rr-requeue-1": {
+      "id": "arch-rr-requeue-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A record that is not "
+        },
+        {
+          "insert": "receiving",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and has sealed inference audio becomes "
+        },
+        {
+          "insert": "queued",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The server runs these records in "
+        },
+        {
+          "insert": "createdAt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " order and keeps any text they already have."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-requeue-2": {
+      "id": "arch-rr-requeue-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Every other unfinished record fails with its acknowledged audio attached. Terminal records never change."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-requeue-3": {
+      "id": "arch-rr-requeue-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "No cap limits the restarts. If one take crashes the server at each start, mark that take failed by hand, and its audio stays."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-shutdown": {
+      "id": "arch-rr-shutdown",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Shutdown",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-rr-shutdown-1",
+        "arch-rr-shutdown-2"
+      ]
+    },
+    "arch-rr-shutdown-1": {
+      "id": "arch-rr-shutdown-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server cancels each "
+        },
+        {
+          "insert": "receiving",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " record and keeps its audio."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-shutdown-2": {
+      "id": "arch-rr-shutdown-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "It saves each unfinished sealed record as "
+        },
+        {
+          "insert": "queued",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", so the next start runs it."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-quarantine": {
+      "id": "arch-rr-quarantine",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Quarantine",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-rr-quarantine-1",
+        "arch-rr-quarantine-2",
+        "arch-rr-quarantine-3"
+      ]
+    },
+    "arch-rr-quarantine-1": {
+      "id": "arch-rr-quarantine-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A "
+        },
+        {
+          "insert": "metadata.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " that fails to parse or validate moves its folder to "
+        },
+        {
+          "insert": "<UUID>.quarantined",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with a "
+        },
+        {
+          "insert": "quarantine-reason.txt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " note."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-quarantine-2": {
+      "id": "arch-rr-quarantine-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The rename deletes nothing. An I/O error skips the record for that start and renames nothing."
+        }
+      ],
+      "children": []
+    },
+    "arch-rr-quarantine-3": {
+      "id": "arch-rr-quarantine-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/archive/archive.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " skips each folder whose name is not a UUID and keeps its earlier copy. It keeps syncing past a bad record and reports it in "
+        },
+        {
+          "insert": "last_error",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-heading": {
+      "id": "arch-ta-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Transcribe Again"
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-lead": {
+      "id": "arch-ta-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Transcribe again runs a failed or cancelled take again from its sealed audio. History shows the button for a row that has inference audio and no imported source."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-route": {
+      "id": "arch-ta-route",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Route",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ta-route-1"
+      ]
+    },
+    "arch-ta-route-1": {
+      "id": "arch-ta-route-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "POST /v1/generations/{id}/reprocess",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " returns 202 with the queued "
+        },
+        {
+          "insert": "GenerationRecord",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The take runs Deepgram first, like a requeued take."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-attempts": {
+      "id": "arch-ta-attempts",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Attempts snapshot",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ta-attempts-1",
+        "arch-ta-attempts-2"
+      ]
+    },
+    "arch-ta-attempts-1": {
+      "id": "arch-ta-attempts-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Before it changes the record, the server copies "
+        },
+        {
+          "insert": "metadata.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "<dir>/attempts/<ISO time>.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and syncs the copy to disk."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-attempts-2": {
+      "id": "arch-ta-attempts-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Nothing deletes the "
+        },
+        {
+          "insert": "attempts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " folder. It keeps old text that the archive's 3 s poll can miss."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-fields": {
+      "id": "arch-ta-fields",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Record fields",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ta-fields-1",
+        "arch-ta-fields-2"
+      ]
+    },
+    "arch-ta-fields-1": {
+      "id": "arch-ta-fields-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The record keeps "
+        },
+        {
+          "insert": "rawText",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "finalText",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "speech",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " until the new run replaces them."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-fields-2": {
+      "id": "arch-ta-fields-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server clears "
+        },
+        {
+          "insert": "error",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "continuation",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "textProcessing",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "proofreading",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "proofreadingHints",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-ta-history": {
+      "id": "arch-ta-history",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "History rows",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ta-history-1"
+      ]
+    },
+    "arch-ta-history-1": {
+      "id": "arch-ta-history-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A failed or cancelled row shows the word \"Failed\" or \"Cancelled\". VoiceOver reads that status first."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-heading": {
+      "id": "arch-it-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Interrupted Takes"
+        }
+      ],
+      "children": []
+    },
+    "arch-it-lead": {
+      "id": "arch-it-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "A lock, a sleep, or a microphone loss finishes the live take with every captured frame. The client salvages the take in "
+        },
+        {
+          "insert": "salvageDictation(reason:)",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " instead of failing it, and the text goes to the clipboard only."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-salvage": {
+      "id": "arch-it-salvage",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Salvage",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-it-salvage-1",
+        "arch-it-salvage-2",
+        "arch-it-salvage-3"
+      ]
+    },
+    "arch-it-salvage-1": {
+      "id": "arch-it-salvage-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A take under 0.25 s fails with its audio kept. A longer take seals and finishes as if the user stopped it."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-salvage-2": {
+      "id": "arch-it-salvage-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Salvage stops capture with "
+        },
+        {
+          "insert": "stopCapture()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and the ready microphone rebuilds after the take."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-salvage-3": {
+      "id": "arch-it-salvage-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client deletes its local copy only after the server confirms the seal."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-rest": {
+      "id": "arch-it-rest",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Rest",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-it-rest-1",
+        "arch-it-rest-2"
+      ]
+    },
+    "arch-it-rest-1": {
+      "id": "arch-it-rest-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A lock or sleep sets "
+        },
+        {
+          "insert": "restedSinceRelease",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on each take that the client has not delivered. Text Delivery describes how the flag sends the text to the clipboard."
+        }
+      ],
+      "children": []
+    },
+    "arch-it-rest-2": {
+      "id": "arch-it-rest-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The sleep observer in "
+        },
+        {
+          "insert": "HotkeyMonitor.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " never cancels the live take."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-heading": {
+      "id": "arch-ud-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Undelivered Results"
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-lead": {
+      "id": "arch-ud-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The pending generations store keeps a pointer to each sealed take until the client delivers it. After a quit or a crash, the next launch offers the finished text for copy."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-store": {
+      "id": "arch-ud-store",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Store",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ud-store-1",
+        "arch-ud-store-2"
+      ]
+    },
+    "arch-ud-store-1": {
+      "id": "arch-ud-store-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The file is "
+        },
+        {
+          "insert": "Pending Generations/pending-generations.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " in the client data directory, with a 0700 folder and a 0600 file. Each entry holds the id, endpoint, frame counts, and seal time."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-store-2": {
+      "id": "arch-ud-store-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client adds an entry for each sealed take except a test take. Delivery, a failed or cancelled result, or a user cancel removes it."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-recovery": {
+      "id": "arch-ud-recovery",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Recovery",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-ud-recovery-1",
+        "arch-ud-recovery-2",
+        "arch-ud-recovery-3"
+      ]
+    },
+    "arch-ud-recovery-1": {
+      "id": "arch-ud-recovery-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "After History loads, the client checks each entry that no live take holds. A 401 or 403 response keeps the entry."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-recovery-2": {
+      "id": "arch-ud-recovery-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The menu shows "
+        },
+        {
+          "insert": "Copy finished dictation",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": ", and the main window shows a banner. Copy posts a "
+        },
+        {
+          "insert": "copied",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " delivery receipt and never inserts."
+        }
+      ],
+      "children": []
+    },
+    "arch-ud-recovery-3": {
+      "id": "arch-ud-recovery-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "An entry older than 7 days drops only the pointer. No audio is touched."
+        }
+      ],
+      "children": []
+    },
     "arch-speech-heading": {
       "id": "arch-speech-heading",
       "type": "heading",
@@ -931,7 +2142,8 @@
       ],
       "children": [
         "arch-speech-retry-ceiling",
-        "arch-speech-retry-skip"
+        "arch-speech-retry-skip",
+        "arch-speech-retry-requeue"
       ]
     },
     "arch-speech-retry-ceiling": {
@@ -956,6 +2168,19 @@
       "text": [
         {
           "insert": "An offline network, an authentication failure, or a missing key skips the retries and goes straight to local Whisper."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-retry-requeue": {
+      "id": "arch-speech-retry-requeue",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A requeued or reprocessed take has no live socket, so it starts with the prerecorded API and its sealed clip."
         }
       ],
       "children": []
@@ -1090,6 +2315,101 @@
       ],
       "children": []
     },
+    "arch-speech-helpers": {
+      "id": "arch-speech-helpers",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A failed helper request keeps the warm model.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-speech-helpers-1",
+        "arch-speech-helpers-2",
+        "arch-speech-helpers-3"
+      ]
+    },
+    "arch-speech-helpers-1": {
+      "id": "arch-speech-helpers-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server discards only that request. It logs "
+        },
+        {
+          "insert": "helper_spawned",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "helper_ready",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "helper_exited",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-helpers-2": {
+      "id": "arch-speech-helpers-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A failed warmup tries again after 5 s, and the wait grows to a 300 s cap. "
+        },
+        {
+          "insert": "/v1/health",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " shows the proofreading load error."
+        }
+      ],
+      "children": []
+    },
+    "arch-speech-helpers-3": {
+      "id": "arch-speech-helpers-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A cold proofreading model starts to warm when a take starts."
+        }
+      ],
+      "children": []
+    },
     "arch-speech-provenance": {
       "id": "arch-speech-provenance",
       "type": "paragraph",
@@ -1157,7 +2477,7 @@
       },
       "text": [
         {
-          "insert": "Text delivery"
+          "insert": "Text Delivery"
         }
       ],
       "children": []
@@ -1202,13 +2522,240 @@
       ],
       "children": []
     },
+    "arch-td-rest": {
+      "id": "arch-td-rest",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Clipboard after a rest",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-td-rest-1",
+        "arch-td-rest-2",
+        "arch-td-rest-3"
+      ]
+    },
+    "arch-td-rest-1": {
+      "id": "arch-td-rest-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client sends a take with "
+        },
+        {
+          "insert": "restedSinceRelease",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " set to the clipboard instead of the focused field."
+        }
+      ],
+      "children": []
+    },
+    "arch-td-rest-2": {
+      "id": "arch-td-rest-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "TextDeliveryTransaction.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reads the flag again after "
+        },
+        {
+          "insert": "prepareForDelivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and after the second "
+        },
+        {
+          "insert": "validate",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". A rest during either wait still copies."
+        }
+      ],
+      "children": []
+    },
+    "arch-td-rest-3": {
+      "id": "arch-td-rest-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The delivery receipt is "
+        },
+        {
+          "insert": "copied",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", with the reason \"The Mac locked or slept.\""
+        }
+      ],
+      "children": []
+    },
+    "arch-td-paste": {
+      "id": "arch-td-paste",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Paste in apps with slow menus",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-td-paste-1"
+      ]
+    },
+    "arch-td-paste-1": {
+      "id": "arch-td-paste-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The search for "
+        },
+        {
+          "insert": "Edit > Paste",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " stops after 0.75 s, at depth 3, or at 512 menu items. It skips a menu that is slow to read."
+        }
+      ],
+      "children": []
+    },
+    "arch-td-sounds": {
+      "id": "arch-td-sounds",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Sounds and announcements",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-td-sounds-1",
+        "arch-td-sounds-2",
+        "arch-td-sounds-3"
+      ]
+    },
+    "arch-td-sounds-1": {
+      "id": "arch-td-sounds-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client plays Tink when a take starts. It plays Pop, Purr, or Basso for success, attention, or failure."
+        }
+      ],
+      "children": []
+    },
+    "arch-td-sounds-2": {
+      "id": "arch-td-sounds-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "VoiceOver announces the start and the outcome. "
+        },
+        {
+          "insert": "Play dictation sounds",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " under "
+        },
+        {
+          "insert": "This Mac",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " turns only the sounds off."
+        }
+      ],
+      "children": []
+    },
+    "arch-td-sounds-3": {
+      "id": "arch-td-sounds-3",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "With "
+        },
+        {
+          "insert": "Keep microphone ready",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " on, about 0.1 s of Tink can land in the take audio."
+        }
+      ],
+      "children": []
+    },
     "b-architecture-microphone-capture-uses-15": {
       "id": "b-architecture-microphone-capture-uses-15",
       "type": "paragraph",
       "props": {},
       "text": [
         {
-          "insert": "Microphone capture uses input-only Core Audio without changing system routing or playback volume. Route changes apply to the next take. Release, cancellation, sleep/lock, or device loss ends capture."
+          "insert": "Microphone capture uses input-only Core Audio without changing system routing or playback volume. Route changes apply to the next take. Release or cancellation ends capture. A sleep, a lock, or a device loss finishes the take instead, as Interrupted Takes describes."
         }
       ],
       "children": []
@@ -1364,7 +2911,7 @@
                 }
               }
             ],
-            "Endpoint/token, device name, shortcut and trigger mode, launch at login, output muting while recording, microphone priority/selection, keep microphone ready, transcription channels per device."
+            "Endpoint/token, device name, shortcut and trigger mode, launch at login, output muting while recording, dictation sounds, microphone priority/selection, keep microphone ready, transcription channels per device."
           ],
           [
             "Shared server",
@@ -1589,6 +3136,77 @@
       ],
       "children": []
     },
+    "arch-client-tmp": {
+      "id": "arch-client-tmp",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "With "
+        },
+        {
+          "insert": "TRANSCRIBER_CLIENT_DATA_DIR",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " set, the client keeps its temporary files in "
+        },
+        {
+          "insert": "<dir>/tmp",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with mode 0700."
+        }
+      ],
+      "children": []
+    },
+    "arch-client-versions": {
+      "id": "arch-client-versions",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Preferences shows a "
+        },
+        {
+          "insert": "Source revision",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " row and a "
+        },
+        {
+          "insert": "Server version",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " row. A source server reports "
+        },
+        {
+          "insert": "dev-<describe>",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
     "b-architecture-storage-20": {
       "id": "b-architecture-storage-20",
       "type": "heading",
@@ -1639,7 +3257,7 @@
       },
       "text": [
         {
-          "insert": "preferences.json\ngenerations/<UUID>/\n  metadata.json\n  transcript.txt\n  raw.txt\n  clean.txt\n  inference.wav\n  original.wav"
+          "insert": "preferences.json\ngenerations/<UUID>/\n  metadata.json\n  transcript.txt\n  raw.txt\n  clean.txt\n  inference.wav\n  original.wav\n  attempts/<ISO time>.json\ngenerations/<UUID>.quarantined/\n  quarantine-reason.txt"
         }
       ],
       "children": []
@@ -1670,7 +3288,7 @@
       "props": {},
       "text": [
         {
-          "insert": "All clients read shared, paginated history. Deleting an inactive generation deletes its server artifacts. Failed and cancelled takes keep their metadata and acknowledged audio. Partial upload files are internal and cannot be downloaded."
+          "insert": "All clients read shared, paginated history. Deleting an inactive generation deletes its server artifacts. Failed and cancelled takes keep their metadata and acknowledged audio, and Transcribe again can run them from that audio. Partial upload files are internal and cannot be downloaded."
         }
       ],
       "children": []
@@ -1690,6 +3308,214 @@
               "kind": "doc",
               "path": "40-guides/20-server-setup"
             }
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-logs-heading": {
+      "id": "arch-logs-heading",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "Server Logs"
+        }
+      ],
+      "children": []
+    },
+    "arch-logs-lead": {
+      "id": "arch-logs-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The server writes one JSON line per event to stderr through "
+        },
+        {
+          "insert": "Server/src/log.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". A line holds ids, codes, durations, and counts, and never transcript text, audio, prompts, or tokens."
+        }
+      ],
+      "children": []
+    },
+    "arch-logs-life": {
+      "id": "arch-logs-life",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Lifecycle events",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-logs-life-1"
+      ]
+    },
+    "arch-logs-life-1": {
+      "id": "arch-logs-life-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server logs "
+        },
+        {
+          "insert": "server_listening",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "server_start_failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "plain_http_non_loopback",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It logs each 5xx response as "
+        },
+        {
+          "insert": "request_failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "arch-logs-take": {
+      "id": "arch-logs-take",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Take events",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "arch-logs-take-1",
+        "arch-logs-take-2"
+      ]
+    },
+    "arch-logs-take-1": {
+      "id": "arch-logs-take-1",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server logs "
+        },
+        {
+          "insert": "generation_processed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "generation_failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with stage timings."
+        }
+      ],
+      "children": []
+    },
+    "arch-logs-take-2": {
+      "id": "arch-logs-take-2",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "It logs "
+        },
+        {
+          "insert": "generation_requeued",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "generation_quarantined",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "tick_failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "seal_failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "processing_chain_failed",
+          "attributes": {
+            "code": true
           }
         },
         {

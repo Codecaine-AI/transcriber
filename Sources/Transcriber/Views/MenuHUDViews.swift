@@ -38,6 +38,14 @@ struct TranscriberMenuView: View {
 
             TranscriberMicrophoneTestButton(controller: controller, identifier: "menu.test",
                 idleTitle: idleDictationHint)
+            ForEach(controller.undeliveredResults, id: \.id) { record in
+                Button { controller.copyUndeliveredResult(record) } label: {
+                    Label("Copy finished dictation", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 26)
+                }
+                .accessibilityIdentifier("menu.copy-undelivered")
+            }
             Button { controller.copyLastTranscript() } label: {
                 Label("Copy last message", systemImage: "doc.on.doc")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -97,7 +105,7 @@ extension DictationDeliveryStatus {
 }
 
 struct DictationHUD: View {
-    static let width: CGFloat = TranscriberBuild.current.isDevelopment ? 200 : 160
+    static let width: CGFloat = 200 + (TranscriberBuild.current.isDevelopment ? 32 : 0)
     static let height: CGFloat = 44
     static let noticeHeight: CGFloat = 30
     static let morphDuration = 0.18
@@ -116,7 +124,7 @@ struct DictationHUD: View {
         }
         .task(id: presentation.id) { await enter() }
         .onChange(of: controller.activity) { _, activity in
-            guard presentation.id != nil, !activity.isCapturing else { return }
+            guard presentation.id != nil, !activity.isBusy else { return }
             withAnimation(morphAnimation) { expanded = false }
         }
     }
@@ -135,7 +143,7 @@ struct DictationHUD: View {
         guard presentation.id != nil else { return }
         if reduceMotion {
             entered = true
-            expanded = controller.activity.isCapturing
+            expanded = controller.activity.isBusy
             return
         }
         await Task.yield()
@@ -144,7 +152,7 @@ struct DictationHUD: View {
         // This only stages the visual; microphone startup never waits for it.
         do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
         guard !Task.isCancelled, presentation.id != nil else { return }
-        withAnimation(morphAnimation) { expanded = controller.activity.isCapturing }
+        withAnimation(morphAnimation) { expanded = controller.activity.isBusy }
     }
 
     private var capsule: some View {
@@ -163,8 +171,9 @@ struct DictationHUD: View {
             .opacity(expanded ? 0 : 1)
             .allowsHitTesting(!expanded)
             .accessibilityHidden(expanded)
-            .accessibilityLabel(controller.isBusy ? "Cancel dictation" : hudLabel)
-            .accessibilityHint(controller.isBusy ? "Cancel this dictation" : result.needsAttention ? "Open Transcriber for details" : "Dismiss status")
+            .accessibilityLabel(controller.activity.isBusy ? stageText : hudLabel)
+            .accessibilityHint(controller.activity.isBusy ? "" : controller.isBusy ? "Show earlier dictation"
+                : result.needsAttention ? "Open Transcriber for details" : "Dismiss status")
             .accessibilityIdentifier("hud.circle")
         }
         .frame(width: expanded ? Self.width : Self.height, height: Self.height)
@@ -195,9 +204,12 @@ struct DictationHUD: View {
                 if controller.isRecording {
                     RecordingWaveform(feedback: controller.recordingFeedback, height: 23)
                     RecordingElapsedTime(feedback: controller.recordingFeedback)
-                } else {
+                } else if controller.activity == .starting {
                     TranscriberMark(size: 18)
                     Text("Starting").lineLimit(1)
+                } else {
+                    ProgressView().controlSize(.small)
+                    Text(stageText).lineLimit(1).minimumScaleFactor(0.8)
                 }
             }
             .font(.system(size: 11, weight: .medium))
@@ -244,7 +256,16 @@ struct DictationHUD: View {
         }
     }
 
+    private var stageText: String {
+        let stage = controller.hudProgressText ?? hudLabel
+        return controller.pendingDictationCount > 1
+            ? "\(stage) · \(controller.pendingDictationCount - 1) more" : stage
+    }
+
     private func activateCircle() {
+        // Processing is shown expanded; the ✕ button cancels.
+        if controller.activity.isBusy { return }
+        // Fork: a settled result over an earlier pending take shows that take.
         if controller.isBusy { controller.cancelDictation() }
         else {
             if result.needsAttention { controller.onShowWindow?() }

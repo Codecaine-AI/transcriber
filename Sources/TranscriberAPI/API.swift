@@ -121,7 +121,7 @@ public struct ServerHealth: Codable, Equatable, Sendable {
     public var speech: ModelRuntimeInfo
     public var proofreading: ModelRuntimeInfo
     public var message: String?
-    public init(apiVersion: Int = TranscriberAPI.version, serverVersion: String = "0.1.0", isDev: Bool = true,
+    public init(apiVersion: Int = TranscriberAPI.version, serverVersion: String = "0.0.0-dev", isDev: Bool = true,
                 ready: Bool, speech: ModelRuntimeInfo, proofreading: ModelRuntimeInfo, message: String? = nil) {
         self.apiVersion = apiVersion; self.serverVersion = serverVersion; self.isDev = isDev
         self.ready = ready; self.speech = speech; self.proofreading = proofreading; self.message = message

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import { resolve } from "node:path";
-import { parseConfiguration, usage } from "../src/configuration.ts";
+import { isLoopbackHost, parseConfiguration, usage } from "../src/configuration.ts";
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
   console.log(`bun run dev [server arguments]\n\n${usage}`);
@@ -24,9 +24,14 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     }
   }
   const isMac = process.platform === "darwin";
+  const described = Bun.spawnSync(["git", "describe", "--always", "--dirty"], {
+    cwd: projectDirectory,
+    stderr: "ignore",
+  });
+  const revision = described.success ? described.stdout.toString().trim() : "unknown";
   const environment = {
-    TRANSCRIBER_SERVER_HOST: "0.0.0.0",
-    TRANSCRIBER_SERVER_PORT: "8392",
+    TRANSCRIBER_SERVER_HOST: "127.0.0.1",
+    TRANSCRIBER_SERVER_PORT: "8393",
     TRANSCRIBER_SERVER_TOKEN_FILE: tokenFile,
     TRANSCRIBER_ENGINE_PATH: resolve(projectDirectory, "build/server/helpers/transcriber-engine"),
     TRANSCRIBER_VAD_PATH: resolve(projectDirectory, "build/server/resources/silero-vad.bin"),
@@ -40,6 +45,7 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     TRANSCRIBER_TEXT_MODEL: isMac
       ? resolve(homedir(), ".transcriber/models/Qwen3-4B-Instruct-2507-MLX-4bit")
       : resolve(directory, "models/Qwen3-4B-Instruct-2507-Q4_K_M.gguf"),
+    TRANSCRIBER_SERVER_VERSION: `dev-${revision}`,
     ...process.env,
     // A regular server's exported archive must never become the dev default.
     // Explicit --data-dir arguments still take precedence in parseConfiguration.
@@ -47,7 +53,9 @@ if (process.argv.includes("--help") || process.argv.includes("-h")) {
     TRANSCRIBER_DEV: "1",
   };
   const configuration = await parseConfiguration(arguments_, environment);
-  const displayHost = hostname() === "siva" ? "siva.otter-hawksbill.ts.net" : hostname();
+  const displayHost =
+    process.env.TRANSCRIBER_DEV_DISPLAY_HOST ??
+    (isLoopbackHost(configuration.host) ? "localhost" : configuration.host);
   console.log(`Development URL: http://${displayHost}:${configuration.port}/v1/health`);
   console.log(`Data: ${configuration.dataDirectory}\nToken file: ${tokenFile}`);
   console.log("Bun watches source changes. Missing helpers/models appear in health readiness.");

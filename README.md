@@ -53,7 +53,7 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-This listens on `0.0.0.0:8392`, uses `.local/dev-server/data`, and creates a private token file at `.local/dev-server/token`. Set the model-path exports above and build the native helpers once with `./scripts/build-server.sh` for dictation. Without helpers/models, the server still starts and health reports unavailable inference. On Siva, open [server health](http://siva.otter-hawksbill.ts.net:8392/v1/health).
+This listens on `127.0.0.1:8393`, uses `.local/dev-server/data`, and creates a private token file at `.local/dev-server/token`. Set the model-path exports above and build the native helpers once with `./scripts/build-server.sh` for dictation. Without helpers/models, the server still starts and health reports unavailable inference. On the same Mac, open [server health](http://localhost:8393/v1/health).
 
 ```sh
 bun run fmt

@@ -108,7 +108,7 @@ enum RecordingStorage {
         let files = FileManager.default
         var remnants = (try? files.contentsOfDirectory(at: activeRoot, includingPropertiesForKeys: nil)) ?? []
         let prefix = "Transcriber-Dev-recording-"
-        remnants += ((try? files.contentsOfDirectory(at: files.temporaryDirectory, includingPropertiesForKeys: nil)) ?? []).filter {
+        remnants += ((try? files.contentsOfDirectory(at: TranscriberTemporaryDirectory.url, includingPropertiesForKeys: nil)) ?? []).filter {
             let name = $0.lastPathComponent
             return name.hasPrefix(prefix) && UUID(uuidString: String(name.dropFirst(prefix.count))) != nil
         }

@@ -119,13 +119,20 @@ final class TranscriberController: ObservableObject {
             if !applyingConfiguration { configuration.update { $0.muteOutputWhileRecording = muteOutputWhileRecording } }
         }
     }
+    @Published var dictationSoundsEnabled = true {
+        didSet {
+            if !applyingConfiguration { configuration.update { $0.dictationSoundsEnabled = dictationSoundsEnabled } }
+        }
+    }
     @Published var statusMessage = "Connecting to server…"
+    @Published private(set) var hudProgressText: String?
     @Published private(set) var serverHealth: ServerHealth?
     @Published private(set) var serverStatusMessage = "Connecting…"
     @Published private(set) var isCheckingServer = false
     @Published private(set) var isSavingPreferences = false
     @Published private(set) var sharedPreferences: PreferencesSnapshot?
     @Published private(set) var generations: [GenerationRecord] = []
+    @Published private(set) var undeliveredResults: [GenerationRecord] = []
     @Published private(set) var isLoadingHistory = false
     @Published private(set) var hasMoreHistory = false
     @Published private(set) var historySourceFilter = "all"
@@ -143,12 +150,16 @@ final class TranscriberController: ObservableObject {
     let configuration: ConfigurationStore
     let microphones: MicrophonePreferencesStore
     let preferences: ClientPreferencesStore
+    private let pendingStore: PendingGenerationsStore
+    private var pendingEntries: [PendingGenerationEntry]
+    private var isReconcilingPending = false
 
     var isRecording: Bool { activity == .recording }
     var isCapturing: Bool { activity.isCapturing }
     var recordingUsesClipboard: Bool { isCapturing && insertionDestination == .clipboard }
     var isBusy: Bool { activity.isBusy || !pendingDictations.isEmpty }
-    var canCancelWithEscape: Bool { !hotkey.isHoldingFn }
+    var pendingDictationCount: Int { pendingDictations.count }
+    var canCancelWithEscape: Bool { isCapturing && !hotkey.isHoldingFn }
     var isServerReady: Bool { serverHealth?.ready == true && serverHealth?.apiVersion == TranscriberAPI.version }
     var canTest: Bool { isServerReady && permissions.microphone && microphones.resolution.device != nil && !isCapturing }
     var selectedInputName: String { microphones.resolution.device?.name ?? "No microphone available" }
@@ -203,6 +214,12 @@ final class TranscriberController: ObservableObject {
         var discardsAudio = false
         /// Fork: set once the take may touch the clipboard or the focused field.
         var delivering = false
+        /// Fork: set when the Mac locked or slept before delivery. The take then
+        /// reaches only the clipboard.
+        var restedSinceRelease = false
+        var generationID: UUID?
+        /// Set once the take needs no relaunch recovery, so its pending entry can go.
+        var resolved = false
         /// Nil until the destination resolves; list continuation keys off its anchor.
         var target: (destination: InsertionDestination, anchor: DictationDestination?)?
         /// Fork: later takes deliver after this opens, not after the task ends,
@@ -260,6 +277,9 @@ final class TranscriberController: ObservableObject {
         self.audioDevices = audioDevices ?? AudioDeviceStore()
         self.serverClientFactory = serverClient
         preferences = ClientPreferencesStore(root: configuration.url.deletingLastPathComponent())
+        let loadedPendingStore = PendingGenerationsStore(root: configuration.url.deletingLastPathComponent())
+        pendingStore = loadedPendingStore
+        pendingEntries = loadedPendingStore.load()
         // Fork: takes are written beside the client settings, not in the temporary directory.
         RecordingStorage.configure(clientDataDirectory: configuration.url.deletingLastPathComponent())
         microphones = MicrophonePreferencesStore(configuration: configuration)
@@ -284,7 +304,7 @@ final class TranscriberController: ObservableObject {
         // Fork: a take left behind by a crash is kept for recovery, not deleted.
         // Server history is never examined here.
         RecordingStorage.recoverRemnants()
-        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview"))
+        try? FileManager.default.removeItem(at: TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview"))
         hasInitialized = true
         updateLoginItem()
         refreshServer()
@@ -306,6 +326,7 @@ final class TranscriberController: ObservableObject {
         if let mode = HotkeyActivationMode(rawValue: settings.activationMode), activationMode != mode { activationMode = mode }
         if launchAtLogin != settings.launchAtLogin { launchAtLogin = settings.launchAtLogin }
         if muteOutputWhileRecording != settings.muteOutputWhileRecording { muteOutputWhileRecording = settings.muteOutputWhileRecording }
+        if dictationSoundsEnabled != settings.dictationSoundsEnabled { dictationSoundsEnabled = settings.dictationSoundsEnabled }
         applyingConfiguration = false
     }
 
@@ -348,14 +369,14 @@ final class TranscriberController: ObservableObject {
                     historyCursor = history.nextCursor
                     hasMoreHistory = history.nextCursor != nil
                 }
+                await reconcilePendingGenerations()
             }
         } catch is CancellationError {
         } catch {
             guard endpoint == preferences.endpoint, !Task.isCancelled else { return }
             serverHealth = nil
             serverStatusMessage = Self.connectionMessage(error)
-            if isCapturing { failSession(serverStatusMessage, cancelServer: true) }
-            else if !isBusy, activity == .idle { statusMessage = serverStatusMessage }
+            if !isBusy, activity == .idle { statusMessage = serverStatusMessage }
         }
     }
 
@@ -366,6 +387,10 @@ final class TranscriberController: ObservableObject {
             return
         }
         continuationAnchors.removeAll()
+        // Renaming or re-entering a token for the same server keeps its pending results.
+        pendingEntries.removeAll { $0.endpoint != preferences.endpoint }
+        undeliveredResults.removeAll { result in !pendingEntries.contains { $0.id == result.id } }
+        pendingStore.save(pendingEntries)
         serverHealth = nil
         sharedPreferences = nil
         generations = []
@@ -699,6 +724,25 @@ final class TranscriberController: ObservableObject {
         }
     }
 
+    func transcribeAgain(_ id: UUID) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let connection = try client()
+                replaceGeneration(try await connection.reprocess(id))
+                // The 15 s History refresh covers a stream that ends early.
+                _ = try await connection.events(id) { [weak self] record in
+                    await self?.replaceGeneration(record)
+                }
+            } catch { errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func replaceGeneration(_ record: GenerationRecord) {
+        guard let index = generations.firstIndex(where: { $0.id == record.id }) else { return }
+        generations[index] = record
+    }
+
     func deleteGeneration(_ id: UUID) {
         Task { [weak self] in
             guard let self else { return }
@@ -749,6 +793,8 @@ final class TranscriberController: ObservableObject {
             pending.discardsAudio = true // Fork: an explicit cancel deletes the local audio.
             pending.cancel()
             pending.cancelOnServer()
+            // Fork: a take the user cancelled never comes back as a copy offer.
+            if let id = pending.generationID { removePendingEntry(id) }
         } else if let earlier = pendingDictations.last {
             // The HUD shows a settled result or error. Dismissing it must not
             // cancel older work that the HUD does not show.
@@ -759,6 +805,9 @@ final class TranscriberController: ObservableObject {
         let remaining = pendingDictations.last?.session
         sessionID = remaining ?? UUID()
         activity = remaining == nil ? .idle : .transcribing
+        // Fork: clear even when an earlier take remains, so its HUD never shows
+        // the cancelled take's stage. It reads "Processing" until its next event.
+        hudProgressText = nil
         statusMessage = remaining == nil ? "Cancelled" : "Cancelled · Earlier dictation is still processing"
         errorMessage = nil
         onHUDVisibility?(remaining != nil)
@@ -851,6 +900,82 @@ final class TranscriberController: ObservableObject {
         }
     }
 
+    private func addPendingEntry(id: UUID, finish: FinishGenerationRequest) {
+        pendingEntries.removeAll { $0.id == id }
+        pendingEntries.append(PendingGenerationEntry(
+            id: id, endpoint: preferences.endpoint,
+            inferenceFrames: finish.inferenceFrames, originalFrames: finish.originalFrames, sealedAt: Date()))
+        pendingStore.save(pendingEntries)
+    }
+
+    private func removePendingEntry(_ id: UUID) {
+        pendingEntries.removeAll { $0.id == id }
+        undeliveredResults.removeAll { $0.id == id }
+        pendingStore.save(pendingEntries)
+    }
+
+    /// Surfaces takes that finished on the server while this app was not
+    /// tracking them. Completed results are copy-only here: never inserted.
+    private func reconcilePendingGenerations() async {
+        guard !isReconcilingPending, !pendingEntries.isEmpty else { return }
+        isReconcilingPending = true
+        defer { isReconcilingPending = false }
+        // Only the pointer goes. The audio stays on the server and in any local recovery folder.
+        let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+        let stale = pendingEntries.filter { $0.sealedAt < cutoff }
+        for entry in stale { removePendingEntry(entry.id) }
+        guard let connection = try? client() else { return }
+        // Takes this session still owns deliver themselves; never offer them for copy.
+        func isLive(_ id: UUID) -> Bool { pendingDictations.contains { $0.generationID == id } }
+        // A connection change during the read drops or re-scopes entries; skip those.
+        func isCurrent(_ entry: PendingGenerationEntry) -> Bool {
+            entry.endpoint == preferences.endpoint && pendingEntries.contains { $0.id == entry.id }
+        }
+        for entry in pendingEntries where isCurrent(entry) && !isLive(entry.id) {
+            guard let record = try? await connection.generation(entry.id),
+                  isCurrent(entry), !isLive(entry.id) else { continue }
+            switch record.status {
+            case .completed:
+                if record.delivery == nil {
+                    if !undeliveredResults.contains(where: { $0.id == record.id }) {
+                        undeliveredResults.append(record)
+                    }
+                } else { removePendingEntry(entry.id) }
+            case .failed, .cancelled:
+                removePendingEntry(entry.id)
+            case .receiving:
+                do {
+                    _ = try await connection.finish(entry.id, value: FinishGenerationRequest(
+                        inferenceFrames: entry.inferenceFrames, originalFrames: entry.originalFrames))
+                } catch let ServerClientError.rejected(status, _) where (400..<500).contains(status) && ![401, 403, 408, 429].contains(status) {
+                    // Auth failures may come from a credential the user has just
+                    // replaced; they do not prove the speech is unrecoverable.
+                    if isCurrent(entry) { removePendingEntry(entry.id) }
+                } catch {}
+            case .queued, .transcribing, .proofreading:
+                break
+            }
+        }
+    }
+
+    /// Copies a result that finished while the app was closed. It never inserts.
+    func copyUndeliveredResult(_ record: GenerationRecord) {
+        switch DictationClipboard.copy(record.finalText, to: .general) {
+        case .success:
+            lastTranscript = record.finalText
+            lastDelivery = "Copied to clipboard"
+            lastDeliveryStatus = .copied
+            removePendingEntry(record.id)
+            Task { [weak self] in
+                guard let connection = try? self?.client() else { return }
+                try? await connection.delivery(record.id, receipt: DeliveryReceipt(
+                    status: "copied", message: "Copied after relaunch"))
+            }
+        case .failure(let error):
+            errorMessage = error.localizedDescription
+        }
+    }
+
     func clearLastTranscript() {
         guard !isBusy else { return }
         continuationAnchors.removeAll()
@@ -895,7 +1020,7 @@ final class TranscriberController: ObservableObject {
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         if let lockObserver { DistributedNotificationCenter.default().removeObserver(lockObserver) }
-        try? FileManager.default.removeItem(at: FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview"))
+        try? FileManager.default.removeItem(at: TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview"))
     }
 
     private func bindServices() {
@@ -910,7 +1035,7 @@ final class TranscriberController: ObservableObject {
             guard let self, isCapturing else { return }
             recordingFeedback.append(level)
         }
-        recorder.onInterruption = { [weak self] message in self?.failSession(message, cancelServer: true) }
+        recorder.onInterruption = { [weak self] message in self?.salvageDictation(reason: message) }
         hotkey.onStatusChange = { [weak self] in self?.isHotkeyActive = $0 }
         hotkey.onPress = { [weak self] in
             guard let self else { return false }
@@ -929,8 +1054,8 @@ final class TranscriberController: ObservableObject {
         hotkey.onCancel = { [weak self] in
             guard let self else { return }
             if isCheckingShortcut { appendShortcutCheck("Hold cancelled; microphone stayed off.") }
-            else if isBusy { cancelDictation() }
-            else { dismissFeedback() }
+            else if canCancelWithEscape { cancelDictation() }
+            else if !isBusy { dismissFeedback() }
         }
     }
 
@@ -940,10 +1065,10 @@ final class TranscriberController: ObservableObject {
     private func beginDictation(isTest: Bool) -> Bool {
         guard !isCapturing, !isShuttingDown else { return false }
         stopShortcutCheck()
-        guard isServerReady else { showError(serverStatusMessage); refreshServer(); onShowWindow?(); return false }
-        guard permissions.microphone else { showError("Allow microphone access, then try again."); onShowWindow?(); return false }
+        guard isServerReady else { showError(serverStatusMessage); refreshServer(); return false }
+        guard permissions.microphone else { showError("Allow microphone access, then try again."); return false }
         guard let input = microphones.resolution.device, let deviceID = audioDevices.deviceID(for: input.uid) else {
-            showError("No microphone is available. Connect an input and try again."); onShowWindow?(); return false
+            showError("No microphone is available. Connect an input and try again."); return false
         }
         hudTask?.cancel(); errorMessage = nil
         // Confirmed cursor moves matter only to takes that overlap them.
@@ -1002,6 +1127,7 @@ final class TranscriberController: ObservableObject {
                 // has not returned. Finishing waits for it.
                 activity = .recording
                 statusMessage = "Listening"
+                announceOutcome("Listening", .start)
                 startRecordingTimer()
             } catch is CancellationError {
             } catch AudioRecordingError.cancelled {
@@ -1049,7 +1175,21 @@ final class TranscriberController: ObservableObject {
         return true
     }
 
-    private func finishDictation(atLimit: Bool = false) {
+    /// Interruption path: a lock, sleep, or lost microphone ends the take through
+    /// the normal seal and delivers to the clipboard only. The captured insertion
+    /// target cannot be trusted after the Mac was away.
+    /// Fork: checks the take itself and never calls cancelDictation(), which
+    /// deletes the take. A take too short to seal keeps its audio through failSession.
+    private func salvageDictation(reason: String) {
+        guard isCapturing else { return }
+        guard activity == .recording, ProcessInfo.processInfo.systemUptime - recordingStart >= 0.25 else {
+            failSession(reason, cancelServer: true); return
+        }
+        statusMessage = "Saving interrupted recording…"
+        finishDictation(salvaged: true)
+    }
+
+    private func finishDictation(atLimit: Bool = false, salvaged: Bool = false) {
         guard isCapturing else { return }
         // A take ended by the duration limit must not leave a double-tap
         // latch behind, matching the failure and cancel paths.
@@ -1067,14 +1207,16 @@ final class TranscriberController: ObservableObject {
         recordingFeedback.finish(atLimit: atLimit)
         activity = .transcribing
         statusMessage = "Finishing upload…"
+        hudProgressText = "Uploading"
         let current = sessionID
         let test = isTestSession
         let capturedDestination = insertionDestination
         let clipboardCount = recordingClipboardChangeCount
         let pending = PendingDictation(session: current, generation: generation, upload: uploadTask,
                                        pipe: uploadPipe, destination: destinationTask)
+        pending.restedSinceRelease = salvaged
         // Usually known at release, so a later take can continue a list in another field.
-        let knownDestination: InsertionDestination? = test ? .clipboard : capturedDestination
+        let knownDestination: InsertionDestination? = test || salvaged ? .clipboard : capturedDestination
         pending.target = knownDestination.map { Self.resolve($0, isTest: test, releasedAt: releasedAt) }
         pendingDictations.append(pending)
         activeGeneration = nil; self.uploadTask = nil; self.uploadPipe = nil
@@ -1089,6 +1231,7 @@ final class TranscriberController: ObservableObject {
             var capturedAudio: CapturedAudio?
             var generationID: UUID?
             defer {
+                if pending.resolved, let id = pending.generationID { removePendingEntry(id) }
                 pending.settle()
                 pendingDictations.removeAll { $0 === pending }
                 if pendingDictations.isEmpty {
@@ -1107,6 +1250,7 @@ final class TranscriberController: ObservableObject {
                 let started = try await pending.generation.value
                 let id = started.id, connection = started.client
                 generationID = id
+                pending.generationID = id
                 try Task.checkCancellation()
                 let target: (destination: InsertionDestination, anchor: DictationDestination?)
                 if let known = pending.target { target = known }
@@ -1122,6 +1266,7 @@ final class TranscriberController: ObservableObject {
                 finish.continuationID = sharesEarlierAnchor ? nil : anchor.flatMap { self.continuation(for: $0)?.generationID }
                 try Task.checkCancellation()
                 pending.sealed = true // The server may accept a seal whose response is interrupted.
+                if !test { addPendingEntry(id: id, finish: finish) }
                 var result: GenerationRecord
                 do { result = try await connection.finish(id, value: finish) }
                 catch let ServerClientError.rejected(status, message) where (400..<500).contains(status) && ![408, 429].contains(status) {
@@ -1140,6 +1285,7 @@ final class TranscriberController: ObservableObject {
                 }
                 try Task.checkCancellation()
                 guard result.status == .completed else {
+                    pending.resolved = true // Terminal on the server; visible in History.
                     throw ServerClientError.rejected(422, result.error ?? "The server could not process this recording.")
                 }
                 // Processing and uploads overlap. Clipboard/paste transactions
@@ -1148,9 +1294,11 @@ final class TranscriberController: ObservableObject {
                 await waitForCaptureRelease()
                 try Task.checkCancellation()
                 pending.delivering = true
-                let deliveryDestination = rebasedDestination(resolved)
+                // Fork: a lock or sleep before this point sends the words to the clipboard only.
+                let deliveryDestination: InsertionDestination = pending.restedSinceRelease ? .clipboard : rebasedDestination(resolved)
                 let receipt = await deliver(result, to: deliveryDestination, anchor: anchor, isTest: test,
-                                            clipboardCount: clipboardCount, session: current)
+                                            clipboardCount: clipboardCount, session: current,
+                                            hasRested: { pending.restedSinceRelease })
                 try Task.checkCancellation()
                 do { try await connection.delivery(id, receipt: receipt) }
                 catch { continuationAnchors.removeAll { $0.generationID == id } }
@@ -1158,16 +1306,29 @@ final class TranscriberController: ObservableObject {
                 // Other takes can change the shared last-delivery state during the receipt request.
                 let delivered = DictationDeliveryStatus(rawValue: receipt.status) ?? .failed
                 if sessionID == current {
+                    hudProgressText = nil
                     activity = delivered == .failed ? .failed : .success
                     dismissHUDAfter(seconds: delivered.needsAttention ? 4 : 1.7)
+                    let outcomeSound: OutcomeFeedback.Sound =
+                        switch delivered {
+                        case .inserted, .tested, .listUpdated: .success
+                        case .copied, .unconfirmed: .attention
+                        case .failed, .none: .failure
+                        }
+                    announceOutcome(receipt.message ?? delivered.hudLabel, outcomeSound)
                 } else if delivered.needsAttention {
                     // A newer take owns the HUD and will replace this result.
                     errorMessage = "Earlier dictation: \(receipt.message ?? delivered.hudLabel)"
+                    if let errorMessage { announceOutcome(errorMessage, .attention) }
                 }
+                pending.resolved = true
                 refreshServer()
             } catch {
                 pending.upload.cancel(); pending.pipe.cancel(); pending.destination?.cancel()
-                if !pending.sealed { pending.cancelOnServer() }
+                if !pending.sealed {
+                    pending.resolved = true
+                    pending.cancelOnServer()
+                }
                 // Fork: audio the server has not confirmed is kept, unless the
                 // user explicitly cancelled this take.
                 let unconfirmed = capturedAudio
@@ -1176,6 +1337,18 @@ final class TranscriberController: ObservableObject {
                 let kept = pending.discardsAudio ? nil : unconfirmed
                 guard !Task.isCancelled else {
                     if let kept { keep(kept, reason: "The take stopped before the server confirmed it.", generationID: generationID) }
+                    return
+                }
+                if let clientError = error as? ServerClientError, case .processingTimedOut = clientError {
+                    // Not a failure: the seal is confirmed and the pending entry stays,
+                    // so the relaunch reconcile path offers the result for copy.
+                    if sessionID == current {
+                        activity = .idle
+                        statusMessage = "Still processing on the server"
+                        hudProgressText = nil
+                        dismissHUDAfter(seconds: 4)
+                    }
+                    refreshHistory()
                     return
                 }
                 let message: String
@@ -1190,7 +1363,7 @@ final class TranscriberController: ObservableObject {
                     lastDeliveryStatus = .failed
                     // An older job may fail while the microphone or a newer
                     // result owns the HUD. Keep that live activity intact.
-                    if !activity.isBusy { showError(message) }
+                    if !activity.isBusy { showError(message) } else { announceOutcome(message, .failure) }
                 }
                 if let kept { keep(kept, reason: message, generationID: generationID) }
                 refreshHistory()
@@ -1219,18 +1392,18 @@ final class TranscriberController: ObservableObject {
     private func applyProgress(_ generation: GenerationRecord, session: UUID) {
         guard sessionID == session, !isCapturing else { return }
         switch generation.status {
-        case .receiving: statusMessage = "Finishing upload…"
-        case .queued: statusMessage = "Queued on server…"
-        case .transcribing: statusMessage = "Transcribing on server…"
-        case .proofreading: statusMessage = "Proofreading on server…"
-        case .completed: statusMessage = "Preparing result…"
-        case .failed, .cancelled: statusMessage = generation.error ?? "Processing stopped"
+        case .receiving: statusMessage = "Finishing upload…"; hudProgressText = "Uploading"
+        case .queued: statusMessage = "Queued on server…"; hudProgressText = "Queued"
+        case .transcribing: statusMessage = "Transcribing on server…"; hudProgressText = "Transcribing"
+        case .proofreading: statusMessage = "Proofreading on server…"; hudProgressText = "Proofreading"
+        case .completed: statusMessage = "Preparing result…"; hudProgressText = "Preparing"
+        case .failed, .cancelled: statusMessage = generation.error ?? "Processing stopped"; hudProgressText = nil
         }
     }
 
     private func deliver(_ record: GenerationRecord, to destination: InsertionDestination,
                          anchor: DictationDestination?, isTest: Bool, clipboardCount: Int,
-                         session: UUID) async -> DeliveryReceipt {
+                         session: UUID, hasRested: @escaping () -> Bool) async -> DeliveryReceipt {
         var transcript = record.previewText.isEmpty ? record.finalText : record.previewText
         let message: String
         let deliveryStatus: DictationDeliveryStatus
@@ -1252,12 +1425,13 @@ final class TranscriberController: ObservableObject {
             }
             status = message
         } else {
-            if sessionID == session { activity = .delivering; statusMessage = "Inserting at your cursor…" }
+            if sessionID == session { activity = .delivering; statusMessage = "Inserting at your cursor…"; hudProgressText = "Inserting" }
             let inserter = TextInserter()
             let outcome = await inserter.deliver(record.insertionText, copying: record.finalText,
                                                   to: destination, clipboardUnchangedSince: clipboardCount,
                                                   waitUntilReady: { await self.waitForCaptureRelease() },
-                                                  isCaptureActive: { self.isHoldingCapture })
+                                                  isCaptureActive: { self.isHoldingCapture },
+                                                  hasRested: hasRested)
             guard !Task.isCancelled else { return DeliveryReceipt(status: "failed", message: "Delivery cancelled") }
             if let anchor { continuationAnchors.removeAll { $0.destination == anchor } }
             switch outcome {
@@ -1303,7 +1477,11 @@ final class TranscriberController: ObservableObject {
     private func stopPendingDictations() {
         for pending in pendingDictations {
             pending.cancel()
-            if !pending.sealed { pending.cancelOnServer() }
+            if !pending.sealed {
+                // Sealed entries stay for the next launch.
+                if let id = pending.generationID { removePendingEntry(id) }
+                pending.cancelOnServer()
+            }
         }
         pendingDictations.removeAll()
         deliveryTail = nil
@@ -1330,9 +1508,15 @@ final class TranscriberController: ObservableObject {
         continuationAnchors = Array(continuationAnchors.suffix(8))
     }
 
+    private func announceOutcome(_ message: String, _ sound: OutcomeFeedback.Sound?) {
+        OutcomeFeedback.announce(message, sound: sound, soundsEnabled: dictationSoundsEnabled)
+    }
+
     private func showError(_ message: String) {
+        hudProgressText = nil
         recordingFeedback.reset()
         activity = .failed; errorMessage = message; statusMessage = message
+        announceOutcome(message, .failure)
         onHUDVisibility?(true)
         dismissHUDAfter(seconds: 4)
     }
@@ -1366,14 +1550,10 @@ final class TranscriberController: ObservableObject {
 
     private func restForSystem() {
         stopShortcutCheck()
-        let interrupted = isBusy
-        if isCapturing {
-            failSession("Recording interrupted while your Mac was away. Check shared history for completed results.", cancelServer: true)
-        }
-        stopPendingDictations()
-        if interrupted {
-            showError("Recording interrupted while your Mac was away. Check shared history for completed results.")
-        }
+        // Salvage a live take and leave sealed takes running. Every take that has
+        // not delivered yet goes to the clipboard after wake.
+        if isCapturing { salvageDictation(reason: "Recording interrupted while your Mac was away.") }
+        for pending in pendingDictations { pending.restedSinceRelease = true }
         continuationAnchors.removeAll()
     }
     func refreshPermissions() {

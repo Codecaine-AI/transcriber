@@ -70,6 +70,11 @@ private struct DevicePreferencesForm: View {
                 }
                 Toggle("Mute system audio while recording", isOn: $controller.muteOutputWhileRecording)
                     .accessibilityIdentifier("preferences.mute-output")
+                Text("Muting also silences VoiceOver and dictation sounds while recording.")
+                    .font(.caption)
+                    .foregroundStyle(TranscriberPalette.muted)
+                Toggle("Play dictation sounds", isOn: $controller.dictationSoundsEnabled)
+                    .accessibilityIdentifier("preferences.dictation-sounds")
                 Toggle("Start \(TranscriberBuild.current.displayName) at login", isOn: $controller.launchAtLogin)
                 if let error = controller.loginItemError {
                     Text(error).font(.caption).foregroundStyle(TranscriberPalette.warning)
@@ -99,6 +104,9 @@ private struct DevicePreferencesForm: View {
                         Text(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
                             .foregroundStyle(TranscriberPalette.muted)
                     }
+                }
+                if let revision = Bundle.main.object(forInfoDictionaryKey: "TranscriberSourceRevision") as? String {
+                    LabeledContent("Source revision", value: revision)
                 }
                 Text("Quitting this app leaves your server running.")
                     .font(.caption)
@@ -167,6 +175,7 @@ struct ServerPreferencesPage: View {
                     Section {
                         runtimeRow("Voice", runtime: health.speech)
                         runtimeRow("Proofreading", runtime: health.proofreading)
+                        LabeledContent("Server version", value: health.serverVersion)
                     } header: { Text("Server models").textCase(nil) }
                 }
                 Section {

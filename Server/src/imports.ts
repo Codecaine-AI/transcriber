@@ -434,7 +434,11 @@ export class WisprFlowImports {
         !uuidPattern.test(journal.stageID) ||
         journal.stageID !== filename.slice(0, -5)
       )
-        throw new ServiceError(500, "invalid_archive", "An import replacement journal is invalid.");
+        throw new ServiceError(
+          500,
+          "invalid_archive",
+          `An import replacement journal is invalid: ${filename}`,
+        );
       const live = this.directory(journal.recordID),
         backup = join(this.transactionsRoot, `${journal.stageID}.backup`);
       if (await exists(live)) await requireRegularDirectory(live);
@@ -450,7 +454,7 @@ export class WisprFlowImports {
         throw new ServiceError(
           500,
           "invalid_archive",
-          "An import replacement has lost its durable archive.",
+          `An import replacement has lost its durable archive: ${filename}`,
         );
       await rm(join(this.transactionsRoot, filename));
     }

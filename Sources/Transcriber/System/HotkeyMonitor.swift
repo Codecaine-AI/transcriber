@@ -303,7 +303,7 @@ final class HotkeyMonitor {
                 forName: NSWorkspace.willSleepNotification, object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    self?.reset(cancelActive: true)
+                    self?.reset(cancelActive: false)
                     self?.blockAlreadyHeldKey()
                 }
             }

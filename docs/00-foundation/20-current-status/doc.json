@@ -42,12 +42,19 @@
         "open-work-deepgram",
         "open-work-carried-backup",
         "open-work-carried-wispr",
-        "open-work-carried-port",
         "open-work-single-tap",
+        "ports-followups-heading",
+        "ports-followups-lead",
+        "ports-install",
+        "ports-verify-paths",
+        "ports-verify-output",
+        "ports-defects",
+        "ports-client-only",
         "open-decisions-heading",
         "open-work-carried-tests",
         "open-decision-display-name",
         "open-decision-sotto-leftovers",
+        "open-decision-error-text",
         "b-20-current-status-automatic-launch-at-logi-15",
         "relocation-verified-20-current-status"
       ]
@@ -58,25 +65,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork last merged upstream, then named V07, through PR #23. "
-        },
-        {
-          "insert": "/Applications/Transcriber.app",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " is installed with its macOS permissions, and speech recognition uses Deepgram "
-        },
-        {
-          "insert": "nova-3",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " with local Whisper as the fallback. The Transcriber source rename is on "
+          "insert": "The fork last merged upstream, then named V07, through PR #23, and later hand-ported 30 upstream Inlay commits. Those ports are merged to "
         },
         {
           "insert": "main",
@@ -85,7 +74,25 @@
           }
         },
         {
-          "insert": ", and the installed app and server run builds from it. This page records the current handoff, and "
+          "insert": ", but "
+        },
+        {
+          "insert": "/Applications/Transcriber.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and its server still run the 2026-10-15 build. Speech recognition uses Deepgram "
+        },
+        {
+          "insert": "nova-3",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " with local Whisper as the fallback. This page records the current handoff, and "
         },
         {
           "insert": "Work Record",
@@ -258,7 +265,20 @@
           ],
           [
             "Upstream",
-            "Merged through PR #23",
+            [
+              {
+                "insert": "Merged through PR #23, then 30 commits hand-ported to "
+              },
+              {
+                "insert": "main",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ", not yet installed"
+              }
+            ],
             [
               {
                 "insert": "Merge commit "
@@ -270,7 +290,7 @@
                 }
               },
               {
-                "insert": " on 2026-09-30, with upstream "
+                "insert": " on 2026-09-30 brought upstream "
               },
               {
                 "insert": "main",
@@ -288,7 +308,43 @@
                 }
               },
               {
-                "insert": ". The merge brings the V07 rename, the recording queue, the double-tap toggle mode, output muting while recording, and the removal of automated tests"
+                "insert": ". Branch "
+              },
+              {
+                "insert": "t3/audit-upstream-commits",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " ports 30 commits from upstream "
+              },
+              {
+                "insert": "7ffe640",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " in fork commits "
+              },
+              {
+                "insert": "ba17376",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " to "
+              },
+              {
+                "insert": "af5cd60",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ". The installed app and server still run the 2026-10-15 build"
               }
             ]
           ],
@@ -342,7 +398,17 @@
           ],
           [
             "Development build",
-            "Transcriber Dev built 2026-10-09 at 11:35",
+            [
+              {
+                "insert": "Transcriber Dev rebuilt at "
+              },
+              {
+                "insert": "af5cd60",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
             [
               {
                 "insert": "build/Transcriber Dev.app",
@@ -351,16 +417,25 @@
                 }
               },
               {
-                "insert": ", bundle identifier "
+                "insert": " shows source revision "
               },
               {
-                "insert": "ai.codecaine.transcriber.dev",
+                "insert": "af5cd60",
                 "attributes": {
                   "code": true
                 }
               },
               {
-                "insert": ". 5 of 5 synthetic Right Option takes completed, each kept its 4-channel original, and no recordings were left behind"
+                "insert": ". On 2026-11-04 UTC it ran every port drill against the source server on 127.0.0.1:8393, with Right Option in "
+              },
+              {
+                "insert": "singleTap",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " mode"
               }
             ]
           ],
@@ -1529,28 +1604,6 @@
       ],
       "children": []
     },
-    "open-work-carried-port": {
-      "id": "open-work-carried-port",
-      "type": "list-item",
-      "props": {
-        "ordered": false
-      },
-      "text": [
-        {
-          "insert": "Choose a port for the source server on this Mac. "
-        },
-        {
-          "insert": "bun run dev",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": " defaults to port 8392, the port the archive viewer uses."
-        }
-      ],
-      "children": []
-    },
     "open-work-single-tap": {
       "id": "open-work-single-tap",
       "type": "list-item",
@@ -1564,7 +1617,8 @@
       ],
       "children": [
         "open-work-single-tap-check",
-        "open-work-single-tap-done"
+        "open-work-single-tap-done",
+        "open-work-single-tap-ports"
       ]
     },
     "open-work-single-tap-check": {
@@ -1589,6 +1643,360 @@
       "text": [
         {
           "insert": "Transcriber Dev passed 5 of 5 synthetic takes with Right Option, so only the Fn key is untested."
+        }
+      ],
+      "children": []
+    },
+    "open-work-single-tap-ports": {
+      "id": "open-work-single-tap-ports",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The upstream port drills also pressed Right Option, so no Fn path of the ported build is verified."
+        }
+      ],
+      "children": []
+    },
+    "ports-followups-heading": {
+      "id": "ports-followups-heading",
+      "type": "heading",
+      "props": {
+        "level": 3
+      },
+      "text": [
+        {
+          "insert": "Upstream Port Follow-Ups"
+        }
+      ],
+      "children": []
+    },
+    "ports-followups-lead": {
+      "id": "ports-followups-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The hand-ported upstream fixes passed their Transcriber Dev drills on 2026-11-04 UTC. These items stay open after the merge."
+        }
+      ],
+      "children": []
+    },
+    "ports-install": {
+      "id": "ports-install",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Install the ported build.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "ports-install-old",
+        "ports-install-loopback",
+        "ports-install-archive"
+      ]
+    },
+    "ports-install-old": {
+      "id": "ports-install-old",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The installed app and the launchd server on 127.0.0.1:8391 run the 2026-10-15 build. They get the ports only after "
+        },
+        {
+          "insert": "./scripts/rebuild-local.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and a server rebuild."
+        }
+      ],
+      "children": []
+    },
+    "ports-install-loopback": {
+      "id": "ports-install-loopback",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "After the rebuild, confirm that the installed app connects. The tokenless server accepts a request only from a loopback socket."
+        }
+      ],
+      "children": []
+    },
+    "ports-install-archive": {
+      "id": "ports-install-archive",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The archive worker runs the main-checkout "
+        },
+        {
+          "insert": "scripts/archive/archive.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It skips quarantined folders only after the main checkout pulls the merge."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-paths": {
+      "id": "ports-verify-paths",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Verify the paths that no Dev drill could reach.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "ports-verify-sleep",
+        "ports-verify-clock",
+        "ports-verify-unplug",
+        "ports-verify-scarlett",
+        "ports-verify-helper"
+      ]
+    },
+    "ports-verify-sleep": {
+      "id": "ports-verify-sleep",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A real sleep during a take is unverified, because the drills posted a lock notification instead."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-clock": {
+      "id": "ports-verify-clock",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Nobody has checked that Bun's "
+        },
+        {
+          "insert": "performance.now()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stops while the Mac sleeps."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-unplug": {
+      "id": "ports-verify-unplug",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Unplugging a USB microphone during a take is unverified."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-scarlett": {
+      "id": "ports-verify-scarlett",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The Scarlett Solo channel 2 path is unverified with the ported capture code."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-helper": {
+      "id": "ports-verify-helper",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A helper error that keeps the warm model is unverified, because Dev cannot make one request fail."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-output": {
+      "id": "ports-verify-output",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Verify the dictation sounds and VoiceOver output.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "ports-verify-sounds",
+        "ports-verify-voiceover"
+      ]
+    },
+    "ports-verify-sounds": {
+      "id": "ports-verify-sounds",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The unified log shows Tink, Pop, and Basso start at the right moments. Nobody has heard them, and Purr has no drill."
+        }
+      ],
+      "children": []
+    },
+    "ports-verify-voiceover": {
+      "id": "ports-verify-voiceover",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "VoiceOver was off in every drill, so the announcements and the status-first History rows are unverified."
+        }
+      ],
+      "children": []
+    },
+    "ports-defects": {
+      "id": "ports-defects",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Fix three defects that the drills found outside the ported code.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "ports-defect-window",
+        "ports-defect-rtf",
+        "ports-defect-keychain"
+      ]
+    },
+    "ports-defect-window": {
+      "id": "ports-defect-window",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Closing the Transcriber Dev main window with its red button ends the Dev process, with no crash report."
+        }
+      ],
+      "children": []
+    },
+    "ports-defect-rtf": {
+      "id": "ports-defect-rtf",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "An old saved TextEdit document, "
+        },
+        {
+          "insert": "Untitled.rtf",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", refuses insertion with \"The focused application could not be checked safely\". A new TextEdit document accepts it."
+        }
+      ],
+      "children": []
+    },
+    "ports-defect-keychain": {
+      "id": "ports-defect-keychain",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A rebuilt Transcriber Dev cannot read the Keychain token it saved before the rebuild. The drills used a copied client directory and entered the token again."
+        }
+      ],
+      "children": []
+    },
+    "ports-client-only": {
+      "id": "ports-client-only",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Add Transcribe again for client-only recordings.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "ports-client-only-detail"
+      ]
+    },
+    "ports-client-only-detail": {
+      "id": "ports-client-only-detail",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A Recovered Recording that has no server record has no Transcribe again action."
         }
       ],
       "children": []
@@ -1704,6 +2112,34 @@
         },
         {
           "insert": " also remain."
+        }
+      ],
+      "children": []
+    },
+    "open-decision-error-text": {
+      "id": "open-decision-error-text",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Decide whether the HUD must show the \"Recording kept in\" path as visible text."
+        }
+      ],
+      "children": [
+        "open-decision-error-text-today"
+      ]
+    },
+    "open-decision-error-text-today": {
+      "id": "open-decision-error-text-today",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The compact \"!\" HUD shows the path only in its tooltip and its accessibility value."
         }
       ],
       "children": []

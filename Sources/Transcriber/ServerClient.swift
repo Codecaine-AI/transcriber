@@ -7,6 +7,7 @@ enum ServerClientError: LocalizedError {
     case rejected(Int, String)
     case invalidResponse
     case disconnected
+    case processingTimedOut
     case uploadBacklog
     case importArtifactTooLarge(WisprFlowArtifactName, Int)
     case dictionaryArchiveTooLarge(Int)
@@ -17,6 +18,7 @@ enum ServerClientError: LocalizedError {
         case .rejected(_, let message): message
         case .invalidResponse: "The server returned an invalid response."
         case .disconnected: "The server connection was interrupted. Any completed result is available in shared history."
+        case .processingTimedOut: "The server is still processing this recording. The result will be ready to copy when it finishes."
         case .uploadBacklog: "The connection cannot keep up with the microphone. This recording was stopped."
         case .importArtifactTooLarge(let name, let bytes):
             "\(name.rawValue) is \(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)), above the 8 MiB source-artifact limit."
@@ -372,6 +374,9 @@ extension ServerClient {
     func cancel(_ id: UUID) async throws {
         try await send(path: "v1/generations/\(id)/cancel", method: "POST")
     }
+    func reprocess(_ id: UUID) async throws -> GenerationRecord {
+        try await json(path: "v1/generations/\(id)/reprocess", method: "POST")
+    }
     func delete(_ id: UUID) async throws {
         try await send(path: "v1/generations/\(id)", method: "DELETE")
     }
@@ -383,7 +388,7 @@ extension ServerClient {
         let filename = "\(kind.rawValue).wav"
         let (temporary, response) = try await session.download(for: request(path: "v1/generations/\(id)/artifacts/\(filename)"))
         try Self.validate(response)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview", isDirectory: true)
+        let directory = TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let destination = directory.appendingPathComponent("\(id)-\(filename)")
         try? FileManager.default.removeItem(at: destination)
@@ -395,7 +400,7 @@ extension ServerClient {
     func wisprFlowArtifact(_ id: UUID, filename: WisprFlowArtifactName) async throws -> URL {
         let (temporary, response) = try await session.download(for: request(path: "v1/generations/\(id)/artifacts/\(filename.rawValue)"))
         try Self.validate(response)
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("Transcriber-remote-preview", isDirectory: true)
+        let directory = TranscriberTemporaryDirectory.url.appendingPathComponent("Transcriber-remote-preview", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let destination = directory.appendingPathComponent("\(id)-\(filename.rawValue)")
         try? FileManager.default.removeItem(at: destination)
@@ -406,10 +411,17 @@ extension ServerClient {
 
     func events(_ id: UUID, onUpdate: @escaping @Sendable (GenerationRecord) async -> Void) async throws -> GenerationRecord {
         var recoveryFailures = 0
+        // Fork: 15 minutes of awake time. SuspendingClock stops while the Mac sleeps.
+        let deadline = SuspendingClock.now.advanced(by: .seconds(900))
         while true {
             try Task.checkCancellation()
-            do { return try await readEvents(id, onUpdate: onUpdate) }
-            catch {
+            guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
+            do {
+                let record = try await readEvents(id, onUpdate: onUpdate)
+                // A stream can outlast the deadline. A late result is left for copy-only recovery.
+                guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
+                return record
+            } catch {
                 try Task.checkCancellation()
                 guard Self.isTransient(error) else { throw error }
             }
@@ -421,7 +433,10 @@ extension ServerClient {
                 guard record.id == id else { throw ServerClientError.invalidResponse }
                 try Task.checkCancellation()
                 await onUpdate(record)
-                if record.status.isTerminal { return record }
+                if record.status.isTerminal {
+                    guard SuspendingClock.now < deadline else { throw ServerClientError.processingTimedOut }
+                    return record
+                }
                 recoveryFailures = 0
             } catch {
                 try Task.checkCancellation()
@@ -429,7 +444,9 @@ extension ServerClient {
                 recoveryFailures += 1
                 guard recoveryFailures < 5 else { throw error }
             }
-            try await Task.sleep(for: .seconds(min(8, 1 << recoveryFailures)))
+            let remaining = SuspendingClock.now.duration(to: deadline)
+            guard remaining > .zero else { throw ServerClientError.processingTimedOut }
+            try await Task.sleep(for: min(Duration.seconds(min(8, 1 << recoveryFailures)), remaining), clock: .suspending)
         }
     }
 
@@ -504,21 +521,41 @@ extension ServerClient {
                                        originalFrames: preserveOriginal ? original.frames : nil)
     }
 
+    /// Resends the same chunk until the server accepts it, a non-transient error
+    /// occurs, or 60 s pass, then throws the last error. The server replays a
+    /// byte-identical resend. Fork: the deadline and backoff use SuspendingClock,
+    /// so a take that meets system sleep does not give up at wake.
     private func flush(_ buffer: inout UploadBuffer, to id: UUID) async throws {
         guard !buffer.data.isEmpty, let format = buffer.format else { return }
-        let query = [URLQueryItem(name: "sequence", value: String(buffer.sequence)),
+        let payload = buffer.data
+        let sequence = buffer.sequence
+        let expectedFrames = buffer.frames
+        let query = [URLQueryItem(name: "sequence", value: String(sequence)),
                      URLQueryItem(name: "sampleRate", value: String(format.sampleRate)),
                      URLQueryItem(name: "channels", value: String(format.channels))]
-        let request = try request(path: "v1/generations/\(id)/audio/\(buffer.kind.rawValue)", method: "POST",
-                                  body: buffer.data, contentType: "application/octet-stream", query: query)
-        let (data, response) = try await session.data(for: request)
-        try Self.validate(response, data: data)
-        let receipt = try TranscriberAPI.decodeWire(AudioChunkReceipt.self, from: data)
-        guard receipt.nextSequence == buffer.sequence + 1, receipt.frameCount == buffer.frames else {
-            throw ServerClientError.invalidResponse
+        let uploadRequest = try request(path: "v1/generations/\(id)/audio/\(buffer.kind.rawValue)", method: "POST",
+                                        body: payload, contentType: "application/octet-stream", query: query)
+        let clock = SuspendingClock()
+        let deadline = clock.now.advanced(by: .seconds(60))
+        var delay: Duration = .milliseconds(500)
+        while true {
+            do {
+                let (data, response) = try await session.data(for: uploadRequest)
+                try Self.validate(response, data: data)
+                let receipt = try TranscriberAPI.decodeWire(AudioChunkReceipt.self, from: data)
+                guard receipt.nextSequence == sequence + 1, receipt.frameCount == expectedFrames else {
+                    throw ServerClientError.invalidResponse
+                }
+                buffer.sequence = receipt.nextSequence
+                buffer.data.removeAll(keepingCapacity: true)
+                return
+            } catch {
+                try Task.checkCancellation()
+                guard Self.isTransient(error), clock.now < deadline else { throw error }
+                try await clock.sleep(for: delay)
+                delay = min(delay * 2, .seconds(8))
+            }
         }
-        buffer.sequence = receipt.nextSequence
-        buffer.data.removeAll(keepingCapacity: true)
     }
 }
 

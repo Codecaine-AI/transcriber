@@ -198,7 +198,8 @@ final class TextInserter {
     func deliver(_ text: String, copying clipboardText: String, to destination: InsertionDestination,
                  clipboardUnchangedSince changeCount: Int,
                  waitUntilReady: (() async -> Void)? = nil,
-                 isCaptureActive: (() -> Bool)? = nil) async -> InsertionOutcome {
+                 isCaptureActive: (() -> Bool)? = nil,
+                 hasRested: (() -> Bool)? = nil) async -> InsertionOutcome {
         confirmedAnchor = nil
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return .failed(reason: "There is no text to deliver.")
@@ -217,7 +218,8 @@ final class TextInserter {
                 },
                 pause: { try await Task.sleep(nanoseconds: $0) },
                 waitUntilReady: waitUntilReady,
-                isCaptureActive: isCaptureActive
+                isCaptureActive: isCaptureActive,
+                hasRested: hasRested
             )
             return await TextDeliveryTransaction(pasteboard: pasteboard, environment: environment)
                 .deliver(text, copying: clipboardText, strategy: target.snapshot.strategy,

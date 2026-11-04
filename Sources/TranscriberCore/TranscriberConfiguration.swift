@@ -8,6 +8,7 @@ public struct TranscriberConfiguration: Codable, Equatable, Sendable {
     public var activationMode: String
     public var launchAtLogin: Bool
     public var muteOutputWhileRecording: Bool
+    public var dictationSoundsEnabled: Bool
     public var microphones: MicrophonePreferences
     /// Fork: keep the resolved microphone running between takes, so dictation
     /// starts without opening the device. A missing key means on.
@@ -16,19 +17,21 @@ public struct TranscriberConfiguration: Codable, Equatable, Sendable {
     public static let `default` = TranscriberConfiguration()
 
     public init(holdKey: String = "rightOption", activationMode: String = "hold", launchAtLogin: Bool = false,
-                muteOutputWhileRecording: Bool = false, microphones: MicrophonePreferences = MicrophonePreferences(),
+                muteOutputWhileRecording: Bool = false, dictationSoundsEnabled: Bool = true,
+                microphones: MicrophonePreferences = MicrophonePreferences(),
                 keepMicrophoneReady: Bool = true) {
         schemaVersion = 1
         self.holdKey = holdKey
         self.activationMode = activationMode
         self.launchAtLogin = launchAtLogin
         self.muteOutputWhileRecording = muteOutputWhileRecording
+        self.dictationSoundsEnabled = dictationSoundsEnabled
         self.microphones = microphones
         self.keepMicrophoneReady = keepMicrophoneReady
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, holdKey, activationMode, launchAtLogin, muteOutputWhileRecording, microphones
+        case schemaVersion, holdKey, activationMode, launchAtLogin, muteOutputWhileRecording, dictationSoundsEnabled, microphones
         case keepMicrophoneReady // Fork
     }
 
@@ -50,6 +53,7 @@ public struct TranscriberConfiguration: Codable, Equatable, Sendable {
                   activationMode: activationMode,
                   launchAtLogin: try values.value(Bool.self, for: .launchAtLogin, default: false),
                   muteOutputWhileRecording: try values.value(Bool.self, for: .muteOutputWhileRecording, default: false),
+                  dictationSoundsEnabled: try values.value(Bool.self, for: .dictationSoundsEnabled, default: true),
                   microphones: values.contains(.microphones)
                     ? try values.decode(StrictMicrophones.self, forKey: .microphones).preferences
                     : MicrophonePreferences(),

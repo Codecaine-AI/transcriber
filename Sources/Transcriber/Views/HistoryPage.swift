@@ -107,8 +107,12 @@ struct HistoryPage: View {
                         Text(generation.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
                             .font(.caption)
                         Spacer(minLength: 4)
-                        if generation.status != .completed {
-                            Image(systemName: generation.status == .failed ? "exclamationmark.circle" : "clock")
+                        if generation.status == .failed || generation.status == .cancelled {
+                            Text(statusLabel(generation.status))
+                                .font(.caption)
+                                .foregroundStyle(TranscriberPalette.warning)
+                        } else if generation.status != .completed {
+                            Image(systemName: "clock")
                                 .foregroundStyle(TranscriberPalette.warning)
                         }
                     }
@@ -124,7 +128,7 @@ struct HistoryPage: View {
                 }
                 .padding(.vertical, 8)
                 .tag(generation.id)
-                .accessibilityLabel("\(sourceLabel(generation)), \(summary(generation))")
+                .accessibilityLabel(accessibilityText(generation))
             }
         }
         .listStyle(.inset)
@@ -218,6 +222,13 @@ struct HistoryPage: View {
                 .frame(maxHeight: .infinity)
                 Divider()
                 HStack {
+                    if selected.status == .failed || selected.status == .cancelled,
+                       selected.inferenceAudio != nil, selected.importedSource == nil {
+                        Button("Transcribe again") {
+                            controller.errorMessage = nil
+                            controller.transcribeAgain(selected.id)
+                        }
+                    }
                     if selected.inferenceAudio != nil {
                         Button("Open audio") {
                             controller.errorMessage = nil
@@ -285,6 +296,12 @@ struct HistoryPage: View {
             ContentUnavailableView("Select a dictation", systemImage: "text.alignleft")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+
+    private func accessibilityText(_ generation: GenerationRecord) -> String {
+        let base = "\(sourceLabel(generation)), \(summary(generation))"
+        return generation.status == .failed || generation.status == .cancelled
+            ? "\(statusLabel(generation.status)), \(base)" : base
     }
 
     private func statusLabel(_ status: GenerationStatus) -> String {
