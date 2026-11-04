@@ -511,7 +511,7 @@
       },
       "text": [
         {
-          "insert": "bun install --frozen-lockfile\nbun run dev                 # Listens on 0.0.0.0:8392\nbun run dev --port 8393     # On Ford's Mac, where the archive viewer uses 8392"
+          "insert": "bun install --frozen-lockfile\nbun run dev                 # Listens on 127.0.0.1:8393\nbun run dev --port 8394     # Another free port"
         }
       ],
       "children": []
@@ -817,7 +817,7 @@
       },
       "text": [
         {
-          "insert": "./scripts/rebuild-local.sh --dev   # Build and sign build/Transcriber Dev.app\n\n# In its own terminal:\nbun run dev --port 8393 \\\n  --speech-model \"$PWD/.local/models/ggml-large-v3-turbo.bin\" \\\n  --proof-model \"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n\nopen --env \"TRANSCRIBER_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \\\n  --env \"TRANSCRIBER_SERVER_URL=http://127.0.0.1:8393\" \"build/Transcriber Dev.app\""
+          "insert": "./scripts/rebuild-local.sh --dev   # Build and sign build/Transcriber Dev.app\n\n# In its own terminal:\nbun run dev \\\n  --speech-model \"$PWD/.local/models/ggml-large-v3-turbo.bin\" \\\n  --proof-model \"$PWD/.local/models/Qwen3-4B-Instruct-2507-MLX-4bit\"\n\nopen --env \"TRANSCRIBER_CLIENT_DATA_DIR=$PWD/.local/dev-client\" \\\n  --env \"TRANSCRIBER_SERVER_URL=http://127.0.0.1:8393\" \"build/Transcriber Dev.app\""
         }
       ],
       "children": []
@@ -891,7 +891,28 @@
       },
       "text": [
         {
-          "insert": "Use a free port. On Ford's Mac the installed server uses 8391 and the archive viewer uses 8392."
+          "insert": "bun run dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " listens on 127.0.0.1:8393 by default. On Ford's Mac the installed server uses 8391 and the archive viewer uses 8392."
+        }
+      ],
+      "children": [
+        "dev-transcriber-key"
+      ]
+    },
+    "dev-transcriber-key": {
+      "id": "dev-transcriber-key",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Set the Transcriber Dev key to Right Option. A Fn press also starts a take in the installed app."
         }
       ],
       "children": []

@@ -548,11 +548,11 @@
           "insert": "Add authenticated import routes in "
         },
         {
-          "insert": "`TranscriberHTTPServer.swift`",
+          "insert": "`http-server.ts`",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/TranscriberServerKit/TranscriberHTTPServer.swift"
+              "path": "Server/src/http-server.ts"
             }
           }
         },
@@ -560,12 +560,21 @@
           "insert": " and archival writes in "
         },
         {
-          "insert": "`GenerationService.swift`",
+          "insert": "`imports.ts`",
           "attributes": {
             "reference": {
               "kind": "source",
-              "path": "Sources/TranscriberServerKit/GenerationService.swift"
+              "path": "Server/src/imports.ts"
             }
+          }
+        },
+        {
+          "insert": " under "
+        },
+        {
+          "insert": "Server/src",
+          "attributes": {
+            "code": true
           }
         },
         {
@@ -578,7 +587,7 @@
           }
         },
         {
-          "insert": " and audio/finish routes require a live recording and model readiness, so they must not be reused for historical rows. The server cannot open a client-side Wispr Flow path, especially when it runs on another machine."
+          "insert": " and audio and finish routes require a live recording and model readiness. Do not reuse them for historical rows. The server cannot open a client-side Wispr Flow path, especially when it runs on another machine."
         }
       ],
       "children": []

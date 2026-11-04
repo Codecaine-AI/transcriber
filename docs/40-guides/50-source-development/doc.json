@@ -27,6 +27,7 @@
         "b-development-on-an-apple-silicon-mac-16",
         "b-development-sh-17",
         "b-development-under-this-mac-sele-18",
+        "srcdev-right-option",
         "b-development-grant-transcriber-dev-19",
         "b-development-scripts-run-dev-sh-r-20",
         "b-development-computer-use-verificatio-21",
@@ -34,7 +35,8 @@
         "b-development-for-inference-changes-u-23",
         "b-development-for-lifecycle-or-recover-24",
         "b-development-record-what-you-used-and-25",
-        "b-development-when-changing-swift-or-t-26"
+        "b-development-when-changing-swift-or-t-26",
+        "srcdev-cu-right-option"
       ]
     },
     "srcdev-opening": {
@@ -52,7 +54,7 @@
           }
         },
         {
-          "insert": ". It covers the static checks, the hot-reload server on port 8392, the isolated native app, and computer-use verification. "
+          "insert": ". It covers the static checks, the hot-reload server on 127.0.0.1:8393, the isolated native app, and computer-use verification. "
         },
         {
           "insert": "Development",
@@ -235,16 +237,7 @@
       },
       "text": [
         {
-          "insert": "The default listener is "
-        },
-        {
-          "insert": "0.0.0.0:8392",
-          "attributes": {
-            "code": true
-          }
-        },
-        {
-          "insert": "; development data lives in "
+          "insert": "The default listener is 127.0.0.1:8393, and development data lives in "
         },
         {
           "insert": ".local/dev-server/data",
@@ -253,7 +246,24 @@
           }
         },
         {
-          "insert": ". This differs from the packaged Mac runner's port 8391 and "
+          "insert": "."
+        }
+      ],
+      "children": [
+        "srcdev-listener-ports",
+        "srcdev-listener-url",
+        "srcdev-listener-version"
+      ]
+    },
+    "srcdev-listener-ports": {
+      "id": "srcdev-listener-ports",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The archive viewer holds 127.0.0.1:8392, and the installed server holds 127.0.0.1:8391 with "
         },
         {
           "insert": ".local/server",
@@ -262,7 +272,87 @@
           }
         },
         {
-          "insert": " archive."
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-listener-url": {
+      "id": "srcdev-listener-url",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The runner prints "
+        },
+        {
+          "insert": "http://localhost:8393/v1/health",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and the server logs a "
+        },
+        {
+          "insert": "server_listening",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " JSON line. "
+        },
+        {
+          "insert": "TRANSCRIBER_DEV_DISPLAY_HOST",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " changes the host name in the printed URL."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-listener-version": {
+      "id": "srcdev-listener-version",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The source server reports the version "
+        },
+        {
+          "insert": "dev-<describe>",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from "
+        },
+        {
+          "insert": "git describe --always --dirty",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". An exported "
+        },
+        {
+          "insert": "TRANSCRIBER_SERVER_VERSION",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " wins."
         }
       ],
       "children": []
@@ -346,16 +436,54 @@
       },
       "text": [
         {
-          "insert": "On Siva, open "
+          "insert": "To serve another machine, pass "
         },
         {
-          "insert": "server health",
+          "insert": "--host",
           "attributes": {
-            "link": "http://siva.otter-hawksbill.ts.net:8392/v1/health"
+            "code": true
           }
         },
         {
-          "insert": " in the collaborative browser. For another machine, use its reachable hostname or Tailscale address and the selected port."
+          "insert": " with a reachable address, such as the Mac's Tailscale IP."
+        }
+      ],
+      "children": [
+        "srcdev-remote-token",
+        "srcdev-remote-plain"
+      ]
+    },
+    "srcdev-remote-token": {
+      "id": "srcdev-remote-token",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The development token still guards every request. A server without a token accepts a request only from a loopback socket."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-remote-plain": {
+      "id": "srcdev-remote-plain",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Plain HTTP on an address that is not loopback logs "
+        },
+        {
+          "insert": "plain_http_non_loopback",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
         }
       ],
       "children": []
@@ -488,13 +616,29 @@
           "insert": "Pass normal server arguments to override defaults, for example "
         },
         {
-          "insert": "bun run dev --port 8393 --data-dir \"$PWD/.local/another-dev-archive\"",
+          "insert": "bun run dev --port 8394 --data-dir \"$PWD/.local/another-dev-archive\"",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": ". Use "
+          "insert": "."
+        }
+      ],
+      "children": [
+        "srcdev-override-help",
+        "srcdev-override-models"
+      ]
+    },
+    "srcdev-override-help": {
+      "id": "srcdev-override-help",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Use "
         },
         {
           "insert": "bun run dev --help",
@@ -503,7 +647,20 @@
           }
         },
         {
-          "insert": " for arguments. Keep model files outside Git."
+          "insert": " for the full list of arguments."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-override-models": {
+      "id": "srcdev-override-models",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Keep model files outside Git."
         }
       ],
       "children": []
@@ -572,6 +729,48 @@
           "insert": " set to a new workspace-local client directory, so its preferences and credentials remain separate from the regular app:"
         }
       ],
+      "children": [
+        "srcdev-dev-tmp"
+      ]
+    },
+    "srcdev-dev-tmp": {
+      "id": "srcdev-dev-tmp",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcriber Dev keeps its temporary files in "
+        },
+        {
+          "insert": ".local/dev-client/tmp",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The installed app sets no "
+        },
+        {
+          "insert": "TRANSCRIBER_CLIENT_DATA_DIR",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", so it keeps its files in "
+        },
+        {
+          "insert": "$TMPDIR",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
       "children": []
     },
     "b-development-sh-17": {
@@ -604,16 +803,162 @@
           }
         },
         {
-          "insert": ", select the development server and its token. The client requires HTTPS for remote hostnames; on the connected tailnet, a literal Tailscale IP may use HTTP. For Siva's default development server, use "
+          "insert": ", select "
         },
         {
-          "insert": "http://100.100.40.20:8392",
+          "insert": "http://127.0.0.1:8393",
           "attributes": {
             "code": true
           }
         },
         {
-          "insert": " in the native client, or an HTTPS reverse proxy you already have configured."
+          "insert": " and the token from "
+        },
+        {
+          "insert": ".local/dev-server/token",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "srcdev-select-https",
+        "srcdev-select-keychain"
+      ]
+    },
+    "srcdev-select-https": {
+      "id": "srcdev-select-https",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client requires HTTPS for remote hostnames. On the connected tailnet, a literal Tailscale IP can use HTTP."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-select-keychain": {
+      "id": "srcdev-select-keychain",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A rebuilt Transcriber Dev has a new signature and can lose access to its saved Keychain token. If it does, copy "
+        },
+        {
+          "insert": "config.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "client.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to a new client directory, open Dev with that directory, and enter the token again."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-right-option": {
+      "id": "srcdev-right-option",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Set the Transcriber Dev key to Right Option.",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "srcdev-right-option-config",
+        "srcdev-right-option-why"
+      ]
+    },
+    "srcdev-right-option-config": {
+      "id": "srcdev-right-option-config",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "In "
+        },
+        {
+          "insert": ".local/dev-client/config.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", set "
+        },
+        {
+          "insert": "holdKey",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "rightOption",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "activationMode",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-right-option-why": {
+      "id": "srcdev-right-option-why",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The installed app and Transcriber Dev both get global key events. A Fn press starts a take in the installed app too."
         }
       ],
       "children": []
@@ -778,6 +1123,48 @@
         },
         {
           "insert": " on macOS. Compile affected native helpers when changing C++ or MLX. These are build/static checks, not behavioral test suites."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-cu-right-option": {
+      "id": "srcdev-cu-right-option",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Press Right Option for each Transcriber Dev take, never Fn."
+        }
+      ],
+      "children": [
+        "srcdev-cu-fn",
+        "srcdev-cu-focus"
+      ]
+    },
+    "srcdev-cu-fn": {
+      "id": "srcdev-cu-fn",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Report Fn-specific behavior as unverified. Do not change the installed app's config to test it."
+        }
+      ],
+      "children": []
+    },
+    "srcdev-cu-focus": {
+      "id": "srcdev-cu-focus",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Click the target field before each take. Transcriber Dev refuses to insert text when its own window has focus."
         }
       ],
       "children": []

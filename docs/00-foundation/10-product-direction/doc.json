@@ -32,6 +32,15 @@
         "fork-diff-single-tap",
         "fork-diff-capture",
         "fork-diff-durable",
+        "fork-diff-ports-heading",
+        "fork-diff-ports-lead",
+        "fork-diff-ports-table",
+        "fork-diff-adapt-lead",
+        "fork-diff-adapt-server",
+        "fork-diff-adapt-client",
+        "fork-diff-adapt-build",
+        "fork-diff-adapt-omit",
+        "fork-diff-ports-guard",
         "b-10-product-direction-boundaries-8",
         "b-10-product-direction-the-archive-is-a-single-9",
         "b-10-product-direction-see-archive-design-doc-10"
@@ -644,7 +653,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The fork differs from upstream in six areas. Check each one when you port an upstream feature, because each adds files or fields that upstream does not have."
+          "insert": "The fork differs from upstream in seven areas. Check each one when you port an upstream feature, because each adds files or fields that upstream does not have. The first six areas are fork features, and the seventh is the set of hand-ported upstream fixes."
         }
       ],
       "children": []
@@ -995,7 +1004,7 @@
       "props": {},
       "text": [
         {
-          "insert": "Three of the six areas change how the Mac app records a take. The "
+          "insert": "Three of the first six areas change how the Mac app records a take. The "
         },
         {
           "insert": "Architecture",
@@ -1562,6 +1571,782 @@
         },
         {
           "insert": " must keep the staging files and the audio recovery. An older server neither reads nor deletes the staging files."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-ports-heading": {
+      "id": "fork-diff-ports-heading",
+      "type": "heading",
+      "props": {
+        "level": 3
+      },
+      "text": [
+        {
+          "insert": "Hand-Ported Upstream Fixes"
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-ports-lead": {
+      "id": "fork-diff-ports-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The seventh area is 30 upstream reliability and usability commits that the fork hand-ports in five units. The commits come from upstream "
+        },
+        {
+          "insert": "main",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " at "
+        },
+        {
+          "insert": "7ffe640",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and units 3 and 4 each take part of "
+        },
+        {
+          "insert": "1d10e45",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". Each port uses the Transcriber names and keeps Deepgram first, "
+        },
+        {
+          "insert": "singleTap",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", the ready microphone, and kept takes."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-ports-table": {
+      "id": "fork-diff-ports-table",
+      "type": "structured-table",
+      "props": {
+        "columns": [
+          "Unit",
+          "Upstream commits",
+          "Fork commits",
+          "What the fork takes"
+        ],
+        "rows": [
+          [
+            "1",
+            [
+              {
+                "insert": "1afd365 ee553af d3f3c53 83997a9 caf1971 82c6e76 7273703",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "ba17376",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Swift server removal, metadata-only JSON logs, dev server on 127.0.0.1:8393, tokenless access only from a loopback socket, Dev temporary folder"
+          ],
+          [
+            "2",
+            [
+              {
+                "insert": "de38fa6 e777b15 b247d86 f271b2c 0303dc2 5041d40 6877e7d",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "a511e47",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Cancel only by Escape while recording or by the HUD ✕, stage text in the HUD, slow-menu paste, 60 s upload retry"
+          ],
+          [
+            "3",
+            [
+              {
+                "insert": "36705cc a120fff 6d6f805 39badbb d782e17 269d2bf 4f32ac6 c75015a 1d10e45 d875eb8",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "bd99ca2 3704681",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Requeue of sealed takes after a restart, quarantine of corrupt records, warmup backoff, helper and stage logs, Transcribe again"
+          ],
+          [
+            "4",
+            [
+              {
+                "insert": "545d4f8 512f211 cd6b8b6 308dfcc 1d10e45",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "4b46ac6",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Lock, sleep, and microphone loss finish the take to the clipboard, 120 s idle and 900 s total receiving window, 15-minute result wait, undelivered result recovery"
+          ],
+          [
+            "5",
+            [
+              {
+                "insert": "beced4b 0c9a4da",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "af5cd60",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            "Start and outcome sounds, VoiceOver announcements, client and server build versions"
+          ]
+        ],
+        "title": "Hand-ported upstream units"
+      },
+      "children": []
+    },
+    "fork-diff-adapt-lead": {
+      "id": "fork-diff-adapt-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The fork changes the ports in three groups and leaves some upstream parts out. Upstream has none of these changes."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-server": {
+      "id": "fork-diff-adapt-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Server adaptations",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "fork-diff-adapt-server-port",
+        "fork-diff-adapt-server-deepgram",
+        "fork-diff-adapt-server-quarantine",
+        "fork-diff-adapt-server-attempts",
+        "fork-diff-adapt-server-expiry"
+      ]
+    },
+    "fork-diff-adapt-server-port": {
+      "id": "fork-diff-adapt-server-port",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "bun run dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " binds 127.0.0.1:8393, because the archive viewer holds 127.0.0.1:8392."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-server-deepgram": {
+      "id": "fork-diff-adapt-server-deepgram",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A requeued or reprocessed take has no live Deepgram session. The server sends its sealed clip to Deepgram's prerecorded API first, then falls back to local Whisper."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-server-quarantine": {
+      "id": "fork-diff-adapt-server-quarantine",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Quarantine renames only a record that fails to parse or validate, to "
+        },
+        {
+          "insert": "<ID>.quarantined",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It deletes nothing."
+        }
+      ],
+      "children": [
+        "fork-diff-adapt-server-archive"
+      ]
+    },
+    "fork-diff-adapt-server-archive": {
+      "id": "fork-diff-adapt-server-archive",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/archive/archive.py",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " skips each folder whose name is not a UUID and keeps syncing past a bad record."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-server-attempts": {
+      "id": "fork-diff-adapt-server-attempts",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Transcribe again copies "
+        },
+        {
+          "insert": "metadata.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "<dir>/attempts/<ISO time>.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " before it changes the record. It keeps "
+        },
+        {
+          "insert": "rawText",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "finalText",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "speech",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-server-expiry": {
+      "id": "fork-diff-adapt-server-expiry",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The receiving expiry measures time with in-memory "
+        },
+        {
+          "insert": "performance.now()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " marks for each live take, not with "
+        },
+        {
+          "insert": "updatedAt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-client": {
+      "id": "fork-diff-adapt-client",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Client adaptations",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "fork-diff-adapt-client-clock",
+        "fork-diff-adapt-client-rest",
+        "fork-diff-adapt-client-sleep",
+        "fork-diff-adapt-client-pending"
+      ]
+    },
+    "fork-diff-adapt-client-clock": {
+      "id": "fork-diff-adapt-client-clock",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The upload retry loop and the 900 s result wait use "
+        },
+        {
+          "insert": "SuspendingClock",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", so time in system sleep does not count."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-client-rest": {
+      "id": "fork-diff-adapt-client-rest",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A lock or sleep sets "
+        },
+        {
+          "insert": "restedSinceRelease",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " on each undelivered take instead of stopping it. "
+        },
+        {
+          "insert": "TextDeliveryTransaction.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " checks the flag after each wait and copies the text instead of pasting it."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-client-sleep": {
+      "id": "fork-diff-adapt-client-sleep",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The sleep observer in "
+        },
+        {
+          "insert": "HotkeyMonitor.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " resets with "
+        },
+        {
+          "insert": "cancelActive: false",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", so a sleep never cancels the live take."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-client-pending": {
+      "id": "fork-diff-adapt-client-pending",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The pending file is "
+        },
+        {
+          "insert": "Pending Generations/pending-generations.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", outside the watched client data directory. Recovery copies the text and never inserts it."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-build": {
+      "id": "fork-diff-adapt-build",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Build and settings adaptations",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "fork-diff-adapt-build-revision",
+        "fork-diff-adapt-build-server",
+        "fork-diff-adapt-build-sounds"
+      ]
+    },
+    "fork-diff-adapt-build-revision": {
+      "id": "fork-diff-adapt-build-revision",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/build-app.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " writes the git revision to the "
+        },
+        {
+          "insert": "TranscriberSourceRevision",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " plist key, because "
+        },
+        {
+          "insert": "CFBundleVersion",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must stay numeric."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-build-server": {
+      "id": "fork-diff-adapt-build-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "scripts/build-server.sh",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stamps "
+        },
+        {
+          "insert": "git describe --always --dirty",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", because the fork has no "
+        },
+        {
+          "insert": "server-v",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " tags. "
+        },
+        {
+          "insert": "bun run dev",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " reports "
+        },
+        {
+          "insert": "dev-<describe>",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-build-sounds": {
+      "id": "fork-diff-adapt-build-sounds",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The "
+        },
+        {
+          "insert": "dictationSoundsEnabled",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " key in "
+        },
+        {
+          "insert": "config.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " turns the sounds off. A config file without the key keeps the sounds on."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-omit": {
+      "id": "fork-diff-adapt-omit",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Upstream parts the fork leaves out",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "fork-diff-adapt-omit-retention",
+        "fork-diff-adapt-omit-seal",
+        "fork-diff-adapt-omit-cap"
+      ]
+    },
+    "fork-diff-adapt-omit-retention": {
+      "id": "fork-diff-adapt-omit-retention",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork has no audio retention, no purge, no storage usage, and no "
+        },
+        {
+          "insert": "Delete audio",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " action. The server keeps all audio."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-omit-seal": {
+      "id": "fork-diff-adapt-omit-seal",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork has no "
+        },
+        {
+          "insert": "cleanPartial",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", no acknowledged-prefix seal, and no "
+        },
+        {
+          "insert": "UploadOutcome",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". An interrupted take seals every captured frame."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-adapt-omit-cap": {
+      "id": "fork-diff-adapt-omit-cap",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The fork has no cap on restart attempts for a requeued take."
+        }
+      ],
+      "children": []
+    },
+    "fork-diff-ports-guard": {
+      "id": "fork-diff-ports-guard",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "A port that edits the restart or reprocess code in "
+        },
+        {
+          "insert": "generation-service.ts",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must keep the attempts snapshot and the Deepgram-first requeue. A port that edits "
+        },
+        {
+          "insert": "TextDeliveryTransaction.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must keep both rest checks. A port that edits "
+        },
+        {
+          "insert": "HotkeyMonitor.swift",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " must keep "
+        },
+        {
+          "insert": "cancelActive: false",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " in the sleep observer."
         }
       ],
       "children": []

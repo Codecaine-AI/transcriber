@@ -13,6 +13,7 @@
         "b-10-native-app-and-server-decisions-2",
         "impl-data-archive",
         "impl-installed-identity",
+        "impl-recovered-takes",
         "b-10-native-app-and-server-the-app-is-installed-sep-7"
       ]
     },
@@ -180,19 +181,25 @@
           }
         },
         {
-          "insert": " writes raw.txt and clean.txt before the terminal metadata that marks publication for the worker, and serves both files for download. The reference Swift server in "
+          "insert": " writes "
         },
         {
-          "insert": "GenerationService.swift",
+          "insert": "raw.txt",
           "attributes": {
-            "reference": {
-              "kind": "source",
-              "path": "Sources/TranscriberServerKit/GenerationService.swift"
-            }
+            "code": true
           }
         },
         {
-          "insert": " also writes both files."
+          "insert": " and "
+        },
+        {
+          "insert": "clean.txt",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " before the terminal metadata that marks publication for the worker, and serves both files for download. The fork has no Swift server, so no other code writes these files."
         }
       ],
       "children": []
@@ -269,6 +276,8 @@
       ],
       "children": [
         "impl-transcriber-installer",
+        "impl-identity-revision",
+        "impl-identity-server-version",
         "impl-transcriber-bundle-identity",
         "impl-transcriber-fixed-labels"
       ]
@@ -321,6 +330,134 @@
         },
         {
           "insert": ". The installer checks the bundle's name, identifier, and executable against the Transcriber values, then signs it with the pinned local certificate."
+        }
+      ],
+      "children": []
+    },
+    "impl-identity-revision": {
+      "id": "impl-identity-revision",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "build-app.sh",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "scripts/build-app.sh"
+            }
+          }
+        },
+        {
+          "insert": " writes the output of "
+        },
+        {
+          "insert": "git describe --always --dirty",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to the "
+        },
+        {
+          "insert": "TranscriberSourceRevision",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " key in the bundle's "
+        },
+        {
+          "insert": "Info.plist",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " before it signs. "
+        },
+        {
+          "insert": "CFBundleVersion",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stays numeric."
+        }
+      ],
+      "children": []
+    },
+    "impl-identity-server-version": {
+      "id": "impl-identity-server-version",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "build-server.sh",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "scripts/build-server.sh"
+            }
+          }
+        },
+        {
+          "insert": " sets "
+        },
+        {
+          "insert": "TRANSCRIBER_SERVER_VERSION",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from "
+        },
+        {
+          "insert": "git describe --always --dirty",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " when the variable is unset. "
+        },
+        {
+          "insert": "PreferencesPage.swift",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Sources/Transcriber/Views/PreferencesPage.swift"
+            }
+          }
+        },
+        {
+          "insert": " shows the "
+        },
+        {
+          "insert": "Source revision",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "Server version",
+          "attributes": {
+            "bold": true
+          }
+        },
+        {
+          "insert": " rows."
         }
       ],
       "children": []
@@ -392,6 +529,240 @@
         },
         {
           "insert": " are fixed Transcriber labels. The window title and the login toggle use the bundle's display name."
+        }
+      ],
+      "children": []
+    },
+    "impl-recovered-takes": {
+      "id": "impl-recovered-takes",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Recovered Takes",
+          "attributes": {
+            "bold": true
+          }
+        }
+      ],
+      "children": [
+        "impl-recovered-server",
+        "impl-recovered-reprocess",
+        "impl-recovered-client",
+        "impl-recovered-store",
+        "impl-recovered-delivery"
+      ]
+    },
+    "impl-recovered-server": {
+      "id": "impl-recovered-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "generation-service.ts",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Server/src/generation-service.ts"
+            }
+          }
+        },
+        {
+          "insert": " requeues sealed takes in "
+        },
+        {
+          "insert": "initialize()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "shutdown()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". It renames a record to "
+        },
+        {
+          "insert": "<ID>.quarantined",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " only when the record fails to parse or validate."
+        }
+      ],
+      "children": []
+    },
+    "impl-recovered-reprocess": {
+      "id": "impl-recovered-reprocess",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "reprocess()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " writes "
+        },
+        {
+          "insert": "<dir>/attempts/<ISO time>.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and syncs it to disk before it saves the queued record."
+        }
+      ],
+      "children": []
+    },
+    "impl-recovered-client": {
+      "id": "impl-recovered-client",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "TranscriberController.swift",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Sources/Transcriber/TranscriberController.swift"
+            }
+          }
+        },
+        {
+          "insert": " finishes an interrupted take in "
+        },
+        {
+          "insert": "salvageDictation(reason:)",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and marks undelivered takes in "
+        },
+        {
+          "insert": "restForSystem()",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "impl-recovered-store": {
+      "id": "impl-recovered-store",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "PendingGenerationsStore.swift",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Sources/Transcriber/PendingGenerationsStore.swift"
+            }
+          }
+        },
+        {
+          "insert": " keeps the undelivered pointers in "
+        },
+        {
+          "insert": "Pending Generations/pending-generations.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " under the client data directory."
+        }
+      ],
+      "children": []
+    },
+    "impl-recovered-delivery": {
+      "id": "impl-recovered-delivery",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "TextDeliveryTransaction.swift",
+          "attributes": {
+            "reference": {
+              "kind": "source",
+              "path": "Sources/Transcriber/System/TextDeliveryTransaction.swift"
+            }
+          }
+        },
+        {
+          "insert": " reads "
+        },
+        {
+          "insert": "hasRested",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " after "
+        },
+        {
+          "insert": "prepareForDelivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and after the second "
+        },
+        {
+          "insert": "validate",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "impl-recovered-delivery-check"
+      ]
+    },
+    "impl-recovered-delivery-check": {
+      "id": "impl-recovered-delivery-check",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "To check the clipboard path, lock the Mac during a Transcriber Dev take."
         }
       ],
       "children": []
