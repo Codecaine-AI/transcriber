@@ -39,6 +39,8 @@ struct TextDeliveryEnvironment {
     var pause: (UInt64) async throws -> Void
     var waitUntilReady: (() async -> Void)? = nil
     var isCaptureActive: (() -> Bool)? = nil
+    /// Fork: true once the Mac locked or slept after this take was released.
+    var hasRested: (() -> Bool)? = nil
 }
 
 /// Owns delivery and its temporary clipboard lease, not application discovery.
@@ -69,6 +71,8 @@ struct TextDeliveryTransaction {
         }
         let prepared = await prepareForDelivery()
         if shouldDeferForCapture { return nil }
+        // Fork: a lock or sleep during the awaits above sends the words to the clipboard only.
+        if hasRested { return copyInstead(clipboardText, expectedCount: changeCount, reason: "The Mac locked or slept.") }
         switch prepared {
         case .valid: break
         case .changed(let reason):
@@ -109,6 +113,11 @@ struct TextDeliveryTransaction {
         let validation = await environment.validate()
         guard !Task.isCancelled else { return .failed(reason: Self.cancelled) }
         if shouldDeferForCapture { return nil }
+        // Fork: never paste after a lock or sleep. Keep the words on the clipboard instead.
+        if hasRested {
+            return clipboard.keepBackup(clipboardText, unchangedSince: changeCount) ? .copied(reason: "Copied to clipboard")
+                : .failed(reason: "The Mac locked or slept. Your words are ready to copy.")
+        }
         switch validation {
         case .valid: break
         case .blocked(let reason): return .failed(reason: reason)
@@ -151,6 +160,8 @@ struct TextDeliveryTransaction {
     private var shouldDeferForCapture: Bool {
         environment.waitUntilReady != nil && environment.isCaptureActive?() == true
     }
+
+    private var hasRested: Bool { environment.hasRested?() == true }
 
     private func prepareForDelivery() async -> TargetValidation {
         for attempt in 0...8 {

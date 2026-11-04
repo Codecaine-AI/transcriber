@@ -38,6 +38,14 @@ struct TranscriberMenuView: View {
 
             TranscriberMicrophoneTestButton(controller: controller, identifier: "menu.test",
                 idleTitle: idleDictationHint)
+            ForEach(controller.undeliveredResults, id: \.id) { record in
+                Button { controller.copyUndeliveredResult(record) } label: {
+                    Label("Copy finished dictation", systemImage: "doc.badge.plus")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frame(height: 26)
+                }
+                .accessibilityIdentifier("menu.copy-undelivered")
+            }
             Button { controller.copyLastTranscript() } label: {
                 Label("Copy last message", systemImage: "doc.on.doc")
                     .frame(maxWidth: .infinity, alignment: .leading)

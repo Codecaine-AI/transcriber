@@ -75,6 +75,8 @@ import { maxInputCharacters, modelHints, processingRecord } from "./domain/corre
 const MAX_METADATA_BYTES = 1_048_576;
 const MAX_PREFERENCES_BYTES = 262_144;
 const MAX_CHUNK_BYTES = 1_048_576;
+const RECEIVING_IDLE_MS = 120_000;
+const RECEIVING_TOTAL_MS = 900_000;
 const terminal = (record: GenerationRecord) =>
   ["completed", "failed", "cancelled"].includes(record.status);
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -229,6 +231,8 @@ export class GenerationService {
   private queue: Promise<unknown> = Promise.resolve();
   private subscribers = new Map<string, Set<Watcher>>();
   private liveSpeech = new Map<string, LiveSpeech>();
+  /** Fork: in-memory monotonic marks per live take, so receiving expiry ignores wall-clock jumps. */
+  private receivingMarks = new Map<string, { created: number; touched: number }>();
   /** Takes created with Deepgram enabled but no API key; their Whisper result records why. */
   private deepgramKeyMissing = new Set<string>();
   private speechPreload?: Promise<void>;
@@ -442,6 +446,12 @@ export class GenerationService {
     }, 2000);
     this.timer.unref();
   }
+  private touchReceiving(id: string) {
+    const touched = performance.now();
+    const mark = this.receivingMarks.get(id);
+    if (mark) mark.touched = touched;
+    else this.receivingMarks.set(id, { created: touched, touched });
+  }
   private async tick() {
     await this.mutate(async () => {
       for (const [id, watchers] of this.subscribers) {
@@ -451,12 +461,17 @@ export class GenerationService {
       await this.imports.expireImportStages();
     });
     await this.mutate(async () => {
+      const at = performance.now();
+      for (const id of this.receivingMarks.keys())
+        if (this.records.get(id)?.status !== "receiving") this.receivingMarks.delete(id);
       for (const record of this.records.values()) {
-        if (
-          record.status === "receiving" &&
-          (Date.now() - Date.parse(record.updatedAt) > 45_000 ||
-            Date.now() - Date.parse(record.createdAt) > 300_000)
-        )
+        if (record.status !== "receiving") continue;
+        const mark = this.receivingMarks.get(record.id);
+        if (!mark) {
+          this.receivingMarks.set(record.id, { created: at, touched: at });
+          continue;
+        }
+        if (at - mark.touched > RECEIVING_IDLE_MS || at - mark.created > RECEIVING_TOTAL_MS)
           await this.cancelRecord(record.id);
       }
     });
@@ -637,6 +652,7 @@ export class GenerationService {
       await mkdir(this.directory(record.id), { mode: 0o700 });
       await this.save(record);
       this.uploads.set(record.id, {});
+      this.touchReceiving(record.id);
       if (deepgramKey) this.openLiveSpeech(record, deepgramKey);
       else if (this.preferences.preferences.deepgramSpeechEnabled)
         this.deepgramKeyMissing.add(record.id);
@@ -751,6 +767,10 @@ export class GenerationService {
             "conflicting_chunk",
             "A repeated audio chunk did not match the original.",
           );
+        // A replayed chunk proves the client is still sending, so it keeps the take alive.
+        record.updatedAt = now();
+        this.records.set(id, record);
+        this.touchReceiving(id);
         return {
           nextSequence: upload.chunks.length,
           frameCount: upload.bytes / (format.channels * 4),
@@ -773,6 +793,7 @@ export class GenerationService {
       streams[kind] = upload;
       this.uploads.set(id, streams);
       record.updatedAt = now();
+      this.touchReceiving(id);
       this.records.set(id, record);
       // Only newly accepted chunks reach Deepgram, in sequence order.
       if (kind === "inference") this.liveSpeech.get(id)?.session.send(bytes);
