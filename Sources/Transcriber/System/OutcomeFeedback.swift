@@ -24,7 +24,8 @@ enum OutcomeFeedback {
         NSAccessibility.post(
             element: NSApp as Any,
             notification: .announcementRequested,
-            userInfo: [.announcement: message]
+            // AppKit requires a priority for announcement requests.
+            userInfo: [.announcement: message, .priority: NSAccessibilityPriorityLevel.high.rawValue]
         )
         guard soundsEnabled, let sound else { return }
         let player = sounds[sound] ?? NSSound(named: NSSound.Name(sound.systemName))
