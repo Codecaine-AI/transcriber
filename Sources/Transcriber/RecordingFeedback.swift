@@ -1,14 +1,18 @@
-import Combine
 import Foundation
+import Observation
 import TranscriberCore
 
-/// High-frequency feedback is observed only by the waveform and clock leaves,
-/// never forwarded through the dashboard's controller.
+/// High-frequency feedback is observed only by the waveform, clock and limit
+/// note leaves, never forwarded through the dashboard's controller. Observation
+/// tracks each property on its own, so the meter never redraws the clock or note.
+/// Views read these values in `body` and never copy them into `@State`: a copy
+/// can miss the change back to nil and leave a stale notice on screen.
 @MainActor
-final class RecordingFeedback: ObservableObject {
-    @Published private(set) var levels = Array(repeating: Float(0), count: 9)
-    @Published private(set) var elapsedSeconds = 0
-    @Published private(set) var limitNotice: RecordingLimitNotice?
+@Observable
+final class RecordingFeedback {
+    private(set) var levels = Array(repeating: Float(0), count: 9)
+    private(set) var elapsedSeconds = 0
+    private(set) var limitNotice: RecordingLimitNotice?
 
     func append(_ level: Float) {
         let sample = level.isFinite ? min(1, max(0, level)) : 0

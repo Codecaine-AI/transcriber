@@ -274,12 +274,12 @@ struct DictationHUD: View {
     }
 }
 
-/// Observe only the notice's whole-second changes, independently of the meter.
+/// Read only the notice, so the meter never redraws it.
 struct RecordingLimitNote: View {
     let feedback: RecordingFeedback
-    @State private var notice: RecordingLimitNotice?
 
     var body: some View {
+        let notice = feedback.limitNotice
         Text(notice?.text ?? "Recording limit in 0:30")
             .font(.system(size: 11, weight: .medium))
             .monospacedDigit()
@@ -293,6 +293,5 @@ struct RecordingLimitNote: View {
             .accessibilityHidden(notice == nil)
             .accessibilityLabel(notice?.accessibilityLabel ?? "")
             .accessibilityIdentifier("hud.recording-limit")
-            .onReceive(feedback.$limitNotice.removeDuplicates()) { notice = $0 }
     }
 }
