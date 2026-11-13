@@ -544,7 +544,36 @@
       },
       "text": [
         {
-          "insert": "Inference audio is mono 16k float32. Original is input microphone format normalized to interleaved float32, retained/uploaded only if the accepted settings snapshot says keepOriginalAudio. Both audio intervals must match. Min take 0.25 s, max 180 s. Only sealed complete uploads run inference."
+          "insert": "Inference audio is mono 16k float32, and both audio intervals must match."
+        }
+      ],
+      "children": [
+        "http-api-original-audio-format",
+        "http-api-take-duration"
+      ]
+    },
+    "http-api-original-audio-format": {
+      "id": "http-api-original-audio-format",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Original audio is the input microphone format normalized to interleaved float32. The server retains it only if the accepted settings snapshot says keepOriginalAudio."
+        }
+      ],
+      "children": []
+    },
+    "http-api-take-duration": {
+      "id": "http-api-take-duration",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A take lasts at least 0.25 s and at most 600 s (10 minutes). Only sealed complete uploads run inference."
         }
       ],
       "children": []

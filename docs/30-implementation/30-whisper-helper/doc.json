@@ -212,7 +212,36 @@
       },
       "text": [
         {
-          "insert": "WAV input must be mono 16 kHz PCM16 or float32, 0.2–180 seconds long. The HTTP server uses a 0.25-second minimum."
+          "insert": "WAV input must be mono 16 kHz PCM16 or float32, 0.2–600 seconds long."
+        }
+      ],
+      "children": [
+        "whisper-wav-minimum",
+        "whisper-wav-file-limit"
+      ]
+    },
+    "whisper-wav-minimum": {
+      "id": "whisper-wav-minimum",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The HTTP server uses a 0.25-second minimum."
+        }
+      ],
+      "children": []
+    },
+    "whisper-wav-file-limit": {
+      "id": "whisper-wav-file-limit",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The WAV file limit is the maximum sample count times 4 bytes plus 64 KiB, about 38.5 MB."
         }
       ],
       "children": []

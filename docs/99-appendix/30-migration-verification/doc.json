@@ -295,7 +295,7 @@
           }
         },
         {
-          "insert": ". It streams files in 1 MiB chunks. The chunk size does not limit the file size. Legacy upstream HTTP import code still contains its old bound and is not used by this migration or exposed as the history import action. Sotto's separate live dictation limit remains 180 seconds per take."
+          "insert": ". It streams files in 1 MiB chunks. The chunk size does not limit the file size. Legacy upstream HTTP import code still contains its old bound and is not used by this migration or exposed as the history import action. The separate live dictation limit is 600 seconds per take."
         }
       ],
       "children": []

@@ -760,7 +760,7 @@
           }
         },
         {
-          "insert": " directory too. Quitting the app leaves the server running. Recordings require an online, available server and have a three-minute limit."
+          "insert": " directory too. Quitting the app leaves the server running. Recordings require an online, available server and have a ten-minute limit. A take also ends after a minute with no voice."
         }
       ],
       "children": []
