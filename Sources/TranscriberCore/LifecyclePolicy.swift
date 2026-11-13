@@ -1,6 +1,7 @@
 import Foundation
 
 public enum LifecyclePolicy {
-    public static let maximumRecordingSeconds: TimeInterval = 180
-
+    /// A take ends after this much time with no voice from `VoiceActivityGate`.
+    /// The duration cap is `TranscriberAPI.maximumRecordingSeconds`.
+    public static let silenceStopSeconds: TimeInterval = 60
 }

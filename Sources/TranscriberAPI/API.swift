@@ -4,7 +4,7 @@ import Foundation
 public enum TranscriberAPI {
     public static let version = 1
     public static let defaultPort = 8391
-    public static let maximumRecordingSeconds = 180
+    public static let maximumRecordingSeconds = 600
     public static let maximumChunkBytes = 1_048_576
     public static func encoder() -> JSONEncoder {
         let encoder = JSONEncoder()

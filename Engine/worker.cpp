@@ -48,7 +48,10 @@ constexpr size_t maxRequestBytes = 1024 * 1024;
 constexpr size_t maxVocabularyBytes = 384 * 1024;
 constexpr size_t maxPromptBytes = 8192;
 constexpr size_t minSamples = WHISPER_SAMPLE_RATE / 5;
-constexpr size_t maxSamples = WHISPER_SAMPLE_RATE * 180;
+constexpr size_t maxSeconds = 600;
+constexpr size_t maxSamples = WHISPER_SAMPLE_RATE * maxSeconds;
+// The largest legal recording is maxSamples float32 frames plus a WAV header (about 38.4 MB).
+constexpr size_t maxFileBytes = maxSamples * sizeof(float) + 64 * 1024;
 
 void emit(const json &event) {
     std::cout << event.dump(-1, ' ', false, json::error_handler_t::replace) << '\n' << std::flush;
@@ -109,8 +112,9 @@ std::variant<Audio, std::string> readAudio(const std::string &path) {
         return "The recording is missing or is not a regular file.";
     }
     const auto bytes = std::filesystem::file_size(path, error);
-    if (error || bytes > 32 * 1024 * 1024) {
-        return "The recording cannot be read or exceeds the 32 MB limit.";
+    if (error || bytes > maxFileBytes) {
+        return "The recording cannot be read or is larger than " + std::to_string(maxSeconds / 60) +
+               " minutes of 16 kHz audio.";
     }
 
     ma_dr_wav wav{};
@@ -127,7 +131,7 @@ std::variant<Audio, std::string> readAudio(const std::string &path) {
         return "The recording must use PCM16 or float32 WAV samples.";
     }
     if (wav.totalPCMFrameCount < minSamples || wav.totalPCMFrameCount > maxSamples) {
-        return "Record between 0.2 seconds and 3 minutes of audio.";
+        return "Record between 0.2 seconds and " + std::to_string(maxSeconds / 60) + " minutes of audio.";
     }
 
     std::vector<float> samples(static_cast<size_t>(wav.totalPCMFrameCount));

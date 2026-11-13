@@ -27,6 +27,7 @@ import type {
   WisprFlowImportRequest,
   WisprFlowKnownIDsRequest,
 } from "./api.ts";
+import { MAXIMUM_RECORDING_SECONDS } from "./api.ts";
 import type { components } from "./generated/api.ts";
 import { decodePersonalDictionary } from "./domain/dictionary.ts";
 import { validateBody } from "./validation.ts";
@@ -79,6 +80,7 @@ const MAX_PREFERENCES_BYTES = 262_144;
 const MAX_CHUNK_BYTES = 1_048_576;
 const RECEIVING_IDLE_MS = 120_000;
 const RECEIVING_TOTAL_MS = 900_000;
+const RECORDING_LIMIT = `${MAXIMUM_RECORDING_SECONDS / 60} minutes`;
 const terminal = (record: GenerationRecord) =>
   ["completed", "failed", "cancelled"].includes(record.status);
 const now = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -781,11 +783,13 @@ export class GenerationService {
       if (sequence !== upload.chunks.length)
         throw new ServiceError(409, "missing_chunk", "Audio chunks must arrive in sequence.");
       const nextBytes = upload.bytes + bytes.length;
-      if (nextBytes / (format.sampleRate * format.channels * 4) > 180.1 || nextBytes > 268_435_456)
+      // The duration cap is the byte cap: the format check above bounds a stream at
+      // 192 kHz x 8 ch x float32, about 3.7 GB for 600 s, inside the WAV 4 GiB size field.
+      if (nextBytes / (format.sampleRate * format.channels * 4) > MAXIMUM_RECORDING_SECONDS + 0.1)
         throw new ServiceError(
           413,
           "recording_limit",
-          "Recordings are limited to 180 seconds and 256 MiB per audio stream.",
+          `Recordings are limited to ${RECORDING_LIMIT} per audio stream.`,
         );
       await requireDiskSpace(this.configuration.dataDirectory);
       // Fork: append into a WAV whose header covers every acknowledged frame; synced before the ack.
@@ -830,11 +834,11 @@ export class GenerationService {
           "Inference audio has not been completely uploaded.",
         );
       const duration = speech.bytes / 64000;
-      if (duration < 0.25 || duration > 180)
+      if (duration < 0.25 || duration > MAXIMUM_RECORDING_SECONDS)
         throw new ServiceError(
           400,
           "invalid_duration",
-          "Recordings must be between 0.25 and 180 seconds.",
+          `Recordings must be between 0.25 seconds and ${RECORDING_LIMIT}.`,
         );
       const original = streams?.original;
       if (record.settings.preferences.keepOriginalAudio) {

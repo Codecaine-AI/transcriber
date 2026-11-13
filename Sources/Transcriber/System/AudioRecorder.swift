@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import AudioToolbox
 import CoreAudio
+import TranscriberAPI
 import TranscriberCore
 import OSLog
 
@@ -135,6 +136,13 @@ enum RecordingStorage {
     }
 }
 
+/// One 50 ms meter window: the display level, and whether the window ends
+/// sustained voice.
+struct AudioMeterReading: Sendable {
+    let level: Float
+    let heardVoice: Bool
+}
+
 struct OriginalCapturedAudio: Sendable {
     let url: URL
     let sampleRate: Double
@@ -175,6 +183,8 @@ enum AudioRecordingError: LocalizedError {
 @MainActor
 final class AudioRecorder {
     var onLevel: ((Float) -> Void)?
+    /// Called for each meter window that ends sustained voice; see VoiceActivityGate.
+    var onVoice: (() -> Void)?
     var onInterruption: ((String) -> Void)?
     /// Captured at start(), so changing the callback cannot redirect an active take.
     /// Enqueue network work here; this callback must not block the audio writer.
@@ -216,10 +226,11 @@ final class AudioRecorder {
             try await worker.start(
                 request: current, deviceID: deviceID,
                 preserveOriginalAudio: preserveOriginalAudio,
-                onLevel: { [weak self] level in
+                onMeter: { [weak self] reading in
                     DispatchQueue.main.async { [weak self] in
                         guard let self, self.request?.id == current.id, current.acceptsAudio else { return }
-                        self.onLevel?(level)
+                        self.onLevel?(reading.level)
+                        if reading.heardVoice { self.onVoice?() }
                     }
                 },
                 onInterruption: { [weak self] message in
@@ -366,7 +377,7 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
     }
 
     func start(request: AudioCaptureRequest, deviceID: AudioDeviceID?, preserveOriginalAudio: Bool,
-               onLevel: @escaping @Sendable (Float) -> Void,
+               onMeter: @escaping @Sendable (AudioMeterReading) -> Void,
                onInterruption: @escaping @Sendable (String) -> Void) throws {
         try request.requireOpen()
         guard inputUnit == nil, sink == nil else { throw AudioRecordingError.alreadyRecording }
@@ -375,7 +386,7 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
         }
         if let warm {
             try startWarm(warm, request: request, preserveOriginalAudio: preserveOriginalAudio,
-                          onLevel: onLevel, onInterruption: onInterruption)
+                          onMeter: onMeter, onInterruption: onInterruption)
             return
         }
         guard let selectedDevice = deviceID ?? AudioInputHardware.defaultInputID(),
@@ -389,7 +400,7 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
         try request.requireOpen()
         let id = request.id
         let writer = try RecordingWriter(
-            inputFormat: format, preserveOriginalAudio: preserveOriginalAudio, onLevel: onLevel,
+            inputFormat: format, preserveOriginalAudio: preserveOriginalAudio, onMeter: onMeter,
             onError: { [weak self] message in self?.enqueueInterruption(id: id, message: message) },
             onChunk: request.onChunk,
             // Fork: validated against the channel count this take actually opened.
@@ -420,14 +431,14 @@ private final class QueuedAudioHardware: AudioCaptureHardware, @unchecked Sendab
     /// validated against the take's device and format. The writer is built
     /// from that format; the device's route observers belong to the worker.
     private func startWarm(_ warm: WarmInput, request: AudioCaptureRequest, preserveOriginalAudio: Bool,
-                           onLevel: @escaping @Sendable (Float) -> Void,
+                           onMeter: @escaping @Sendable (AudioMeterReading) -> Void,
                            onInterruption: @escaping @Sendable (String) -> Void) throws {
         self.request = request
         self.onInterruption = onInterruption
         selectedDevice = warm.deviceID
         let id = request.id
         let writer = try RecordingWriter(
-            inputFormat: warm.format, preserveOriginalAudio: preserveOriginalAudio, onLevel: onLevel,
+            inputFormat: warm.format, preserveOriginalAudio: preserveOriginalAudio, onMeter: onMeter,
             onError: { [weak self] message in self?.enqueueInterruption(id: id, message: message) },
             onChunk: request.onChunk,
             inferenceChannels: request.inferenceChannels?.channels(channelCount: Int(warm.format.channelCount))
@@ -526,7 +537,7 @@ final class RecordingWriter: @unchecked Sendable {
     private let converter: AVAudioConverter
     /// Fork: input channels averaged into the mono inference buffer; nil lets the converter downmix.
     private let mixChannels: [Int]?
-    private let onLevel: (Float) -> Void
+    private let onMeter: (AudioMeterReading) -> Void
     private let onError: (String) -> Void
     private let onChunk: (@Sendable (CapturedAudioChunk) -> Void)?
     private var file: AVAudioFile?
@@ -536,12 +547,13 @@ final class RecordingWriter: @unchecked Sendable {
     private var inputFrames: AVAudioFramePosition = 0
     private var peak: Float = 0
     private var meter = AudioLevelMeter()
+    private var voice = VoiceActivityGate()
     private var meterSumSquares = 0.0
     private var meterFrames = 0
     private let meterWindowFrames = 800 // 50 ms at the WAV's 16 kHz sample rate.
 
     init(inputFormat: AVAudioFormat, preserveOriginalAudio: Bool = false,
-         onLevel: @escaping (Float) -> Void, onError: @escaping (String) -> Void,
+         onMeter: @escaping (AudioMeterReading) -> Void, onError: @escaping (String) -> Void,
          onChunk: (@Sendable (CapturedAudioChunk) -> Void)? = nil,
          inferenceChannels: [Int]? = nil) throws {
         // InputOnlyAudioUnit negotiates float32 PCM. Keep non-streaming callers
@@ -577,7 +589,7 @@ final class RecordingWriter: @unchecked Sendable {
         self.inputFormat = inputFormat
         self.converter = converter
         self.mixChannels = mixChannels
-        self.onLevel = onLevel
+        self.onMeter = onMeter
         self.onError = onError
         self.onChunk = onChunk
         converter.downmix = true
@@ -696,8 +708,8 @@ final class RecordingWriter: @unchecked Sendable {
             return
         }
         // Bound both files to the same admitted input interval. This also avoids
-        // converting late driver buffers after the three-minute cap is reached.
-        let remainingInputFrames = AVAudioFramePosition(input.format.sampleRate * 180) - inputFrames
+        // converting late driver buffers after the recording cap is reached.
+        let remainingInputFrames = AVAudioFramePosition(input.format.sampleRate * Double(TranscriberAPI.maximumRecordingSeconds)) - inputFrames
         guard remainingInputFrames > 0 else { return }
         input.frameLength = min(input.frameLength, AVAudioFrameCount(remainingInputFrames))
         do {
@@ -784,9 +796,9 @@ final class RecordingWriter: @unchecked Sendable {
 
     private func write(_ buffer: AVAudioPCMBuffer) throws {
         guard buffer.frameLength > 0, let samples = buffer.floatChannelData?[0], let file else { return }
-        // The controller stops the microphone at 180 seconds, but its timer can
-        // run one callback late. Keep the WAV within the helper's strict limit.
-        let remainingFrames = AVAudioFramePosition(format.sampleRate * 180) - frames
+        // The controller stops the microphone at the recording cap, but its timer
+        // can run one callback late. Keep the WAV within the helper's strict limit.
+        let remainingFrames = AVAudioFramePosition(format.sampleRate * Double(TranscriberAPI.maximumRecordingSeconds)) - frames
         guard remainingFrames > 0 else { return }
         buffer.frameLength = min(buffer.frameLength, AVAudioFrameCount(remainingFrames))
         try file.write(from: buffer)
@@ -805,7 +817,10 @@ final class RecordingWriter: @unchecked Sendable {
             meterFrames += 1
             if meterFrames == meterWindowFrames {
                 let rms = sqrt(meterSumSquares / Double(meterFrames))
-                onLevel(meter.update(rms: rms, frameCount: meterFrames, sampleRate: format.sampleRate))
+                onMeter(AudioMeterReading(
+                    level: meter.update(rms: rms, frameCount: meterFrames, sampleRate: format.sampleRate),
+                    heardVoice: voice.update(rms: rms, frameCount: meterFrames, sampleRate: format.sampleRate)
+                ))
                 meterSumSquares = 0
                 meterFrames = 0
             }

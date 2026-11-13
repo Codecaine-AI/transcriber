@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import type { ModelHintUsage } from "../api";
 import { HelperProcess, type HelperResponse } from "./helper-process";
@@ -290,10 +290,13 @@ export class NativeInference implements InferenceBackend {
     };
     if (bytes(JSON.stringify(request)) >= 1_048_576)
       throw new InferenceError("invalidRequest", "The encoded vocabulary exceeds 1 MB.");
+    // A long take needs more than the fixed deadline on a slow machine: allow real time
+    // plus one minute. Size / 64 kB per second is exact for 16 kHz float32, generous for PCM16.
+    const audioSeconds = (await stat(audioPath)).size / 64_000;
     const response = await this.speech.request(
       request,
       request.id,
-      this.configuration.speechTimeout,
+      Math.max(this.configuration.speechTimeout, audioSeconds + 60),
       onProgress,
       signal,
     );

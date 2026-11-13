@@ -18,7 +18,7 @@ After loading Whisper and Silero VAD, the helper emits a `ready` JSON object wit
 
 - `language` defaults to `en`; `auto` enables language detection.
 - `vocabularyTerms` is an ordered list of recognition hints. Whole terms are fitted into the loaded model's token budget. Responses report `includedTerms`, `omittedTerms`, `tokenCount`, and `tokenBudget`.
-- WAV input must be mono 16 kHz PCM16 or float32, 0.2–180 seconds long. The HTTP server uses a 0.25-second minimum.
+- WAV input must be mono 16 kHz PCM16 or float32, 0.2 seconds to 10 minutes long. The HTTP server uses a 0.25-second minimum.
 - Progress: `{"type":"progress","id":"request-1","value":0.5}`.
 - Results contain `type: "result"`, `id`, `text`, audio `duration`, processing `elapsed`, detected `language`, and hint diagnostics.
 - Errors contain `type: "error"`, `message`, and a request `id` when available. Requests are processed sequentially.

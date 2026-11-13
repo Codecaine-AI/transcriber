@@ -119,7 +119,7 @@ final class WarmInput {
 /// Tests provide a fake implementation; they never construct an audio engine.
 protocol AudioCaptureHardware: AnyObject {
     func start(request: AudioCaptureRequest, deviceID: AudioDeviceID?, preserveOriginalAudio: Bool,
-               onLevel: @escaping @Sendable (Float) -> Void,
+               onMeter: @escaping @Sendable (AudioMeterReading) -> Void,
                onInterruption: @escaping @Sendable (String) -> Void) throws
     func stop() -> RecordingWriter?
     func cancel()
@@ -161,7 +161,7 @@ final class AudioCaptureWorker: @unchecked Sendable {
     }
 
     func start(request: AudioCaptureRequest, deviceID: AudioDeviceID?, preserveOriginalAudio: Bool = false,
-               onLevel: @escaping @Sendable (Float) -> Void,
+               onMeter: @escaping @Sendable (AudioMeterReading) -> Void,
                onInterruption: @escaping @Sendable (String) -> Void) async throws {
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
@@ -177,7 +177,7 @@ final class AudioCaptureWorker: @unchecked Sendable {
                         do {
                             try capture.start(request: request, deviceID: deviceID,
                                               preserveOriginalAudio: preserveOriginalAudio,
-                                              onLevel: onLevel, onInterruption: onInterruption)
+                                              onMeter: onMeter, onInterruption: onInterruption)
                             guard !request.isCancelled else { throw AudioRecordingError.cancelled }
                             continuation.resume()
                             allowIdleSleep(false) // Fork: after the caller resumes.

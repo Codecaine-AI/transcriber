@@ -78,7 +78,7 @@ export type APIErrorResponse = Schemas["APIErrorResponse"];
 
 export const API_VERSION = 1;
 export const DEFAULT_PORT = 8391;
-export const MAXIMUM_RECORDING_SECONDS = 180;
+export const MAXIMUM_RECORDING_SECONDS = 600;
 export const MAXIMUM_CHUNK_BYTES = 1_048_576;
 export const MAXIMUM_ARTIFACT_BYTES = 8_388_608;
 export const MAXIMUM_DICTIONARY_BYTES = 8_388_608;
