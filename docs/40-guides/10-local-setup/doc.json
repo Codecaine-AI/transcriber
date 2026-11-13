@@ -303,7 +303,7 @@
       "props": {},
       "text": [
         {
-          "insert": "The archive has no artifact-size cap. Its one-time Wispr migration bypasses the legacy upstream HTTP importer's 8 MiB restriction. The live dictation limit remains 180 seconds per take. This is separate from archive storage."
+          "insert": "The archive has no artifact-size cap. Its one-time Wispr migration bypasses the legacy upstream HTTP importer's 8 MiB restriction. The live dictation limit is 600 seconds (10 minutes) per take. A take also ends after 60 seconds with no voice. These limits are separate from archive storage."
         }
       ],
       "children": []

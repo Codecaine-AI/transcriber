@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import TranscriberAPI
 import TranscriberCore
 
 /// High-frequency feedback is observed only by the waveform, clock and limit
@@ -22,16 +23,17 @@ final class RecordingFeedback {
     }
 
     func updateElapsed(_ elapsed: TimeInterval) {
-        let bounded = elapsed.isFinite ? min(LifecyclePolicy.maximumRecordingSeconds, max(0, elapsed)) : 0
+        let cap = TranscriberAPI.maximumRecordingSeconds
+        let bounded = elapsed.isFinite ? min(TimeInterval(cap), max(0, elapsed)) : 0
         let seconds = Int(bounded)
         if seconds != elapsedSeconds { elapsedSeconds = seconds }
-        let remaining = Int(LifecyclePolicy.maximumRecordingSeconds) - seconds
+        let remaining = cap - seconds
         let notice: RecordingLimitNotice? = (1...30).contains(remaining) ? .approaching(secondsRemaining: remaining) : nil
         if limitNotice != notice { limitNotice = notice }
     }
 
-    func finish(atLimit: Bool) {
-        let notice: RecordingLimitNotice? = atLimit ? .stopped : nil
+    func finish(automaticStop: AutomaticStop?) {
+        let notice = automaticStop.map(RecordingLimitNotice.stopped)
         if limitNotice != notice { limitNotice = notice }
     }
 
@@ -47,20 +49,29 @@ final class RecordingFeedback {
     }
 }
 
+/// Why the app, not the person, ended a take.
+enum AutomaticStop: Equatable {
+    case durationLimit
+    case silence
+}
+
 enum RecordingLimitNotice: Equatable {
     case approaching(secondsRemaining: Int)
-    case stopped
+    case stopped(AutomaticStop)
+
+    private static let capMinutes = TranscriberAPI.maximumRecordingSeconds / 60
 
     var text: String {
         switch self {
         case .approaching(let seconds): "Recording limit in \(transcriberDuration(Double(seconds)))"
-        case .stopped: "Stopped at the 3-minute limit"
+        case .stopped(.durationLimit): "Stopped at the \(Self.capMinutes)-minute limit"
+        case .stopped(.silence): "Stopped after \(Int(LifecyclePolicy.silenceStopSeconds)) s of silence"
         }
     }
 
     var accessibilityLabel: String {
         switch self {
-        case .approaching: "Recording is approaching the three-minute limit"
+        case .approaching: "Recording is approaching the \(Self.capMinutes)-minute limit"
         case .stopped: text
         }
     }

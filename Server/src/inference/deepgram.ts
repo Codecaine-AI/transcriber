@@ -420,7 +420,7 @@ interface PrerecordedResponse {
   };
 }
 
-/** Prerecorded fallback: POST the WAV file at `wavPath` to https://api.deepgram.com/v1/listen. */
+/** Prerecorded fallback: POST the WAV file at `wavPath` to https://api.deepgram.com/v1/listen. `timeoutSeconds` grows with the upload size. */
 export async function transcribeFile(
   wavPath: string,
   options: DeepgramOptions,
@@ -431,7 +431,10 @@ export async function transcribeFile(
   if (signal?.aborted) throw new DeepgramError("cancelled", "Deepgram transcription cancelled.");
   const start = performance.now();
   const upload = uploadableWAV(new Uint8Array(await readFile(wavPath)));
-  const signals = [AbortSignal.timeout(Math.max(0, timeoutSeconds) * 1000)];
+  // The whole file goes up in one request, so a long take gets one more second per 320 kB
+  // (a 2.56 Mbps uplink): a 10-minute take as PCM16 adds about 60 s.
+  const deadline = Math.max(0, timeoutSeconds) + upload.body.byteLength / 320_000;
+  const signals = [AbortSignal.timeout(deadline * 1000)];
   if (signal) signals.push(signal);
   let response: Response;
   let payload: PrerecordedResponse;

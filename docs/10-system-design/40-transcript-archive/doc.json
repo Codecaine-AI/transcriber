@@ -566,7 +566,7 @@
           }
         },
         {
-          "insert": ". The existing three-minute live recording limit and legacy HTTP import bound are independent of unlimited archive artifact storage."
+          "insert": ". The existing ten-minute live recording limit and legacy HTTP import bound are independent of unlimited archive artifact storage."
         }
       ],
       "children": []

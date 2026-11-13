@@ -176,6 +176,9 @@ final class TranscriberController: ObservableObject {
     private var applyingConfiguration = false
     private var recordingTimer: Timer?
     private var recordingStart: TimeInterval = 0
+    /// Uptime of the last sustained voice. A value from an earlier take is
+    /// below `recordingStart`, so it never needs a reset.
+    private var lastVoiceAt: TimeInterval = 0
     private var microphoneStartTask: Task<Void, Never>?
     private var recorderStopTask: Task<CapturedAudio, Error>?
     private var deliveryTail: Task<Void, Never>?
@@ -1039,6 +1042,10 @@ final class TranscriberController: ObservableObject {
             guard let self, isCapturing else { return }
             recordingFeedback.append(level)
         }
+        recorder.onVoice = { [weak self] in
+            guard let self, isCapturing else { return }
+            lastVoiceAt = ProcessInfo.processInfo.systemUptime
+        }
         recorder.onInterruption = { [weak self] message in self?.salvageDictation(reason: message) }
         hotkey.onStatusChange = { [weak self] in self?.isHotkeyActive = $0 }
         hotkey.onPress = { [weak self] in
@@ -1195,10 +1202,10 @@ final class TranscriberController: ObservableObject {
         finishDictation(salvaged: true)
     }
 
-    private func finishDictation(atLimit: Bool = false, salvaged: Bool = false) {
+    private func finishDictation(automaticStop: AutomaticStop? = nil, salvaged: Bool = false) {
         guard isCapturing else { return }
-        // A take ended by the duration limit must not leave a double-tap
-        // latch behind, matching the failure and cancel paths.
+        // A take ended by the duration cap or by silence must not leave a
+        // double-tap latch behind, matching the failure and cancel paths.
         hotkey.clearLatchedTake()
         recorder.stopAcceptingAudio()
         outputMuter.restore()
@@ -1210,7 +1217,7 @@ final class TranscriberController: ObservableObject {
             failSession("This recording has no server session.", cancelServer: true); return
         }
         stopRecordingTimer(); resetLevels()
-        recordingFeedback.finish(atLimit: atLimit)
+        recordingFeedback.finish(automaticStop: automaticStop)
         activity = .transcribing
         statusMessage = "Finishing upload…"
         hudProgressText = "Uploading"
@@ -1678,9 +1685,14 @@ final class TranscriberController: ObservableObject {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.isCapturing else { return }
-                let elapsed = ProcessInfo.processInfo.systemUptime - self.recordingStart
+                let now = ProcessInfo.processInfo.systemUptime
+                let elapsed = now - self.recordingStart
                 self.recordingFeedback.updateElapsed(elapsed)
-                if elapsed >= LifecyclePolicy.maximumRecordingSeconds { self.finishDictation(atLimit: true) }
+                if elapsed >= TimeInterval(TranscriberAPI.maximumRecordingSeconds) {
+                    self.finishDictation(automaticStop: .durationLimit)
+                } else if now - max(self.recordingStart, self.lastVoiceAt) >= LifecyclePolicy.silenceStopSeconds {
+                    self.finishDictation(automaticStop: .silence)
+                }
             }
         }
         timer.tolerance = 0.025

@@ -32,6 +32,11 @@
         "architecture-mode-hold",
         "architecture-mode-double",
         "architecture-mode-single",
+        "arch-limits-lead",
+        "arch-limits-cap",
+        "arch-limits-silence",
+        "arch-limits-gate",
+        "arch-limits-floor",
         "arch-rr-heading",
         "arch-rr-lead",
         "arch-rr-requeue",
@@ -539,13 +544,41 @@
       },
       "text": [
         {
-          "insert": "Release stops capture, drains uploads, and sends final frame counts. The microphone is available for the next take while earlier uploads finish. The server checks the complete intervals and seals WAV files. Recordings must be 0.25–180 seconds."
+          "insert": "Release stops capture, drains uploads, and sends final frame counts. The microphone is available for the next take while earlier uploads finish."
         }
       ],
       "children": [
+        "arch-step3-duration",
+        "arch-step3-check",
         "arch-step3-staging",
         "arch-step3-rename"
       ]
+    },
+    "arch-step3-duration": {
+      "id": "arch-step3-duration",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Recordings must be 0.25–600 seconds."
+        }
+      ],
+      "children": []
+    },
+    "arch-step3-check": {
+      "id": "arch-step3-check",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server checks the complete intervals and seals WAV files."
+        }
+      ],
+      "children": []
     },
     "arch-step3-staging": {
       "id": "arch-step3-staging",
@@ -1136,6 +1169,75 @@
       "text": [
         {
           "insert": "A press within 200 ms of the previous press is ignored. Escape cancels a latched take."
+        }
+      ],
+      "children": []
+    },
+    "arch-limits-lead": {
+      "id": "arch-limits-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "A take ends on its own at the time limit or after a silence. The take then finishes normally. The server transcribes it and the client delivers the text, or the HUD reports \"No speech detected\"."
+        }
+      ],
+      "children": []
+    },
+    "arch-limits-cap": {
+      "id": "arch-limits-cap",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The cap is 600 seconds (10 minutes) for Deepgram and for local Whisper. The HUD shows \"Recording limit in 0:30\" for the last 30 seconds and \"Stopped at the 10-minute limit\" after the stop."
+        }
+      ],
+      "children": []
+    },
+    "arch-limits-silence": {
+      "id": "arch-limits-silence",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A take stops after 60 seconds with no voice, in every trigger mode, with no countdown. The HUD then shows \"Stopped after 60 s of silence\"."
+        }
+      ],
+      "children": []
+    },
+    "arch-limits-gate": {
+      "id": "arch-limits-gate",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "VoiceActivityGate",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " counts a 50 ms level window as voice when it is at least 10 dB above an adaptive noise floor and at least -55 dBFS. Only 200 ms of continuous voice counts, so clicks and typing do not."
+        }
+      ],
+      "children": []
+    },
+    "arch-limits-floor": {
+      "id": "arch-limits-floor",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The noise floor falls at once and rises 1 dB per second."
         }
       ],
       "children": []
