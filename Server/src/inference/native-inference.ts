@@ -291,7 +291,7 @@ export class NativeInference implements InferenceBackend {
     if (bytes(JSON.stringify(request)) >= 1_048_576)
       throw new InferenceError("invalidRequest", "The encoded vocabulary exceeds 1 MB.");
     // A long take needs more than the fixed deadline on a slow machine: allow real time
-    // plus one minute. Size / 64 kB per second is exact for 16 kHz float32, generous for PCM16.
+    // plus one minute. inference.wav is 16 kHz mono float32, 64,000 bytes per second.
     const audioSeconds = (await stat(audioPath)).size / 64_000;
     const response = await this.speech.request(
       request,

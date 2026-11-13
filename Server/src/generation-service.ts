@@ -78,6 +78,9 @@ import { maxInputCharacters, modelHints, processingRecord } from "./domain/corre
 const MAX_METADATA_BYTES = 1_048_576;
 const MAX_PREFERENCES_BYTES = 262_144;
 const MAX_CHUNK_BYTES = 1_048_576;
+// The client flushes original audio every 768,000 bytes. At the largest accepted format
+// (192 kHz x 8 ch float32) a full-length take is about 4,800 chunks.
+const MAX_CHUNKS_PER_STREAM = 16_384;
 const RECEIVING_IDLE_MS = 120_000;
 const RECEIVING_TOTAL_MS = 900_000;
 const RECORDING_LIMIT = `${MAXIMUM_RECORDING_SECONDS / 60} minutes`;
@@ -709,7 +712,7 @@ export class GenerationService {
           "original_disabled",
           "Original audio retention was disabled for this recording.",
         );
-      if (!Number.isInteger(sequence) || sequence < 0 || sequence >= 4096)
+      if (!Number.isInteger(sequence) || sequence < 0 || sequence >= MAX_CHUNKS_PER_STREAM)
         throw new ServiceError(
           413,
           "chunk_limit",
