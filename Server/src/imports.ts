@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type {
+  AppContext,
   GenerationRecord,
   RecordSettings,
   WisprFlowArtifactManifest,
@@ -361,6 +362,30 @@ function recordingConflict(
   }
   document.archiveConflicts = conflicts;
   return sourceBytes(document);
+}
+
+/** The app Wispr Flow pasted into: its `app` bundle ID and `url` host columns. */
+export function wisprFlowAppContext(data: Uint8Array): AppContext | undefined {
+  const source = sourceDocument(data);
+  const text = (values: JSONValue | undefined, column: string) => {
+    const field = object(values) ? values[column] : undefined;
+    return object(field) && field.type === "text" && typeof field.value === "string"
+      ? field.value.trim()
+      : "";
+  };
+  for (const row of Array.isArray(source.sources) ? source.sources : []) {
+    const values = object(row) ? row.values : undefined;
+    const bundleID = text(values, "app");
+    if (!bundleID || bundleID.length > 255) continue;
+    const host = text(values, "url");
+    return {
+      delivery: {
+        application: { bundleID },
+        ...(host && host !== "unknown" && host.length <= 255 ? { host } : {}),
+      },
+    };
+  }
+  return undefined;
 }
 
 type ImportContext = {
@@ -775,6 +800,8 @@ export class WisprFlowImports {
       source.artifactNames = this.names(source.artifactSHA256);
       if (request.finalText) record.finalText = request.finalText;
       if (request.rawText) record.rawText = request.rawText;
+      record.appContext = wisprFlowAppContext(reconciliation.data);
+      if (!record.appContext) delete record.appContext;
       record.updatedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
       await this.writeRecord(stage.directory, record);
       await this.replaceDirectory(existingID, id.toUpperCase(), stage.directory);
@@ -795,6 +822,7 @@ export class WisprFlowImports {
     );
     await atomicPrivateWrite(join(stage.directory, "source.json"), reconciliation.data);
     incomingHashes["source.json"] = sha256(reconciliation.data);
+    const appContext = wisprFlowAppContext(reconciliation.data);
     const record: GenerationRecord = {
       schemaVersion: 1,
       id: recordID,
@@ -821,6 +849,7 @@ export class WisprFlowImports {
         artifactSHA256: incomingHashes,
         unarchivedArtifactSHA256: reconciliation.unarchivedHashes,
       },
+      ...(appContext ? { appContext } : {}),
     };
     await this.writeRecord(stage.directory, record);
     await requireRegularDirectory(join(this.context.dataDirectory, "generations"));

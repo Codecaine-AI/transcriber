@@ -43,6 +43,7 @@ export type FinishGenerationRequest = Schemas["FinishGenerationRequest"];
 export type AudioArtifact = Schemas["AudioArtifact"];
 export type ModelProvenance = Schemas["ModelProvenance"];
 export type DeliveryReceipt = Schemas["DeliveryReceipt"];
+export type AppContext = Schemas["AppContext"];
 export type ModelHintUsage = Schemas["ModelHintUsage"];
 export type SpokenListContext = Schemas["SpokenListContext"];
 export type ListControlSpan = Schemas["ListControlSpan"];

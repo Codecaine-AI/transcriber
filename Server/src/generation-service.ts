@@ -3,6 +3,7 @@ import { access, mkdir, open, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
+  AppContext,
   AudioArtifact,
   AudioChunkReceipt,
   AudioKind,
@@ -1099,6 +1100,28 @@ export class GenerationService {
       record.delivery = { status: receipt.status, message: receipt.message, reportedAt: now() };
       record.updatedAt = now();
       // Fork: a delivery receipt changes metadata only; the text files stay as completed.
+      await this.save(record, false);
+      return copy(record);
+    });
+  }
+  recordAppContext(id: string, context: AppContext) {
+    return this.mutate(async () => {
+      const record = this.getInternal(id);
+      if (record.importedSource)
+        throw new ServiceError(
+          400,
+          "imported_app_context",
+          "Imported history cannot receive an app context.",
+        );
+      if (!terminal(record))
+        throw new ServiceError(
+          409,
+          "generation_active",
+          "Record an app context after the recording finishes.",
+        );
+      record.appContext = copy(context);
+      record.updatedAt = now();
+      // An app context changes metadata only; the text files stay as they are.
       await this.save(record, false);
       return copy(record);
     });

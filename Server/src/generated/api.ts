@@ -143,6 +143,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/v1/generations/{id}/app-context": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** @description Stores the app context of a terminal live take. A later call replaces it. Imported history rejects it. */
+    put: operations["recordAppContext"];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/v1/generations/{id}/events": {
     parameters: {
       query?: never;
@@ -515,6 +532,31 @@ export interface components {
         [key: string]: string;
       };
     };
+    /** @description One macOS app. Live takes send each field macOS reports. Wispr Flow imports carry only the bundle ID. */
+    ApplicationIdentity: {
+      bundleID?: string;
+      name?: string;
+    };
+    /** @description Where keyboard focus was at one moment of a take. */
+    FocusSnapshot: {
+      /** Format: date-time */
+      capturedAt?: string;
+      application: components["schemas"]["ApplicationIdentity"];
+      windowTitle?: string;
+      /** @description The http or https address of the focused web page, without user info, query or fragment. */
+      url?: string;
+      /** @description The host of the focused web page. Wispr Flow imports carry a host without a URL. */
+      host?: string;
+    };
+    /** @description The apps around one take, kept as data for later. Transcription does not read it. */
+    AppContext: {
+      /** @description Focus when the take started. */
+      start?: components["schemas"]["FocusSnapshot"];
+      /** @description Focus when the result was delivered. GenerationRecord.delivery holds the outcome. Wispr Flow imports put the app the text went to here. */
+      delivery?: components["schemas"]["FocusSnapshot"];
+      /** @description Regular apps running when the take started: apps with on-screen windows front to back, then the rest. */
+      openApplications?: components["schemas"]["ApplicationIdentity"][];
+    };
     GenerationRecord: {
       schemaVersion: number;
       id: components["schemas"]["UUID"];
@@ -546,6 +588,7 @@ export interface components {
       error?: string;
       progress?: number;
       importedSource?: components["schemas"]["ImportedSource"];
+      appContext?: components["schemas"]["AppContext"];
     };
     GenerationPage: {
       items: components["schemas"]["GenerationRecord"][];
@@ -858,6 +901,33 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": components["schemas"]["DeliveryReceipt"];
+      };
+    };
+    responses: {
+      /** @description Success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GenerationRecord"];
+        };
+      };
+      default: components["responses"]["APIError"];
+    };
+  };
+  recordAppContext: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        id: components["schemas"]["UUID"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["AppContext"];
       };
     };
     responses: {

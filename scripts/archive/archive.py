@@ -376,10 +376,15 @@ class Archive:
                     continue  # Wispr history is imported directly and losslessly, not through the server's legacy adapter.
                 m = self.load('transcriber', original['id'])
                 folder = self.record_dir('transcriber', original['id'])
+                # Where the words went, like Wispr's app and url columns. The full appContext stays in source_versions.
+                apps = original.get('appContext') or {}
+                focus = apps.get('delivery') or apps.get('start') or {}
+                application = focus.get('application') or {}
                 m.update(timestamp=original['createdAt'], status=original['status'],
                     text={'raw': original.get('rawText'), 'clean': original.get('finalText'),
                           'clean_variant': 'finalText', 'variants': {k:original.get(k) for k in ('rawText','finalText','insertionText','previewText')}},
-                    context={'app': None, 'device': original.get('device'), 'language': original.get('detectedLanguage')},
+                    context={'app': application.get('bundleID') or application.get('name'), 'url': focus.get('url') or focus.get('host'),
+                             'window': focus.get('windowTitle'), 'device': original.get('device'), 'language': original.get('detectedLanguage')},
                     mode=original.get('mode'), selected_source='transcriber')
                 self.version(folder, m, original, 'transcriber-metadata', 'metadata.json')
                 for field, kind in [('inferenceAudio', 'audio'), ('originalAudio', 'original-audio')]:

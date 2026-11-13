@@ -1873,6 +1873,180 @@ extension Components {
                 ])
             }
         }
+        /// One macOS app. Live takes send each field macOS reports. Wispr Flow imports carry only the bundle ID.
+        ///
+        /// - Remark: Generated from `#/components/schemas/ApplicationIdentity`.
+        public struct ApplicationIdentity: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ApplicationIdentity/bundleID`.
+            public var bundleID: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ApplicationIdentity/name`.
+            public var name: Swift.String?
+            /// Creates a new `ApplicationIdentity`.
+            ///
+            /// - Parameters:
+            ///   - bundleID:
+            ///   - name:
+            public init(
+                bundleID: Swift.String? = nil,
+                name: Swift.String? = nil
+            ) {
+                self.bundleID = bundleID
+                self.name = name
+            }
+            public enum CodingKeys: String, CodingKey {
+                case bundleID
+                case name
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.bundleID = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .bundleID
+                )
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "bundleID",
+                    "name"
+                ])
+            }
+        }
+        /// Where keyboard focus was at one moment of a take.
+        ///
+        /// - Remark: Generated from `#/components/schemas/FocusSnapshot`.
+        public struct FocusSnapshot: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FocusSnapshot/capturedAt`.
+            public var capturedAt: Foundation.Date?
+            /// - Remark: Generated from `#/components/schemas/FocusSnapshot/application`.
+            public var application: Components.Schemas.ApplicationIdentity
+            /// - Remark: Generated from `#/components/schemas/FocusSnapshot/windowTitle`.
+            public var windowTitle: Swift.String?
+            /// The http or https address of the focused web page, without user info, query or fragment.
+            ///
+            /// - Remark: Generated from `#/components/schemas/FocusSnapshot/url`.
+            public var url: Swift.String?
+            /// The host of the focused web page. Wispr Flow imports carry a host without a URL.
+            ///
+            /// - Remark: Generated from `#/components/schemas/FocusSnapshot/host`.
+            public var host: Swift.String?
+            /// Creates a new `FocusSnapshot`.
+            ///
+            /// - Parameters:
+            ///   - capturedAt:
+            ///   - application:
+            ///   - windowTitle:
+            ///   - url: The http or https address of the focused web page, without user info, query or fragment.
+            ///   - host: The host of the focused web page. Wispr Flow imports carry a host without a URL.
+            public init(
+                capturedAt: Foundation.Date? = nil,
+                application: Components.Schemas.ApplicationIdentity,
+                windowTitle: Swift.String? = nil,
+                url: Swift.String? = nil,
+                host: Swift.String? = nil
+            ) {
+                self.capturedAt = capturedAt
+                self.application = application
+                self.windowTitle = windowTitle
+                self.url = url
+                self.host = host
+            }
+            public enum CodingKeys: String, CodingKey {
+                case capturedAt
+                case application
+                case windowTitle
+                case url
+                case host
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.capturedAt = try container.decodeIfPresent(
+                    Foundation.Date.self,
+                    forKey: .capturedAt
+                )
+                self.application = try container.decode(
+                    Components.Schemas.ApplicationIdentity.self,
+                    forKey: .application
+                )
+                self.windowTitle = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .windowTitle
+                )
+                self.url = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .url
+                )
+                self.host = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .host
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "capturedAt",
+                    "application",
+                    "windowTitle",
+                    "url",
+                    "host"
+                ])
+            }
+        }
+        /// The apps around one take, kept as data for later. Transcription does not read it.
+        ///
+        /// - Remark: Generated from `#/components/schemas/AppContext`.
+        public struct AppContext: Codable, Hashable, Sendable {
+            /// Focus when the take started.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppContext/start`.
+            public var start: Components.Schemas.FocusSnapshot?
+            /// Focus when the result was delivered. GenerationRecord.delivery holds the outcome. Wispr Flow imports put the app the text went to here.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppContext/delivery`.
+            public var delivery: Components.Schemas.FocusSnapshot?
+            /// Regular apps running when the take started: apps with on-screen windows front to back, then the rest.
+            ///
+            /// - Remark: Generated from `#/components/schemas/AppContext/openApplications`.
+            public var openApplications: [Components.Schemas.ApplicationIdentity]?
+            /// Creates a new `AppContext`.
+            ///
+            /// - Parameters:
+            ///   - start: Focus when the take started.
+            ///   - delivery: Focus when the result was delivered. GenerationRecord.delivery holds the outcome. Wispr Flow imports put the app the text went to here.
+            ///   - openApplications: Regular apps running when the take started: apps with on-screen windows front to back, then the rest.
+            public init(
+                start: Components.Schemas.FocusSnapshot? = nil,
+                delivery: Components.Schemas.FocusSnapshot? = nil,
+                openApplications: [Components.Schemas.ApplicationIdentity]? = nil
+            ) {
+                self.start = start
+                self.delivery = delivery
+                self.openApplications = openApplications
+            }
+            public enum CodingKeys: String, CodingKey {
+                case start
+                case delivery
+                case openApplications
+            }
+            public init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.start = try container.decodeIfPresent(
+                    Components.Schemas.FocusSnapshot.self,
+                    forKey: .start
+                )
+                self.delivery = try container.decodeIfPresent(
+                    Components.Schemas.FocusSnapshot.self,
+                    forKey: .delivery
+                )
+                self.openApplications = try container.decodeIfPresent(
+                    [Components.Schemas.ApplicationIdentity].self,
+                    forKey: .openApplications
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "start",
+                    "delivery",
+                    "openApplications"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/GenerationRecord`.
         public struct GenerationRecord: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/GenerationRecord/schemaVersion`.
@@ -1931,6 +2105,8 @@ extension Components {
             public var progress: Swift.Double?
             /// - Remark: Generated from `#/components/schemas/GenerationRecord/importedSource`.
             public var importedSource: Components.Schemas.ImportedSource?
+            /// - Remark: Generated from `#/components/schemas/GenerationRecord/appContext`.
+            public var appContext: Components.Schemas.AppContext?
             /// Creates a new `GenerationRecord`.
             ///
             /// - Parameters:
@@ -1962,6 +2138,7 @@ extension Components {
             ///   - error:
             ///   - progress:
             ///   - importedSource:
+            ///   - appContext:
             public init(
                 schemaVersion: Swift.Int,
                 id: Components.Schemas.Uuid,
@@ -1990,7 +2167,8 @@ extension Components {
                 delivery: Components.Schemas.DeliveryReceipt? = nil,
                 error: Swift.String? = nil,
                 progress: Swift.Double? = nil,
-                importedSource: Components.Schemas.ImportedSource? = nil
+                importedSource: Components.Schemas.ImportedSource? = nil,
+                appContext: Components.Schemas.AppContext? = nil
             ) {
                 self.schemaVersion = schemaVersion
                 self.id = id
@@ -2020,6 +2198,7 @@ extension Components {
                 self.error = error
                 self.progress = progress
                 self.importedSource = importedSource
+                self.appContext = appContext
             }
             public enum CodingKeys: String, CodingKey {
                 case schemaVersion
@@ -2050,6 +2229,7 @@ extension Components {
                 case error
                 case progress
                 case importedSource
+                case appContext
             }
             public init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -2165,6 +2345,10 @@ extension Components {
                     Components.Schemas.ImportedSource.self,
                     forKey: .importedSource
                 )
+                self.appContext = try container.decodeIfPresent(
+                    Components.Schemas.AppContext.self,
+                    forKey: .appContext
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "schemaVersion",
                     "id",
@@ -2193,7 +2377,8 @@ extension Components {
                     "delivery",
                     "error",
                     "progress",
-                    "importedSource"
+                    "importedSource",
+                    "appContext"
                 ])
             }
         }
