@@ -16,6 +16,7 @@
         "b-40-transcript-archive-media-is-streamed-in-1-m-5",
         "b-40-transcript-archive-the-migration-reads-the-6",
         "b-40-transcript-archive-current-wispr-clean-text-7",
+        "archive-app-context",
         "b-40-transcript-archive-runtime-behavior-8",
         "b-40-transcript-archive-the-worker-polls-sotto-e-9",
         "b-40-transcript-archive-sotto-writes-explicit-ra-10",
@@ -140,6 +141,240 @@
       "text": [
         {
           "insert": "Current Wispr clean text selects nonempty pasted text, server-finalized text, formatted text, then ASR text. Transcriber records use the server's raw recognition and final accepted result."
+        }
+      ],
+      "children": []
+    },
+    "archive-app-context": {
+      "id": "archive-app-context",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A live Transcriber record keeps "
+        },
+        {
+          "insert": "appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", the apps around its take, in the server's "
+        },
+        {
+          "insert": "metadata.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "archive-app-context-versions",
+        "archive-app-context-app-null",
+        "archive-app-context-values",
+        "archive-app-context-search",
+        "archive-app-context-link"
+      ]
+    },
+    "archive-app-context-versions": {
+      "id": "archive-app-context-versions",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The worker stores each "
+        },
+        {
+          "insert": "metadata.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " version that it sees as a source version, so the full "
+        },
+        {
+          "insert": "appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stays in "
+        },
+        {
+          "insert": "source_versions",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "archive-app-context-app-null": {
+      "id": "archive-app-context-app-null",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The worker fills the archive's "
+        },
+        {
+          "insert": "context.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "context.url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "context.window",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " from the "
+        },
+        {
+          "insert": "delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " snapshot, or from the "
+        },
+        {
+          "insert": "start",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " snapshot when "
+        },
+        {
+          "insert": "delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " is missing."
+        }
+      ],
+      "children": []
+    },
+    "archive-app-context-values": {
+      "id": "archive-app-context-values",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "context.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " holds the bundle ID, or the app name when the bundle ID is missing. "
+        },
+        {
+          "insert": "context.url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " holds the URL, or the host when the URL is missing, and "
+        },
+        {
+          "insert": "context.window",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " holds the window title."
+        }
+      ],
+      "children": []
+    },
+    "archive-app-context-search": {
+      "id": "archive-app-context-search",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The viewer's app search reads "
+        },
+        {
+          "insert": "context.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", so it finds live takes by app, as it finds Wispr records."
+        }
+      ],
+      "children": []
+    },
+    "archive-app-context-link": {
+      "id": "archive-app-context-link",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "HTTP API",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/20-http-api"
+            }
+          }
+        },
+        {
+          "insert": " gives the fields of "
+        },
+        {
+          "insert": "appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and its privacy rules."
         }
       ],
       "children": []
