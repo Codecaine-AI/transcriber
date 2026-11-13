@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Darwin
+import Observation
 import TranscriberCore
 import ServiceManagement
 import SwiftUI
@@ -238,7 +239,6 @@ enum DictationPanelLayout {
 private final class DictationPanel: NSPanel {
     private let hostedHUD: NSView
     private let presentation = DictationHUDPresentation()
-    private var noticeSubscription: AnyCancellable?
     private var activitySubscription: AnyCancellable?
     private var compactTask: Task<Void, Never>?
     private var activity: DictationActivity = .idle
@@ -270,10 +270,7 @@ private final class DictationPanel: NSPanel {
         contentView = container
         container.addSubview(hostedHUD)
         hostedHUD.frame = DictationPanelLayout.contentFrame(in: frame.size)
-        noticeSubscription = controller.recordingFeedback.$limitNotice
-            .map { $0 != nil }
-            .removeDuplicates()
-            .sink { [weak self] visible in self?.setNoticeVisible(visible) }
+        trackNotice(controller.recordingFeedback)
         activitySubscription = controller.$activity.removeDuplicates().sink { [weak self] activity in
             self?.activity = activity
             self?.updateCompactState()
@@ -282,6 +279,15 @@ private final class DictationPanel: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
+    /// Size the window from the same notice the HUD draws. Observation fires
+    /// before the change lands, so read the new value on the next main-actor turn.
+    private func trackNotice(_ feedback: RecordingFeedback) {
+        let visible = withObservationTracking { feedback.limitNotice != nil } onChange: { [weak self] in
+            Task { @MainActor in self?.trackNotice(feedback) }
+        }
+        setNoticeVisible(visible)
+    }
 
     private func setNoticeVisible(_ visible: Bool) {
         guard visible != showsNotice else { return }

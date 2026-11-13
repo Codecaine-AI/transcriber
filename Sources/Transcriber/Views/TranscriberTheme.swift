@@ -351,7 +351,7 @@ struct LiveWaveform: View {
 }
 
 struct RecordingWaveform: View {
-    @ObservedObject var feedback: RecordingFeedback
+    let feedback: RecordingFeedback
     var color: Color = TranscriberPalette.accent
     var height: CGFloat = 28
 
@@ -360,16 +360,15 @@ struct RecordingWaveform: View {
     }
 }
 
-/// A clock subscribes to whole seconds, not the meter's twenty samples/second.
+/// A clock reads whole seconds only, so the meter's twenty samples/second never redraw it.
 struct RecordingElapsedTime: View {
     let feedback: RecordingFeedback
-    @State private var seconds = 0
 
     var body: some View {
+        let seconds = feedback.elapsedSeconds
         Text(transcriberDuration(Double(seconds)))
             .monospacedDigit()
             .frame(minWidth: 34, alignment: .trailing)
-            .onReceive(feedback.$elapsedSeconds.removeDuplicates()) { seconds = $0 }
             .accessibilityLabel("Recording time")
             .accessibilityValue(transcriberDuration(Double(seconds)))
     }
