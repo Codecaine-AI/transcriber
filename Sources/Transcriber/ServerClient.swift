@@ -384,6 +384,10 @@ extension ServerClient {
         try await send(path: "v1/generations/\(id)/delivery", method: "POST", body: Self.encode(receipt))
     }
 
+    func appContext(_ id: UUID, context: AppContext) async throws {
+        try await send(path: "v1/generations/\(id)/app-context", method: "PUT", body: Self.encode(context))
+    }
+
     func audio(_ id: UUID, kind: AudioKind) async throws -> URL {
         let filename = "\(kind.rawValue).wav"
         let (temporary, response) = try await session.download(for: request(path: "v1/generations/\(id)/artifacts/\(filename)"))

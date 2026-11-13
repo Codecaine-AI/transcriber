@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# Raise when the archived context mapping changes, so every Transcriber record syncs once more.
+CONTEXT_MAPPING_VERSION = 1
 # A one-off data migration holds this file in the cache directory; nothing may copy records meanwhile.
 MIGRATION_LOCK = 'migration.lock'
 # Transcriber record folders are UUIDs; anything else (such as <ID>.quarantined) is not a record.
@@ -364,7 +366,7 @@ class Archive:
             if not UUID_NAME.match(path.parent.name):
                 continue
             try:
-                stamp = [path.stat().st_mtime_ns, path.stat().st_size]
+                stamp = [path.stat().st_mtime_ns, path.stat().st_size, CONTEXT_MAPPING_VERSION]
                 key = str(path)
                 # Also check destination: a rebuilt cache or manually moved archive must recover.
                 if self.state.get(key) == stamp and (self.record_dir('transcriber', path.parent.name) / 'metadata.json').exists():
@@ -376,10 +378,15 @@ class Archive:
                     continue  # Wispr history is imported directly and losslessly, not through the server's legacy adapter.
                 m = self.load('transcriber', original['id'])
                 folder = self.record_dir('transcriber', original['id'])
+                # Where the words went, like Wispr's app and url columns. The full appContext stays in source_versions.
+                apps = original.get('appContext') or {}
+                focus = apps.get('delivery') or apps.get('start') or {}
+                application = focus.get('application') or {}
                 m.update(timestamp=original['createdAt'], status=original['status'],
                     text={'raw': original.get('rawText'), 'clean': original.get('finalText'),
                           'clean_variant': 'finalText', 'variants': {k:original.get(k) for k in ('rawText','finalText','insertionText','previewText')}},
-                    context={'app': None, 'device': original.get('device'), 'language': original.get('detectedLanguage')},
+                    context={'app': application.get('bundleID') or application.get('name'), 'url': focus.get('url') or focus.get('host'),
+                             'window': focus.get('windowTitle'), 'device': original.get('device'), 'language': original.get('detectedLanguage')},
                     mode=original.get('mode'), selected_source='transcriber')
                 self.version(folder, m, original, 'transcriber-metadata', 'metadata.json')
                 for field, kind in [('inferenceAudio', 'audio'), ('originalAudio', 'original-audio')]:

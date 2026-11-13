@@ -24,6 +24,23 @@
         "b-client-server-contract-api-result-bytes-and-met-12",
         "b-client-server-contract-shared-original-audio-se-13",
         "http-api-speech-provenance",
+        "http-api-app-context",
+        "http-api-app-context-lead",
+        "http-api-app-context-shape",
+        "http-api-app-context-start",
+        "http-api-app-context-delivery",
+        "http-api-app-context-route",
+        "http-api-app-context-privacy",
+        "http-api-app-context-privacy-lead",
+        "http-api-app-context-privacy-title",
+        "http-api-app-context-privacy-url",
+        "http-api-app-context-privacy-apps",
+        "http-api-app-context-privacy-server",
+        "http-api-app-context-wispr",
+        "http-api-app-context-wispr-lead",
+        "http-api-app-context-wispr-derive",
+        "http-api-app-context-wispr-backfill",
+        "http-api-app-context-wispr-raw",
         "b-client-server-contract-shared-preferences-14",
         "b-client-server-contract-get-put-use-revision-15",
         "b-client-server-contract-field-default-limi-16-table",
@@ -407,6 +424,36 @@
           [
             [
               {
+                "insert": "PUT /v1/generations/:id/app-context",
+                "attributes": {
+                  "code": true
+                }
+              }
+            ],
+            [
+              {
+                "insert": "AppContext",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": " → "
+              },
+              {
+                "insert": "GenerationRecord",
+                "attributes": {
+                  "code": true
+                }
+              },
+              {
+                "insert": ", with a body of at most 256 KiB. App Context gives the takes that accept it."
+              }
+            ]
+          ],
+          [
+            [
+              {
                 "insert": "GET /v1/generations/:id/artifacts/:filename",
                 "attributes": {
                   "code": true
@@ -659,6 +706,805 @@
           "attributes": {
             "code": true
           }
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context": {
+      "id": "http-api-app-context",
+      "type": "heading",
+      "props": {
+        "level": 2
+      },
+      "text": [
+        {
+          "insert": "App Context"
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-lead": {
+      "id": "http-api-app-context-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "GenerationRecord.appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " records the apps around one take. The server keeps it as data for later use, and transcription does not read it. A focus snapshot is one record of the focused app, window, and web page at one moment."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-shape": {
+      "id": "http-api-app-context-shape",
+      "type": "state-shape",
+      "props": {
+        "example": "{\"start\":{\"capturedAt\":\"2026-11-13T17:02:11Z\",\"application\":{\"bundleID\":\"com.apple.Safari\",\"name\":\"Safari\"},\"windowTitle\":\"Pull requests\",\"url\":\"https://github.com/pulls\",\"host\":\"github.com\"},\"delivery\":{\"capturedAt\":\"2026-11-13T17:02:40Z\",\"application\":{\"bundleID\":\"com.apple.Safari\",\"name\":\"Safari\"},\"windowTitle\":\"Pull requests\",\"url\":\"https://github.com/pulls\",\"host\":\"github.com\"},\"openApplications\":[{\"bundleID\":\"com.apple.Safari\",\"name\":\"Safari\"},{\"bundleID\":\"com.apple.Terminal\",\"name\":\"Terminal\"}]}",
+        "fields": [
+          {
+            "name": "start",
+            "type": "FocusSnapshot",
+            "required": false,
+            "description": "Focus when the take started. Only live takes set it.",
+            "fields": [
+              {
+                "name": "capturedAt",
+                "type": "string (date-time)",
+                "required": false,
+                "description": "Whole-second ISO-8601 UTC time of the snapshot."
+              },
+              {
+                "name": "application",
+                "type": "ApplicationIdentity",
+                "description": "The focused app. Holds at least one of `bundleID` and `name`.",
+                "fields": [
+                  {
+                    "name": "bundleID",
+                    "type": "string",
+                    "required": false,
+                    "description": "1 to 255 characters, such as `com.apple.Safari`. The client drops a longer one."
+                  },
+                  {
+                    "name": "name",
+                    "type": "string",
+                    "required": false,
+                    "description": "Display name that macOS reports. Wispr Flow imports leave it out."
+                  }
+                ]
+              },
+              {
+                "name": "windowTitle",
+                "type": "string",
+                "required": false,
+                "description": "Title of the focused window, trimmed, at most 1,024 characters."
+              },
+              {
+                "name": "url",
+                "type": "string",
+                "required": false,
+                "description": "Scheme, host, port, and path of the focused `http` or `https` page, at most 2,048 characters."
+              },
+              {
+                "name": "host",
+                "type": "string",
+                "required": false,
+                "description": "Host of the focused web page. Live takes set it with `url`, and Wispr Flow imports set it alone."
+              }
+            ]
+          },
+          {
+            "name": "delivery",
+            "type": "FocusSnapshot",
+            "required": false,
+            "description": "Focus when the client delivered the result, with the fields of `start`. Wispr Flow imports put the app that got the text here."
+          },
+          {
+            "name": "openApplications",
+            "type": "ApplicationIdentity[]",
+            "required": false,
+            "description": "Regular apps other than Transcriber when the take started, at most 256. Apps with on-screen windows come first, front to back, then the rest by name."
+          }
+        ],
+        "name": "AppContext",
+        "source": {
+          "path": "Server/api/openapi.yaml",
+          "symbol": "AppContext"
+        }
+      },
+      "children": []
+    },
+    "http-api-app-context-start": {
+      "id": "http-api-app-context-start",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client records "
+        },
+        {
+          "insert": "start",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "openApplications",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " when the take starts."
+        }
+      ],
+      "children": [
+        "http-api-app-context-no-ax"
+      ]
+    },
+    "http-api-app-context-no-ax": {
+      "id": "http-api-app-context-no-ax",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Without Accessibility permission, a snapshot holds only the frontmost app, with no window title or URL."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-delivery": {
+      "id": "http-api-app-context-delivery",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "After delivery, the client records "
+        },
+        {
+          "insert": "delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and sends the whole context with "
+        },
+        {
+          "insert": "PUT /v1/generations/:id/app-context",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "http-api-app-context-delivered-only",
+        "http-api-app-context-why-two",
+        "http-api-app-context-outcome"
+      ]
+    },
+    "http-api-app-context-delivered-only": {
+      "id": "http-api-app-context-delivered-only",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Only a take that reaches delivery sends a context, so a failed or cancelled take sends none."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-why-two": {
+      "id": "http-api-app-context-why-two",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client takes two snapshots because Ford can click other windows while he talks and come back before the paste."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-outcome": {
+      "id": "http-api-app-context-outcome",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "GenerationRecord.delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " keeps the delivery outcome, apart from "
+        },
+        {
+          "insert": "appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-route": {
+      "id": "http-api-app-context-route",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The route accepts a live take only in status "
+        },
+        {
+          "insert": "completed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", "
+        },
+        {
+          "insert": "failed",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", or "
+        },
+        {
+          "insert": "cancelled",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "http-api-app-context-imported",
+        "http-api-app-context-active",
+        "http-api-app-context-replace"
+      ]
+    },
+    "http-api-app-context-imported": {
+      "id": "http-api-app-context-imported",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "For an imported record, the route returns 400 with code "
+        },
+        {
+          "insert": "imported_app_context",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-active": {
+      "id": "http-api-app-context-active",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "For a take that is still active, the route returns 409 with code "
+        },
+        {
+          "insert": "generation_active",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-replace": {
+      "id": "http-api-app-context-replace",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A later call replaces the stored value."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy": {
+      "id": "http-api-app-context-privacy",
+      "type": "heading",
+      "props": {
+        "level": 3
+      },
+      "text": [
+        {
+          "insert": "Privacy Rules"
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-lead": {
+      "id": "http-api-app-context-privacy-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "The client records app names, window titles, and page addresses, and never the content of a document or a field. Ford chose these limits."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-title": {
+      "id": "http-api-app-context-privacy-title",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server stores the focused window title as the client sends it."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-url": {
+      "id": "http-api-app-context-privacy-url",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "A URL keeps only its scheme, host, port, and path, and only an "
+        },
+        {
+          "insert": "http",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " or "
+        },
+        {
+          "insert": "https",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " URL is kept."
+        }
+      ],
+      "children": [
+        "http-api-app-context-privacy-url-drop",
+        "http-api-app-context-privacy-port"
+      ]
+    },
+    "http-api-app-context-privacy-url-drop": {
+      "id": "http-api-app-context-privacy-url-drop",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The client drops the user info, the query, and the fragment."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-port": {
+      "id": "http-api-app-context-privacy-port",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The port stays, so "
+        },
+        {
+          "insert": "localhost:3000",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "localhost:8080",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stay distinct."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-apps": {
+      "id": "http-api-app-context-privacy-apps",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The open-app list holds only names and bundle IDs."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-privacy-server": {
+      "id": "http-api-app-context-privacy-server",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The context stays on Ford's own server."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr": {
+      "id": "http-api-app-context-wispr",
+      "type": "heading",
+      "props": {
+        "level": 3
+      },
+      "text": [
+        {
+          "insert": "Wispr Flow Imports"
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr-lead": {
+      "id": "http-api-app-context-wispr-lead",
+      "type": "paragraph",
+      "props": {},
+      "text": [
+        {
+          "insert": "Wispr Flow's "
+        },
+        {
+          "insert": "History",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " table holds "
+        },
+        {
+          "insert": "app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", the bundle ID of the app that got the pasted text. Its "
+        },
+        {
+          "insert": "url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " column holds a host, such as "
+        },
+        {
+          "insert": "claude.ai",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The import keeps every "
+        },
+        {
+          "insert": "History",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " column raw in the record's "
+        },
+        {
+          "insert": "source.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr-derive": {
+      "id": "http-api-app-context-wispr-derive",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "When a Wispr Flow import goes through the "
+        },
+        {
+          "insert": "/v1/imports/wispr-flow",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " routes, the server reads "
+        },
+        {
+          "insert": "source.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and sets "
+        },
+        {
+          "insert": "appContext.delivery",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " to "
+        },
+        {
+          "insert": "{application: {bundleID}, host}",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "http-api-app-context-wispr-kinds",
+        "http-api-app-context-wispr-row"
+      ]
+    },
+    "http-api-app-context-wispr-kinds": {
+      "id": "http-api-app-context-wispr-kinds",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server does this for new imports and for enriched imports."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr-row": {
+      "id": "http-api-app-context-wispr-row",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The server uses the first source row that has a bundle ID, and leaves out a "
+        },
+        {
+          "insert": "url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " value of "
+        },
+        {
+          "insert": "unknown",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr-backfill": {
+      "id": "http-api-app-context-wispr-backfill",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "Ford's Wispr Flow history lives in the archive, not on the server. The archive keeps Wispr's "
+        },
+        {
+          "insert": "app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " as "
+        },
+        {
+          "insert": "context.app",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "context.url",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", as "
+        },
+        {
+          "insert": "Transcript Archive",
+          "attributes": {
+            "reference": {
+              "kind": "doc",
+              "path": "10-system-design/40-transcript-archive"
+            }
+          }
+        },
+        {
+          "insert": " describes."
+        }
+      ],
+      "children": []
+    },
+    "http-api-app-context-wispr-raw": {
+      "id": "http-api-app-context-wispr-raw",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "The Wispr screenshot, "
+        },
+        {
+          "insert": "additionalContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ", and "
+        },
+        {
+          "insert": "textboxContents",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " stay only in "
+        },
+        {
+          "insert": "screenshot.png",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " and "
+        },
+        {
+          "insert": "source.json",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": ". The server does not copy them into "
+        },
+        {
+          "insert": "appContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": "."
+        }
+      ],
+      "children": [
+        "http-api-app-context-wispr-additional"
+      ]
+    },
+    "http-api-app-context-wispr-additional": {
+      "id": "http-api-app-context-wispr-additional",
+      "type": "list-item",
+      "props": {
+        "ordered": false
+      },
+      "text": [
+        {
+          "insert": "additionalContext",
+          "attributes": {
+            "code": true
+          }
+        },
+        {
+          "insert": " holds OCR text, accessibility text, and dictionary context."
         }
       ],
       "children": []

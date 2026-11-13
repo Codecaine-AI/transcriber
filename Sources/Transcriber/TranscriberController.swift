@@ -208,6 +208,8 @@ final class TranscriberController: ObservableObject {
         let upload: Task<FinishGenerationRequest, Error>
         let pipe: AudioChunkPipe
         let destination: InsertionDestinationCapture?
+        /// Fork: the apps around the take at its start, sent after delivery as data only.
+        let appContext: Task<AppContext, Never>?
         var task: Task<Void, Never>?
         var sealed = false
         /// Fork: only an explicit user cancel deletes the take's local audio.
@@ -228,14 +230,14 @@ final class TranscriberController: ObservableObject {
         private let settledContinuation: AsyncStream<Void>.Continuation
 
         init(session: UUID, generation: Task<StartedGeneration, Error>, upload: Task<FinishGenerationRequest, Error>,
-             pipe: AudioChunkPipe, destination: InsertionDestinationCapture?) {
+             pipe: AudioChunkPipe, destination: InsertionDestinationCapture?, appContext: Task<AppContext, Never>?) {
             self.session = session; self.generation = generation; self.upload = upload
-            self.pipe = pipe; self.destination = destination
+            self.pipe = pipe; self.destination = destination; self.appContext = appContext
             (settled, settledContinuation) = AsyncStream<Void>.makeStream()
         }
 
         func cancel() {
-            task?.cancel(); upload.cancel(); pipe.cancel(); destination?.cancel()
+            task?.cancel(); upload.cancel(); pipe.cancel(); destination?.cancel(); appContext?.cancel()
             // A take already delivering keeps later takes waiting until it stops.
             if !delivering { settle() }
         }
@@ -253,6 +255,7 @@ final class TranscriberController: ObservableObject {
     }
     @Published private var insertionDestination: InsertionDestination?
     private var destinationTask: InsertionDestinationCapture?
+    private var appContextTask: Task<AppContext, Never>?
     private var recordingClipboardChangeCount = 0
     private struct ContinuationAnchor {
         let destination: DictationDestination
@@ -831,6 +834,7 @@ final class TranscriberController: ObservableObject {
         uploadPipe?.cancel(); uploadPipe = nil
         uploadTask?.cancel(); uploadTask = nil
         destinationTask?.cancel(); destinationTask = nil
+        appContextTask?.cancel(); appContextTask = nil
         stopRecordingTimer()
         if let reason { keepCapture(recorder.stopCapture(), reason: reason) } else { recorder.cancel() }
         outputMuter.restore()
@@ -1091,6 +1095,8 @@ final class TranscriberController: ObservableObject {
                 insertionDestination = destination
                 prepareContinuation(for: destination.target.map(DictationDestination.field))
             }
+            // Fork: the apps around the take. The reader runs off the main actor.
+            appContextTask = Task { await FocusContextReader.startContext() }
         } else { prepareContinuation(for: .test) }
         // Fork: the press-time snapshots above stay synchronous. The microphone
         // start and then the server create are queued next, and the HUD and its
@@ -1213,14 +1219,14 @@ final class TranscriberController: ObservableObject {
         let capturedDestination = insertionDestination
         let clipboardCount = recordingClipboardChangeCount
         let pending = PendingDictation(session: current, generation: generation, upload: uploadTask,
-                                       pipe: uploadPipe, destination: destinationTask)
+                                       pipe: uploadPipe, destination: destinationTask, appContext: appContextTask)
         pending.restedSinceRelease = salvaged
         // Usually known at release, so a later take can continue a list in another field.
         let knownDestination: InsertionDestination? = test || salvaged ? .clipboard : capturedDestination
         pending.target = knownDestination.map { Self.resolve($0, isTest: test, releasedAt: releasedAt) }
         pendingDictations.append(pending)
         activeGeneration = nil; self.uploadTask = nil; self.uploadPipe = nil
-        destinationTask = nil; insertionDestination = nil; recordingListHint = nil; recordingInputName = nil
+        destinationTask = nil; appContextTask = nil; insertionDestination = nil; recordingListHint = nil; recordingInputName = nil
         recorder.onChunk = nil
         let stopped = recorder.stopCapture()
         recorderStopTask = stopped
@@ -1296,12 +1302,28 @@ final class TranscriberController: ObservableObject {
                 pending.delivering = true
                 // Fork: a lock or sleep before this point sends the words to the clipboard only.
                 let deliveryDestination: InsertionDestination = pending.restedSinceRelease ? .clipboard : rebasedDestination(resolved)
+                // Fork: read focus as delivery starts, off the main actor, and send
+                // it after the receipt. Neither step holds up this take or later ones.
+                let deliveryFocus = pending.appContext.map { _ in Task { await FocusContextReader.snapshot() } }
                 let receipt = await deliver(result, to: deliveryDestination, anchor: anchor, isTest: test,
                                             clipboardCount: clipboardCount, session: current,
                                             hasRested: { pending.restedSinceRelease })
                 try Task.checkCancellation()
                 do { try await connection.delivery(id, receipt: receipt) }
                 catch { continuationAnchors.removeAll { $0.generationID == id } }
+                if let start = pending.appContext, let deliveryFocus {
+                    Task {
+                        var context = await start.value
+                        context.delivery = await deliveryFocus.value
+                        guard context != AppContext() else { return }
+                        do { try await connection.appContext(id, context: context) }
+                        catch {
+                            // Best effort: the take keeps its outcome. Never log the context itself.
+                            Logger(subsystem: Bundle.main.bundleIdentifier ?? "transcriber", category: "app-context")
+                                .notice("App context for \(id, privacy: .public) was not stored: \(String(describing: type(of: error)), privacy: .public)")
+                        }
+                    }
+                }
                 try Task.checkCancellation()
                 // Other takes can change the shared last-delivery state during the receipt request.
                 let delivered = DictationDeliveryStatus(rawValue: receipt.status) ?? .failed
@@ -1324,7 +1346,7 @@ final class TranscriberController: ObservableObject {
                 pending.resolved = true
                 refreshServer()
             } catch {
-                pending.upload.cancel(); pending.pipe.cancel(); pending.destination?.cancel()
+                pending.upload.cancel(); pending.pipe.cancel(); pending.destination?.cancel(); pending.appContext?.cancel()
                 if !pending.sealed {
                     pending.resolved = true
                     pending.cancelOnServer()

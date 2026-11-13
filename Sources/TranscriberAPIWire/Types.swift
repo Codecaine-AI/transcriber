@@ -48,6 +48,11 @@ public protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/generations/{id}/delivery`.
     /// - Remark: Generated from `#/paths//v1/generations/{id}/delivery/post(recordDelivery)`.
     func recordDelivery(_ input: Operations.RecordDelivery.Input) async throws -> Operations.RecordDelivery.Output
+    /// Stores the app context of a terminal live take. A later call replaces it. Imported history rejects it.
+    ///
+    /// - Remark: HTTP `PUT /v1/generations/{id}/app-context`.
+    /// - Remark: Generated from `#/paths//v1/generations/{id}/app-context/put(recordAppContext)`.
+    func recordAppContext(_ input: Operations.RecordAppContext.Input) async throws -> Operations.RecordAppContext.Output
     /// A bounded NDJSON stream of complete GenerationRecord values, with the latest record repeated as a two-second heartbeat. Ends after a terminal record.
     ///
     /// - Remark: HTTP `GET /v1/generations/{id}/events`.
@@ -201,6 +206,21 @@ extension APIProtocol {
         body: Operations.RecordDelivery.Input.Body
     ) async throws -> Operations.RecordDelivery.Output {
         try await recordDelivery(Operations.RecordDelivery.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// Stores the app context of a terminal live take. A later call replaces it. Imported history rejects it.
+    ///
+    /// - Remark: HTTP `PUT /v1/generations/{id}/app-context`.
+    /// - Remark: Generated from `#/paths//v1/generations/{id}/app-context/put(recordAppContext)`.
+    public func recordAppContext(
+        path: Operations.RecordAppContext.Input.Path,
+        headers: Operations.RecordAppContext.Input.Headers = .init(),
+        body: Operations.RecordAppContext.Input.Body
+    ) async throws -> Operations.RecordAppContext.Output {
+        try await recordAppContext(Operations.RecordAppContext.Input(
             path: path,
             headers: headers,
             body: body

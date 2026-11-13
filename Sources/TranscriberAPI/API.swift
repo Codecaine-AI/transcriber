@@ -203,6 +203,37 @@ public struct DeliveryReceipt: Codable, Equatable, Sendable {
     }
 }
 
+public struct ApplicationIdentity: Codable, Equatable, Sendable {
+    public var bundleID: String?
+    public var name: String?
+    public init(bundleID: String? = nil, name: String? = nil) { self.bundleID = bundleID; self.name = name }
+}
+
+/// Where keyboard focus was at one moment of a take.
+public struct FocusSnapshot: Codable, Equatable, Sendable {
+    public var capturedAt: Date?
+    public var application: ApplicationIdentity
+    public var windowTitle: String?
+    /// http or https only, without user info, query or fragment.
+    public var url: String?
+    public var host: String?
+    public init(capturedAt: Date? = nil, application: ApplicationIdentity, windowTitle: String? = nil,
+                url: String? = nil, host: String? = nil) {
+        self.capturedAt = capturedAt; self.application = application; self.windowTitle = windowTitle
+        self.url = url; self.host = host
+    }
+}
+
+/// The apps around one take, kept as data for later. Transcription does not read it.
+public struct AppContext: Codable, Equatable, Sendable {
+    public var start: FocusSnapshot?
+    public var delivery: FocusSnapshot?
+    public var openApplications: [ApplicationIdentity]?
+    public init(start: FocusSnapshot? = nil, delivery: FocusSnapshot? = nil, openApplications: [ApplicationIdentity]? = nil) {
+        self.start = start; self.delivery = delivery; self.openApplications = openApplications
+    }
+}
+
 public struct ModelHintUsage: Codable, Equatable, Sendable {
     public var includedTerms: [String]
     public var omittedTerms: [String]
@@ -354,6 +385,7 @@ public struct GenerationRecord: Codable, Equatable, Sendable, Identifiable {
     public var consumedListControls: [ListControlSpan]?
     public var continuation: DictationContinuation?
     public var delivery: DeliveryReceipt?
+    public var appContext: AppContext?
     public var error: String?
     public var progress: Double?
     public var importedSource: ImportedSource?

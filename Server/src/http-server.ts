@@ -204,6 +204,12 @@ export function createHTTPServer(service: GenerationService, token?: string) {
       validateBody("DeliveryReceipt", request.body),
     ),
   );
+  app.put<{ Params: IDParams }>("/v1/generations/:id/app-context", (request) =>
+    service.recordAppContext(
+      identifier(request.params.id),
+      validateBody("AppContext", request.body),
+    ),
+  );
   app.delete<{ Params: IDParams }>("/v1/generations/:id", async (request, reply) => {
     await service.delete(identifier(request.params.id));
     return reply.code(204).send();

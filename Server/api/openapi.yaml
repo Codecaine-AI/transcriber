@@ -280,6 +280,32 @@ paths:
           required: true
           schema:
             "$ref": "#/components/schemas/UUID"
+  "/v1/generations/{id}/app-context":
+    put:
+      operationId: "recordAppContext"
+      description: "Stores the app context of a terminal live take. A later call replaces it. Imported history rejects it."
+      responses:
+        "200":
+          description: "Success"
+          content:
+            "application/json":
+              schema:
+                "$ref": "#/components/schemas/GenerationRecord"
+        default:
+          "$ref": "#/components/responses/APIError"
+      requestBody:
+        required: true
+        content:
+          "application/json":
+            schema:
+              "$ref": "#/components/schemas/AppContext"
+        x-maximumBytes: 262144
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          schema:
+            "$ref": "#/components/schemas/UUID"
   "/v1/generations/{id}/events":
     get:
       operationId: "generationEvents"
@@ -1142,6 +1168,62 @@ components:
         - "artifactNames"
         - "sourceSHA256"
         - "artifactSHA256"
+    ApplicationIdentity:
+      type: "object"
+      additionalProperties: false
+      description: "One macOS app. Live takes send each field macOS reports. Wispr Flow imports carry only the bundle ID."
+      minProperties: 1
+      properties:
+        bundleID:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+        name:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+    FocusSnapshot:
+      type: "object"
+      additionalProperties: false
+      description: "Where keyboard focus was at one moment of a take."
+      properties:
+        capturedAt:
+          type: "string"
+          format: "date-time"
+        application:
+          "$ref": "#/components/schemas/ApplicationIdentity"
+        windowTitle:
+          type: "string"
+          maxLength: 1024
+        url:
+          type: "string"
+          maxLength: 2048
+          description: "The http or https address of the focused web page, without user info, query or fragment."
+        host:
+          type: "string"
+          minLength: 1
+          maxLength: 255
+          description: "The host of the focused web page. Wispr Flow imports carry a host without a URL."
+      required:
+        - "application"
+    AppContext:
+      type: "object"
+      additionalProperties: false
+      description: "The apps around one take, kept as data for later. Transcription does not read it."
+      minProperties: 1
+      properties:
+        start:
+          "$ref": "#/components/schemas/FocusSnapshot"
+          description: "Focus when the take started."
+        delivery:
+          "$ref": "#/components/schemas/FocusSnapshot"
+          description: "Focus when the result was delivered. GenerationRecord.delivery holds the outcome. Wispr Flow imports put the app the text went to here."
+        openApplications:
+          type: "array"
+          maxItems: 256
+          description: "Regular apps running when the take started: apps with on-screen windows front to back, then the rest."
+          items:
+            "$ref": "#/components/schemas/ApplicationIdentity"
     GenerationRecord:
       type: "object"
       additionalProperties: false
@@ -1210,6 +1292,8 @@ components:
           maximum: 1
         importedSource:
           "$ref": "#/components/schemas/ImportedSource"
+        appContext:
+          "$ref": "#/components/schemas/AppContext"
       required:
         - "schemaVersion"
         - "id"
