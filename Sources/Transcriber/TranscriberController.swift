@@ -1302,12 +1302,12 @@ final class TranscriberController: ObservableObject {
                 pending.delivering = true
                 // Fork: a lock or sleep before this point sends the words to the clipboard only.
                 let deliveryDestination: InsertionDestination = pending.restedSinceRelease ? .clipboard : rebasedDestination(resolved)
+                // Fork: read focus as delivery starts, off the main actor, and send
+                // it after the receipt. Neither step holds up this take or later ones.
+                let deliveryFocus = pending.appContext.map { _ in Task { await FocusContextReader.snapshot() } }
                 let receipt = await deliver(result, to: deliveryDestination, anchor: anchor, isTest: test,
                                             clipboardCount: clipboardCount, session: current,
                                             hasRested: { pending.restedSinceRelease })
-                // Fork: read focus at delivery now, but send it after the receipt.
-                // Neither step holds up this take's outcome or later takes.
-                let deliveryFocus = pending.appContext.map { _ in Task { await FocusContextReader.snapshot() } }
                 try Task.checkCancellation()
                 do { try await connection.delivery(id, receipt: receipt) }
                 catch { continuationAnchors.removeAll { $0.generationID == id } }
@@ -1316,7 +1316,12 @@ final class TranscriberController: ObservableObject {
                         var context = await start.value
                         context.delivery = await deliveryFocus.value
                         guard context != AppContext() else { return }
-                        try? await connection.appContext(id, context: context)
+                        do { try await connection.appContext(id, context: context) }
+                        catch {
+                            // Best effort: the take keeps its outcome. Never log the context itself.
+                            Logger(subsystem: Bundle.main.bundleIdentifier ?? "transcriber", category: "app-context")
+                                .notice("App context for \(id, privacy: .public) was not stored: \(String(describing: type(of: error)), privacy: .public)")
+                        }
                     }
                 }
                 try Task.checkCancellation()

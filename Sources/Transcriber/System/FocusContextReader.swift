@@ -70,7 +70,13 @@ enum FocusContextReader {
                     guard let node = current else { break }
                     AXUIElementSetMessagingTimeout(node, 0.05)
                     let role = attribute(kAXRoleAttribute, of: node) as? String
-                    if role == "AXWebArea" { webAddress = sanitizedWebAddress(attribute(kAXURLAttribute, of: node)); break }
+                    if role == "AXWebArea" {
+                        // Keep a URL only from the window whose title is read below.
+                        if let window, let owner = element(kAXWindowAttribute, of: node), CFEqual(owner, window) {
+                            webAddress = sanitizedWebAddress(attribute(kAXURLAttribute, of: node))
+                        }
+                        break
+                    }
                     if role == nil || role == kAXWindowRole || role == kAXApplicationRole { break }
                     current = element(kAXParentAttribute, of: node)
                 }

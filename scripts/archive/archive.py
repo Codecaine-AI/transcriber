@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CHUNK = 1024 * 1024
+# Raise when the archived context mapping changes, so every Transcriber record syncs once more.
+CONTEXT_MAPPING_VERSION = 1
 # A one-off data migration holds this file in the cache directory; nothing may copy records meanwhile.
 MIGRATION_LOCK = 'migration.lock'
 # Transcriber record folders are UUIDs; anything else (such as <ID>.quarantined) is not a record.
@@ -364,7 +366,7 @@ class Archive:
             if not UUID_NAME.match(path.parent.name):
                 continue
             try:
-                stamp = [path.stat().st_mtime_ns, path.stat().st_size]
+                stamp = [path.stat().st_mtime_ns, path.stat().st_size, CONTEXT_MAPPING_VERSION]
                 key = str(path)
                 # Also check destination: a rebuilt cache or manually moved archive must recover.
                 if self.state.get(key) == stamp and (self.record_dir('transcriber', path.parent.name) / 'metadata.json').exists():
