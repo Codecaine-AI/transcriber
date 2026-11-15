@@ -41,10 +41,29 @@ private struct DevicePreferencesForm: View {
             } header: { Text("Connection").textCase(nil) }
 
             Section {
-                Picker("Dictation key", selection: $controller.shortcut) {
-                    ForEach(HoldKey.allCases) { key in Text(key.title).tag(key) }
+                ForEach(Array(controller.shortcuts.enumerated()), id: \.element) { index, key in
+                    LabeledContent {
+                        HStack(spacing: 8) {
+                            KeyCap(key: key)
+                            Button("Remove") { controller.shortcuts.removeAll { $0 == key } }
+                                .disabled(controller.shortcuts.count == 1)
+                                .accessibilityLabel("Remove \(key.title)")
+                        }
+                    } label: {
+                        Text(index == 0 ? "Dictation keys" : "")
+                    }
                 }
                 .accessibilityIdentifier("preferences.shortcut")
+                LabeledContent {
+                    Button(controller.isAddingShortcut ? "Cancel" : "Add key") {
+                        if controller.isAddingShortcut { controller.finishAddingShortcut() }
+                        else { controller.beginAddingShortcut() }
+                    }
+                    .frame(width: 125)
+                    .accessibilityIdentifier("preferences.add-shortcut")
+                } label: {
+                    Text(controller.isAddingShortcut ? "Press the key to add" : "Add a dictation key")
+                }
                 Picker("Trigger", selection: $controller.activationMode) {
                     ForEach(HotkeyActivationMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
@@ -58,7 +77,12 @@ private struct DevicePreferencesForm: View {
                 } label: {
                     Text(controller.isCheckingShortcut ? "Hold the key for a second" : "Shortcut check")
                 }
-                if let note = controller.shortcut.note { Text(note).font(.caption).foregroundStyle(TranscriberPalette.muted) }
+                Text("Every key starts and stops dictation the same way. For a macro pad, F13 to F20 work best. macOS often drops F21 to F24.")
+                    .font(.caption)
+                    .foregroundStyle(TranscriberPalette.muted)
+                if let note = controller.shortcuts.lazy.compactMap(\.note).first {
+                    Text(note).font(.caption).foregroundStyle(TranscriberPalette.muted)
+                }
                 DisclosureGroup("Shortcut diagnostics", isExpanded: $showingDiagnostics) {
                     ScrollView {
                         Text(controller.shortcutCheckText.isEmpty ? "Run a shortcut check to see events." : controller.shortcutCheckText)
@@ -113,6 +137,7 @@ private struct DevicePreferencesForm: View {
                     .foregroundStyle(TranscriberPalette.muted)
             }
         }
+        .onDisappear { controller.finishAddingShortcut() }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
         .toggleStyle(.switch)

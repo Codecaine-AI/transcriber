@@ -269,7 +269,7 @@ struct KeyCap: View {
         HStack(spacing: 7) {
             Text(key.symbol)
                 .font(.system(size: 15, weight: .medium))
-            if key != .fn {
+            if key.symbol != key.title, key != .fn {
                 Text(key.title)
                     .font(.callout)
                     .lineLimit(1)
@@ -305,7 +305,10 @@ struct TranscriberHoldKeyCap: View {
                 .frame(height: 60)
                 .offset(y: 4)
             Text(key.symbol)
-                .font(.system(size: key == .fn ? 27 : 30, weight: .regular))
+                .font(.system(size: key.symbol.count == 1 ? 30 : (key == .fn ? 27 : 22), weight: .regular))
+                .lineLimit(1)
+                .minimumScaleFactor(0.5)
+                .padding(.horizontal, 6)
                 .foregroundStyle(TranscriberPalette.accentInk)
                 .frame(width: 64, height: 60)
                 .background(isPressed ? TranscriberPalette.tint : TranscriberPalette.surface, in: shape)

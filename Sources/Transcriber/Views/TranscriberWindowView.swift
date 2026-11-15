@@ -145,7 +145,11 @@ struct DictationPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 HStack(spacing: 20) {
-                    TranscriberHoldKeyCap(key: controller.shortcut, isPressed: controller.isRecording)
+                    HStack(spacing: 10) {
+                        ForEach(controller.shortcuts) { key in
+                            TranscriberHoldKeyCap(key: key, isPressed: controller.isRecording)
+                        }
+                    }
                     Text(controller.activationMode.dictationPrompt)
                         .font(.system(size: 28, weight: .medium))
                         .tracking(-0.7)
