@@ -1681,7 +1681,7 @@ final class TranscriberController: ObservableObject {
     }
 
     /// Fork: listens for the next key pressed in a Transcriber window and adds
-    /// it to the dictation keys. Escape or 20 s without a key cancels. The
+    /// it to the dictation keys. Escape or 60 s without a key cancels. The
     /// press never reaches the window and never starts a take.
     func beginAddingShortcut() {
         guard !isBusy, !isAddingShortcut else { return }
@@ -1692,7 +1692,7 @@ final class TranscriberController: ObservableObject {
             return used ? nil : event
         }
         shortcutCaptureTimeout = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(20)) } catch { return }
+            do { try await Task.sleep(for: .seconds(60)) } catch { return }
             self?.finishAddingShortcut()
         }
     }

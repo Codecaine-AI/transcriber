@@ -70,7 +70,7 @@ private struct DevicePreferencesForm: View {
                 .accessibilityIdentifier("preferences.shortcut")
                 HStack {
                     if controller.isAddingShortcut {
-                        Text("Press the key to add. Esc cancels.").foregroundStyle(TranscriberPalette.muted)
+                        Text("Press a key, or pick one below. Esc cancels.").foregroundStyle(TranscriberPalette.muted)
                         Spacer()
                         Button("Cancel") { controller.finishAddingShortcut() }
                     } else {
@@ -80,6 +80,17 @@ private struct DevicePreferencesForm: View {
                     }
                 }
                 .accessibilityIdentifier("preferences.add-shortcut")
+                if controller.isAddingShortcut {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 120))], alignment: .leading, spacing: 8) {
+                        ForEach(HoldKey.pickable.filter { !controller.shortcuts.contains($0) }) { key in
+                            Button { controller.finishAddingShortcut(key) } label: {
+                                Text(key.title).lineLimit(1).frame(maxWidth: .infinity)
+                            }
+                                .accessibilityIdentifier("preferences.pick-key.\(key.token)")
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
             } header: {
                 Text("Keys").textCase(nil)
             } footer: {

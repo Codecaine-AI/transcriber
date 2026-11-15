@@ -11,6 +11,9 @@ enum HoldKey: Hashable, Identifiable {
     case key(CGKeyCode)
 
     static let presets: [HoldKey] = [.rightOption, .rightControl, .fn]
+    /// Keys offered in Add key without a press. F13 to F20 are on few keyboards, so a
+    /// macro pad can send them without a clash.
+    static let pickable: [HoldKey] = presets + [105, 107, 113, 106, 64, 79, 80, 90].map { .key($0) }
 
     /// The configured key for a virtual key code. Escape stays the cancel
     /// key, and the other modifiers cannot drive dictation.
