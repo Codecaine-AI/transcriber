@@ -39,13 +39,18 @@ public struct TranscriberConfiguration: Codable, Equatable, Sendable {
 
     private enum LegacyCodingKeys: String, CodingKey { case holdKey }
 
+    /// Key codes that can never be a "key:" token: Return (36), Tab (48),
+    /// Space (49), Escape (53), keypad Enter (76) and the modifiers (54 to 63,
+    /// which have presets). Return, Tab and Space must stay free for typing and
+    /// for keyboard use of Add key.
+    public static let reservedKeyCodes: Set<UInt16> = Set([36, 48, 49, 53, 76]).union(54...63)
+
     /// Accepts exactly the tokens that `HoldKey(token:)` in the app parses: a
-    /// preset name, or "key:" and a canonical decimal key code that is not
-    /// Escape (53) or a modifier (54 to 63).
+    /// preset name, or "key:" and a canonical decimal key code that is not reserved.
     private static func isHoldKeyToken(_ token: String) -> Bool {
         if ["rightOption", "rightControl", "fn"].contains(token) { return true }
         guard token.hasPrefix("key:"), let code = UInt16(token.dropFirst(4)) else { return false }
-        return token == "key:\(code)" && !(53...63).contains(code)
+        return token == "key:\(code)" && !reservedKeyCodes.contains(code)
     }
 
     public init(from decoder: Decoder) throws {

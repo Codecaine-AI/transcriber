@@ -1,3 +1,4 @@
+import TranscriberCore
 import AppKit
 import CoreGraphics
 
@@ -22,7 +23,7 @@ enum HoldKey: Hashable, Identifiable {
         case 61: self = .rightOption
         case 62: self = .rightControl
         case 63: self = .fn
-        case 53, 54...60: return nil
+        case _ where TranscriberConfiguration.reservedKeyCodes.contains(keyCode): return nil
         default: self = .key(keyCode)
         }
     }
@@ -430,9 +431,11 @@ final class HotkeyMonitor {
         if !physicalDown, code != key.keyCode, let listed = keys.first(where: { $0.keyCode == code }) {
             // Fork: between presses, any listed key can make the next press.
             // The duplicate-edge window belongs to the last key only, so a
-            // fast press of another key still toggles.
+            // fast press of another key still toggles. A double tap needs two
+            // taps of the same key.
             key = listed
             lastPressAt = nil
+            lastTapAt = nil
         }
         if type == .flagsChanged || ((type == .keyDown || type == .keyUp) && code == key.keyCode) {
             diagnoseModifier(type: type, code: code, flags: event.flags)
