@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { stamp } from "../../../Hub/src/ids.ts";
 import { ConfirmStore } from "./confirms.ts";
+import { assertHttps } from "./hub-client.ts";
 import { runSync } from "./sync.ts";
 
 const home = homedir();
@@ -66,6 +67,7 @@ async function loadTarget() {
 try {
   if (values.since) stamp(values.since); // refuse a bad time before anything else
   const target = await loadTarget();
+  assertHttps(target.addresses); // before anything is read or sent
   const store = new ConfirmStore(values.state);
   const summary = await runSync({
     archiveRoot: values.archive,

@@ -38,6 +38,14 @@ export class RecordRefused extends Error {
   }
 }
 
+/// Only https addresses: the pin is checked in the TLS handshake, which plain http skips, so an http
+/// address would get the token and the record with no check at all.
+export function assertHttps(addresses: string[]) {
+  for (const address of addresses)
+    if (!URL.canParse(address) || new URL(address).protocol !== "https:")
+      throw new Error(`the hub address ${address} is not an https URL`);
+}
+
 export const spkiPin = (certDer: Uint8Array) =>
   `sha256/${createHash("sha256")
     .update(new X509Certificate(certDer).publicKey.export({ type: "spki", format: "der" }))
@@ -77,7 +85,9 @@ const describe = (error: unknown) =>
 export class HubClient {
   private base: string | null = null;
 
-  constructor(private readonly target: HubTarget) {}
+  constructor(private readonly target: HubTarget) {
+    assertHttps(target.addresses);
+  }
 
   get address() {
     return this.base;
