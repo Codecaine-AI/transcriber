@@ -229,6 +229,7 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
         has_raw: p.textSha256.raw !== null,
         has_clean: p.textSha256.clean !== null,
       };
+      assertClientWindow(now()); // preparation can end inside the window
       try {
         const reply = await hub.post(p.post);
         const mismatches = confirmMismatches(reply, p);

@@ -10,9 +10,9 @@
 // Log: one JSON line per record and one per run, to ~/Library/Logs/transcriber-hub-sync.log and stdout.
 // --hub and --pin replace the configured addresses and pin for one run (live checks).
 // Exit 0 when the run finished, 75 when it stopped early (the rest wait for the next run), 1 on error.
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { stamp } from "../../../Hub/src/ids.ts";
 import { loadTarget } from "./config.ts";
@@ -65,6 +65,9 @@ try {
         ".local/state/transcriber-hub-client",
         `delete-dry-run-${new Date().toISOString().replaceAll(":", "")}.json`,
       );
+    mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
+    // mode only applies to a new file, so make an existing report owner-only before writing.
+    if (existsSync(out)) chmodSync(out, 0o600);
     writeFileSync(
       out,
       `${JSON.stringify({ generated_at: new Date().toISOString(), ...result }, null, 1)}\n`,

@@ -115,6 +115,7 @@ try {
         differing_channels: a.channels.differing,
         silent_channels: a.channels.silent,
       };
+      assertClientWindow(new Date()); // preparation can end inside the window
       try {
         const mismatches = confirmMismatches(await hub.post(p.post), p);
         if (mismatches.length) {
