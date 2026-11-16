@@ -4,6 +4,8 @@
 // For each address it posts a small generated FLAC record, replays it, cuts a post off twice and
 // resends it, sends a wrong hash, no token, a wrong token and a record of the MacBook device, then
 // reconfirms and searches. It reads the share and the database on services-01 over ssh (read only).
+// With HUB_CHECK_LOCAL=1 it runs on services-01 itself and reads them directly. It makes each FLAC
+// from a generated 1-second WAV with macOS afconvert.
 // It prints one JSON line per check and exits 1 when a check fails. It never prints the token.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { connect } from "node:tls";
@@ -25,13 +27,14 @@ function report(address: string, check: string, pass: boolean, evidence: unknown
 }
 
 async function ssh(command: string): Promise<string> {
-  const p = Bun.spawn(
-    ["perl", "-e", "alarm 60; exec @ARGV", "ssh", "-o", "BatchMode=yes", "services-01", command],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
+  const remote =
+    process.env.HUB_CHECK_LOCAL === "1"
+      ? ["/bin/sh", "-c"]
+      : ["ssh", "-o", "BatchMode=yes", "services-01"];
+  const p = Bun.spawn(["perl", "-e", "alarm 60; exec @ARGV", ...remote, command], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const out = await new Response(p.stdout).text();
   if ((await p.exited) !== 0) throw new Error(`ssh failed: ${await new Response(p.stderr).text()}`);
   return out.trim();
@@ -54,29 +57,32 @@ async function stored(recordingId: string, flacSha: string) {
 }
 
 async function makeFlac(frequency: number): Promise<Uint8Array> {
-  const out = `/tmp/hub-live-${randomBytes(4).toString("hex")}.flac`;
-  const p = Bun.spawn(
-    [
-      "ffmpeg",
-      "-loglevel",
-      "error",
-      "-f",
-      "lavfi",
-      "-i",
-      `sine=frequency=${frequency}:duration=1`,
-      "-ac",
-      "1",
-      "-ar",
-      "16000",
-      "-c:a",
-      "flac",
-      out,
-    ],
-    { stdout: "ignore", stderr: "inherit" },
-  );
-  if ((await p.exited) !== 0) throw new Error("ffmpeg failed");
-  const bytes = new Uint8Array(await Bun.file(out).arrayBuffer());
-  await Bun.file(out).delete();
+  const base = `/tmp/hub-live-${randomBytes(4).toString("hex")}`;
+  const rate = 16000;
+  const wav = Buffer.alloc(44 + rate * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + rate * 2, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20); // PCM
+  wav.writeUInt16LE(1, 22); // mono
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(rate * 2, 40);
+  for (let i = 0; i < rate; i++)
+    wav.writeInt16LE(Math.round(8000 * Math.sin((2 * Math.PI * frequency * i) / rate)), 44 + i * 2);
+  await Bun.write(`${base}.wav`, wav);
+  const p = Bun.spawn(["afconvert", "-f", "flac", "-d", "flac", `${base}.wav`, `${base}.flac`], {
+    stdout: "ignore",
+    stderr: "inherit",
+  });
+  if ((await p.exited) !== 0) throw new Error("afconvert failed");
+  const bytes = new Uint8Array(await Bun.file(`${base}.flac`).arrayBuffer());
+  await Bun.file(`${base}.wav`).delete();
+  await Bun.file(`${base}.flac`).delete();
   return bytes;
 }
 
