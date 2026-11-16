@@ -66,6 +66,7 @@ async function loadTarget() {
 
 try {
   if (values.since) stamp(values.since); // refuse a bad time before anything else
+  if (values.hub) assertHttps(values.hub.split(",")); // refuse an http override before the config is read
   const target = await loadTarget();
   assertHttps(target.addresses); // before anything is read or sent
   const store = new ConfirmStore(values.state);

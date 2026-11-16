@@ -144,7 +144,23 @@ export class HubClient {
         if (attempt === 0) continue;
         throw new StopRun({ kind: "unreachable", detail: describe(error) });
       }
-      if (res.ok) return (await res.json()) as unknown;
+      if (res.ok) {
+        // The body is read after the headers, so a dropped connection can fail here too. Treat it
+        // like a failed fetch: retry once, then stop the run cleanly.
+        try {
+          return (await res.json()) as unknown;
+        } catch (error) {
+          this.base = null;
+          if (error instanceof SyntaxError)
+            throw new RecordRefused(
+              res.status,
+              "bad_reply",
+              "the hub sent a reply that is not JSON",
+            );
+          if (attempt === 0) continue;
+          throw new StopRun({ kind: "unreachable", detail: describe(error) });
+        }
+      }
       const reply: unknown = await res.json().catch(() => null);
       /// A string field of the hub's error reply ({ error, message }), never a secret or a text.
       const field = (key: "error" | "message") => {
