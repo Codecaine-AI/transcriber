@@ -32,6 +32,7 @@ export class RecordRefused extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
+    readonly detail: string,
   ) {
     super(`hub replied ${status} ${code}`);
   }
@@ -135,13 +136,13 @@ export class HubClient {
       }
       if (res.ok) return (await res.json()) as unknown;
       const reply: unknown = await res.json().catch(() => null);
-      const code =
-        typeof reply === "object" &&
-        reply !== null &&
-        "error" in reply &&
-        typeof reply.error === "string"
-          ? reply.error
-          : "unknown";
+      /// A string field of the hub's error reply ({ error, message }), never a secret or a text.
+      const field = (key: "error" | "message") => {
+        if (typeof reply !== "object" || reply === null || !(key in reply)) return "unknown";
+        const value: unknown = (reply as Record<string, unknown>)[key];
+        return typeof value === "string" ? value.slice(0, 200) : "unknown";
+      };
+      const code = field("error");
       if (res.status === 503)
         throw new StopRun(
           code === "nas_window"
@@ -149,7 +150,7 @@ export class HubClient {
             : { kind: "share_unavailable" },
         );
       if (res.status === 401) throw new StopRun({ kind: "unauthorized", detail: code });
-      throw new RecordRefused(res.status, code);
+      throw new RecordRefused(res.status, code, field("message"));
     }
   }
 }

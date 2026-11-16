@@ -1,6 +1,7 @@
 // The original WAV of a take: its layout, its channel result and its mono FLAC.
 // The mono FLAC keeps channel 0 only (afconvert -c 1 drops the other channels), so the channel result
-// records, per take, which extra channels hold other samples than channel 0.
+// records, per take, which extra channels hold audio that channel 0 does not: a channel that is
+// neither a copy of channel 0 nor silent (every sample byte zero).
 import { createHash } from "node:crypto";
 import { open, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -14,9 +15,9 @@ export type WavLayout = {
   dataBytes: number;
 };
 
-/// Extra channels whose samples differ from channel 0 anywhere in the take. Empty: the mono FLAC
-/// keeps all of the audio.
-export type ChannelResult = { channels: number; differing: number[] };
+/// differing: extra channels that are neither a copy of channel 0 nor silent. Empty: the mono FLAC
+/// keeps all of the audio. silent: extra channels whose sample bytes are all zero.
+export type ChannelResult = { channels: number; differing: number[]; silent: number[] };
 
 /// What one streaming pass over the WAV learns: its layout, its SHA-256 and its channel result.
 export type WavScan = { layout: WavLayout; sha256: Sha256; bytes: number; channels: ChannelResult };
@@ -50,7 +51,7 @@ export function parseWavHeader(head: Uint8Array): WavLayout {
 }
 
 /// One pass over the file: hash every byte, and compare each extra channel with channel 0 byte for
-/// byte, frame by frame. Stops comparing once every extra channel is known to differ.
+/// byte, frame by frame. Stops comparing once every extra channel is known to differ and to hold sound.
 export async function scanWav(path: string): Promise<WavScan> {
   const file = await open(path, "r");
   try {
@@ -60,8 +61,9 @@ export async function scanWav(path: string): Promise<WavScan> {
     const { channels, blockAlign, dataOffset } = layout;
     const sampleBytes = blockAlign / channels;
     const dataEnd = dataOffset + layout.dataBytes;
-    const differ = Array.from({ length: channels }, () => false);
-    let undecided = channels - 1; // extra channels not yet known to differ
+    const differ = Array.from({ length: channels }, () => false); // not a copy of channel 0
+    const sound = Array.from({ length: channels }, () => false); // some sample byte is not zero
+    let undecided = channels - 1; // extra channels not yet known to differ and hold sound
 
     const hash = createHash("sha256");
     // Whole frames per read, so a frame never spans two reads.
@@ -84,14 +86,14 @@ export async function scanWav(path: string): Promise<WavScan> {
         const end = got - (got % blockAlign);
         for (let f = 0; f < end && undecided > 0; f += blockAlign)
           for (let c = 1; c < channels; c++) {
-            if (differ[c]) continue;
+            if (differ[c] && sound[c]) continue;
             const base = f + c * sampleBytes;
-            for (let i = 0; i < sampleBytes; i++)
-              if (chunk[base + i] !== chunk[f + i]) {
-                differ[c] = true;
-                undecided--;
-                break;
-              }
+            for (let i = 0; i < sampleBytes; i++) {
+              const byte = chunk[base + i];
+              if (byte !== 0) sound[c] = true;
+              if (byte !== chunk[f + i]) differ[c] = true;
+            }
+            if (differ[c] && sound[c]) undecided--;
           }
       }
       position += got;
@@ -100,7 +102,11 @@ export async function scanWav(path: string): Promise<WavScan> {
       layout,
       sha256: hash.digest("hex") as Sha256, // a SHA-256 hex digest by construction
       bytes: position,
-      channels: { channels, differing: differ.flatMap((d, c) => (d ? [c] : [])) },
+      channels: {
+        channels,
+        differing: differ.flatMap((d, c) => (d && sound[c] ? [c] : [])),
+        silent: sound.flatMap((s, c) => (c > 0 && !s ? [c] : [])),
+      },
     };
   } finally {
     await file.close();

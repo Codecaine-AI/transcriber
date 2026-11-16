@@ -30,7 +30,8 @@ export class ConfirmStore {
       raw_sha256         TEXT,              -- SHA-256 of raw.txt as stored, null when not sent
       clean_sha256       TEXT,
       channels           INTEGER,           -- channel count of the original WAV
-      differing_channels TEXT,              -- JSON list of extra channels that differ from channel 0
+      differing_channels TEXT,              -- JSON list of extra channels with audio channel 0 lacks
+      silent_channels    TEXT,              -- JSON list of extra channels that are all zero
       confirmed_at       TEXT NOT NULL,
       hub                TEXT NOT NULL      -- the address that confirmed
     )`);
@@ -49,7 +50,7 @@ export class ConfirmStore {
     this.db
       .query(
         "insert or replace into confirms(recording_id, flac_sha256, raw_sha256, clean_sha256, channels," +
-          " differing_channels, confirmed_at, hub) values (?, ?, ?, ?, ?, ?, ?, ?)",
+          " differing_channels, silent_channels, confirmed_at, hub) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         c.recording_id,
@@ -58,6 +59,7 @@ export class ConfirmStore {
         c.clean_sha256,
         c.channels?.channels ?? null,
         c.channels ? JSON.stringify(c.channels.differing) : null,
+        c.channels ? JSON.stringify(c.channels.silent) : null,
         c.confirmed_at,
         c.hub,
       );

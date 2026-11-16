@@ -177,6 +177,7 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
         flac_bytes: p.flacBytes,
         channels: p.channels?.channels ?? null,
         differing_channels: p.channels?.differing ?? null,
+        silent_channels: p.channels?.silent ?? null,
         has_raw: p.record.textSha256.raw !== null,
         has_clean: p.record.textSha256.clean !== null,
       };
@@ -217,6 +218,7 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
             stage: "post",
             status: error.status,
             code: error.code,
+            message: error.detail,
           });
           continue;
         }

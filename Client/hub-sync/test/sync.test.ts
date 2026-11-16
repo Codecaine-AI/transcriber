@@ -61,9 +61,14 @@ async function makeCert(name: string): Promise<Cert> {
   return { cert: pem, key: await Bun.file(key).text(), pin: spkiPin(new X509Certificate(pem).raw) };
 }
 
-/// A float32 WAV of `frames` frames. Channel 0 is a sine; each other channel copies it, or holds
-/// another sine when `differ` names it.
-function makeWav(channels: number, frames: number, differ: number[] = []): Uint8Array {
+/// A float32 WAV of `frames` frames. Channel 0 is a sine; each other channel copies it, holds
+/// another sine when `differ` names it, or zeros when `silent` names it.
+function makeWav(
+  channels: number,
+  frames: number,
+  differ: number[] = [],
+  silent: number[] = [],
+): Uint8Array {
   const block = channels * 4;
   const b = Buffer.alloc(44 + frames * block);
   b.write("RIFF", 0);
@@ -81,7 +86,8 @@ function makeWav(channels: number, frames: number, differ: number[] = []): Uint8
   for (let i = 0; i < frames; i++)
     for (let c = 0; c < channels; c++) {
       const f = differ.includes(c) ? 1000 : 440;
-      b.writeFloatLE(0.4 * Math.sin((2 * Math.PI * f * i) / 48000), 44 + i * block + c * 4);
+      const v = silent.includes(c) ? 0 : 0.4 * Math.sin((2 * Math.PI * f * i) / 48000);
+      b.writeFloatLE(v, 44 + i * block + c * 4);
     }
   return new Uint8Array(b);
 }
@@ -226,18 +232,21 @@ test("selection keeps records at or after --since without a stored confirm, olde
   expect(await pick({ since: CUTOFF, only: confirmed })).toEqual([]);
 });
 
-test("the channel result names the extra channels that differ from channel 0", async () => {
-  const same = makeWav(2, 3000);
-  const differ = makeWav(4, 3000, [1]);
-  await writeFile(join(archive, "same.wav"), same);
-  await writeFile(join(archive, "differ.wav"), differ);
-
-  const a = await scanWav(join(archive, "same.wav"));
-  const b = await scanWav(join(archive, "differ.wav"));
-  expect(a.channels).toEqual({ channels: 2, differing: [] });
-  expect(b.channels).toEqual({ channels: 4, differing: [1] });
-  expect(String(a.sha256)).toBe(sha(same));
-  expect(String(b.sha256)).toBe(sha(differ));
+test("the channel result names the extra channels with audio that channel 0 lacks", async () => {
+  const wavs = {
+    same: makeWav(2, 3000),
+    copyAndSilent: makeWav(4, 3000, [], [2, 3]), // the measured 4-channel layout
+    differ: makeWav(4, 3000, [1], [3]),
+  };
+  const scans: Record<string, Awaited<ReturnType<typeof scanWav>>> = {};
+  for (const [name, wav] of Object.entries(wavs)) {
+    await writeFile(join(archive, `${name}.wav`), wav);
+    scans[name] = await scanWav(join(archive, `${name}.wav`));
+    expect(String(scans[name]!.sha256)).toBe(sha(wav));
+  }
+  expect(scans.same!.channels).toEqual({ channels: 2, differing: [], silent: [] });
+  expect(scans.copyAndSilent!.channels).toEqual({ channels: 4, differing: [], silent: [2, 3] });
+  expect(scans.differ!.channels).toEqual({ channels: 4, differing: [1], silent: [3] });
 });
 
 test("a hub whose key does not match the pin gets no request", async () => {
