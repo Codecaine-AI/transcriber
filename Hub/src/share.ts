@@ -34,8 +34,6 @@ export function assertWindowOpen(now: Date) {
 /// A file at the share root that exists only on the mounted share, never in the bare mount point.
 export const SHARE_MARKER = ".transcriber-hub-share";
 
-export type Faults = { afterFileWrite?: (sha: Sha256) => void };
-
 const CHUNK = 1 << 20;
 /// A temp file older than this belongs to no live upload (a post times out long before).
 const STALE_PARTIAL_MS = 60 * 60 * 1000;
@@ -45,7 +43,6 @@ export class Share {
   constructor(
     private readonly root: string,
     private readonly clock: Clock,
-    private readonly faults: Faults = {},
   ) {}
 
   private async guard() {
@@ -55,6 +52,9 @@ export class Share {
     } catch {
       throw new HttpError(503, "share_unavailable", "the transcripts share is not mounted");
     }
+    // The marker check awaited, so the window can have started since the first check. The open() or
+    // rename() that follows a guard runs right after this one.
+    assertWindowOpen(this.clock());
   }
 
   /// SHA-256 of the file at a share path, or null when there is no file.
@@ -114,7 +114,6 @@ export class Share {
       if (windowWait(this.clock()) === 0) await rm(temp, { force: true }).catch(() => {});
       throw error;
     }
-    this.faults.afterFileWrite?.(sha);
     const back = await this.hash(relative);
     if (back !== sha) {
       await this.guard();

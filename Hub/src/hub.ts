@@ -16,7 +16,7 @@ import {
   type RecordingId,
 } from "./record.ts";
 import { search } from "./search.ts";
-import { assertWindowOpen, Share, type Clock, type Faults } from "./share.ts";
+import { assertWindowOpen, Share, type Clock } from "./share.ts";
 import { assertWritable, confirmFor, recordingOwner, storedHashes, writeRows } from "./store.ts";
 import { deviceFor, readTokens } from "./tokens.ts";
 
@@ -26,7 +26,6 @@ export type HubConfig = {
   tokensPath: string;
   clock?: Clock;
   log?: (line: string) => void;
-  faults?: Faults;
 };
 
 export type LogLine = {
@@ -47,7 +46,7 @@ const RECONFIRM = /^\/v1\/records\/([^/]+)\/reconfirm$/;
 export function createHub(config: HubConfig) {
   const clock = config.clock ?? (() => new Date());
   const log = config.log ?? ((line: string) => process.stdout.write(`${line}\n`));
-  const share = new Share(config.shareRoot, clock, config.faults);
+  const share = new Share(config.shareRoot, clock);
   const { db } = config;
 
   const authenticate = async (req: Request, ctx: Context) => {
@@ -91,6 +90,11 @@ export function createHub(config: HubConfig) {
     const owner = assertOwner(id, device);
     if (!owner)
       return json({ ok: false, mismatches: [{ field: "recording", expected: id, found: null }] });
+    // Read the stored hashes after the awaited FLAC hash, so a concurrent re-send cannot leave
+    // the text hashes stale.
+    const before = storedHashes(db, id);
+    const onShare =
+      before.audio_sha256 && before.nas_path ? await share.hash(before.nas_path) : null;
     const stored = storedHashes(db, id);
     const mismatches: {
       field: string;
@@ -103,11 +107,8 @@ export function createHub(config: HubConfig) {
         expected: held.flac_sha256,
         found: stored.audio_sha256,
       });
-    if (stored.audio_sha256) {
-      const onShare = stored.nas_path ? await share.hash(stored.nas_path) : null;
-      if (onShare !== stored.audio_sha256)
-        mismatches.push({ field: "flac_file", expected: stored.audio_sha256, found: onShare });
-    }
+    if (stored.audio_sha256 && onShare !== stored.audio_sha256)
+      mismatches.push({ field: "flac_file", expected: stored.audio_sha256, found: onShare });
     if (held.source_sha256 !== undefined && held.source_sha256 !== stored.source_sha256)
       mismatches.push({
         field: "source",
