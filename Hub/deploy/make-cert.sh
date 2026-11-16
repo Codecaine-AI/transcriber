@@ -5,6 +5,9 @@
 # is kept, so a renewed certificate keeps the same public-key pin. The validity is 825 days, the most
 # Apple accepts for a TLS server certificate. It prints the SHA-256 public-key pin (base64 of the
 # SHA-256 of the DER SubjectPublicKeyInfo) that the Transcriber Client pins.
+# The certificate is its own trust anchor, so it carries CA:TRUE and keyCertSign: Bun, Node and
+# BoringSSL refuse a self-signed CA:FALSE certificate given as the CA ("unable to verify the first
+# certificate"), measured 2026-11-16.
 set -euo pipefail
 umask 077
 openssl=/opt/homebrew/bin/openssl
@@ -24,7 +27,7 @@ chmod 600 "$dir/key.pem"
 new=$(mktemp "$dir/.cert.XXXXXX")
 "$openssl" req -x509 -new -key "$dir/key.pem" -sha256 -days 825 -subj "/CN=transcriber-hub services-01" \
   -addext "subjectAltName=$san" -addext "extendedKeyUsage=serverAuth" \
-  -addext "keyUsage=critical,digitalSignature" -addext "basicConstraints=critical,CA:false" -out "$new"
+  -addext "keyUsage=critical,digitalSignature,keyCertSign" -addext "basicConstraints=critical,CA:TRUE" -out "$new"
 chmod 644 "$new" && mv -fh "$new" "$dir/cert.pem"
 "$openssl" x509 -in "$dir/cert.pem" -noout -subject -enddate -ext subjectAltName
 pin=$("$openssl" x509 -in "$dir/cert.pem" -pubkey -noout | "$openssl" pkey -pubin -outform der | "$openssl" dgst -sha256 -binary | base64)
