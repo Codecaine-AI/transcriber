@@ -110,7 +110,6 @@ export const artifactPath = (sha: Sha256) => `artifacts/${sha.slice(0, 2)}/${sha
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SHA = /^[0-9a-f]{64}$/;
-const BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 const bad = (message: string) => new HttpError(400, "bad_record", message);
 
@@ -198,8 +197,11 @@ export function parseRecordPost(body: unknown, device: DeviceId): Rows {
   if (a) {
     const claimed = parseSha(a.sha256, "audio.sha256");
     const encoded = str(a, "flac_base64");
-    if (!BASE64.test(encoded)) throw bad("audio.flac_base64 must be base64");
-    const flac = new Uint8Array(Buffer.from(encoded, "base64"));
+    // Decode, then require the canonical re-encode to give back the same text. No regex: Bun's
+    // regex engine stops matching a base64 pattern past about 8 MB of text (a 75 s take).
+    const decoded = Buffer.from(encoded, "base64");
+    if (decoded.toString("base64") !== encoded) throw bad("audio.flac_base64 must be base64");
+    const flac = new Uint8Array(decoded);
     if (sha256Hex(flac) !== claimed)
       throw new HttpError(400, "bad_hash", "the FLAC bytes do not hash to audio.sha256");
     if (!isMonoFlac(flac)) throw bad("the audio must be a mono FLAC");

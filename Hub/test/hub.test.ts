@@ -21,7 +21,7 @@ const OPEN = new Date("2026-11-16T09:00:00Z");
 const sha = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
 
 /// A mono FLAC header (fLaC + STREAMINFO, 16 kHz, 1 channel, 16 bit) and a random body.
-function makeFlac(channels = 1): Uint8Array {
+function makeFlac(channels = 1, bodyBytes = 4096): Uint8Array {
   const head = new Uint8Array(42);
   head.set([0x66, 0x4c, 0x61, 0x43, 0x80, 0, 0, 34]);
   const si = head.subarray(8);
@@ -30,7 +30,10 @@ function makeFlac(channels = 1): Uint8Array {
   si[11] = 0xe8;
   si[12] = (0x0 << 4) | ((channels - 1) << 1) | (15 >> 4);
   si[13] = (15 & 0x0f) << 4;
-  return new Uint8Array([...head, ...randomBytes(4096)]);
+  const flac = new Uint8Array(head.length + bodyBytes);
+  flac.set(head);
+  flac.set(randomBytes(bodyBytes), head.length);
+  return flac;
 }
 
 let dir: string;
@@ -289,6 +292,27 @@ test("a cancelled take with no audio and no text is stored and confirmed with em
 
 test("a stereo FLAC is refused", async () => {
   expect((await post(hub(), record(makeFlac(2)))).status).toBe(400);
+  expect(counts()).toEqual(NOTHING);
+});
+
+test("a 10-minute-sized FLAC (over 12 MB) is accepted and stored whole", async () => {
+  const flac = makeFlac(1, 12_500_000);
+  const body = record(flac);
+  const res = await post(hub(), body);
+  expect(res.status).toBe(200);
+  expect((await res.json()).flac_sha256).toBe(sha(flac));
+  expect(db.query("select bytes from audio").get()).toEqual({ bytes: flac.length });
+  expect(counts()).toEqual(ONE_SET);
+});
+
+test("audio that is not base64 is refused and nothing is written", async () => {
+  for (const flac_base64 of ["fLaC!!not base64", "ZmxhYw", "ZmxhYw=x"]) {
+    const body = record();
+    body.audio!.flac_base64 = flac_base64;
+    const res = await post(hub(), body);
+    expect(res.status).toBe(400);
+    expect((await res.json()).message).toBe("audio.flac_base64 must be base64");
+  }
   expect(counts()).toEqual(NOTHING);
 });
 
