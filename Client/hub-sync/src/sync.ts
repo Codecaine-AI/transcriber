@@ -1,5 +1,6 @@
-// One sync run: select every archive record without a stored confirm, post each one with its mono
-// FLAC, check the confirm against what was sent, and store it. A hub that cannot be reached, a 503
+// One sync run: select every archive record without a stored confirm, or whose texts changed since
+// their confirm (Transcriber processed the take again), post each one with its mono FLAC, check the
+// confirm against what was sent, and store it. A hub that cannot be reached, a 503
 // (the NAS window or an unmounted share), a refused pin or a refused token stops the run; the rest
 // wait for the next run. A record that fails on its own is logged and tried again next run.
 import { mkdtemp, rm } from "node:fs/promises";
@@ -9,7 +10,7 @@ import { stamp } from "../../../Hub/src/ids.ts";
 import { sha256Hex, type RecordPost, type Sha256 } from "../../../Hub/src/record.ts";
 import { readHead, readRecord, recordDirs, type ArchiveRecord } from "./archive.ts";
 import { monoFlac, scanWav, type ChannelResult } from "./audio.ts";
-import type { ConfirmStore } from "./confirms.ts";
+import type { ConfirmedTexts, ConfirmStore } from "./confirms.ts";
 import { HubClient, RecordRefused, StopRun, type HubTarget, type Stop } from "./hub-client.ts";
 
 export type SyncOptions = {
@@ -23,7 +24,8 @@ export type SyncOptions = {
   now?: () => Date;
 };
 
-export type Selected = { dir: string; recordingId: string; recordedAt: string };
+/// resend: the record has a confirm, but its texts changed since.
+export type Selected = { dir: string; recordingId: string; recordedAt: string; resend: boolean };
 
 export type RunSummary = {
   event: "run";
@@ -35,11 +37,11 @@ export type RunSummary = {
   hub: string | null;
 };
 
-/// Every record without a stored confirm, oldest first, after --since and narrowed by --only.
-/// A folder whose metadata.json cannot be read is reported through onError and left out.
+/// Every record without a stored confirm or whose texts differ from it, oldest first, after --since
+/// and narrowed by --only. A folder that cannot be read is reported through onError and left out.
 export async function selectRecords(opts: {
   archiveRoot: string;
-  confirmed: Set<string>;
+  confirmed: Map<string, ConfirmedTexts>;
   since: string | null;
   only: string | null;
   onError: (dir: string, error: unknown) => void;
@@ -52,8 +54,12 @@ export async function selectRecords(opts: {
       const head = await readHead(dir);
       if (only && head.recordingId !== only) continue;
       if (since && head.recordedAt < since) continue;
-      if (opts.confirmed.has(head.recordingId)) continue;
-      out.push({ dir, ...head });
+      const confirmed = opts.confirmed.get(head.recordingId);
+      if (confirmed) {
+        const now = (await readRecord(dir)).textSha256;
+        if (now.raw === confirmed.raw && now.clean === confirmed.clean) continue;
+      }
+      out.push({ dir, ...head, resend: confirmed !== undefined });
     } catch (error) {
       opts.onError(dir, error);
     }
@@ -130,7 +136,7 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
   const now = opts.now ?? (() => new Date());
   const selected = await selectRecords({
     archiveRoot: opts.archiveRoot,
-    confirmed: opts.store.confirmedIds(),
+    confirmed: opts.store.confirmedTexts(),
     since: opts.since,
     only: opts.only,
     onError: (dir, error) =>
@@ -152,6 +158,7 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
         result: "would_send",
         recording_id: s.recordingId,
         recorded_at: s.recordedAt,
+        resend: s.resend,
       });
     return summary;
   }
@@ -162,7 +169,12 @@ export async function runSync(opts: SyncOptions): Promise<RunSummary> {
     summary.hub = await hub.connect();
     for (const s of selected) {
       const started = Date.now();
-      const base = { event: "record", recording_id: s.recordingId, recorded_at: s.recordedAt };
+      const base = {
+        event: "record",
+        recording_id: s.recordingId,
+        recorded_at: s.recordedAt,
+        resend: s.resend,
+      };
       let p: Prepared;
       try {
         p = await prepare(s.dir);

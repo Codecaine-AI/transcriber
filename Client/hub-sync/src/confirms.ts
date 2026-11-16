@@ -1,5 +1,5 @@
 // The confirms the hub sent back, in a local SQLite file. A record is skipped by the next run only
-// when its confirm is stored here. Checkpoint 6 (the local delete) reconfirms from these rows.
+// when its confirm is stored here and its texts still hash to the confirmed texts. Checkpoint 6 (the local delete) reconfirms from these rows.
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -15,6 +15,8 @@ export type StoredConfirm = {
   confirmed_at: string;
   hub: string;
 };
+
+export type ConfirmedTexts = { raw: Sha256 | null; clean: Sha256 | null };
 
 export class ConfirmStore {
   private readonly db: Database;
@@ -37,12 +39,16 @@ export class ConfirmStore {
     )`);
   }
 
-  confirmedIds(): Set<string> {
-    return new Set(
+  /// The text hashes of every stored confirm, by recording ID.
+  confirmedTexts(): Map<string, ConfirmedTexts> {
+    return new Map(
       this.db
-        .query<{ recording_id: string }, []>("select recording_id from confirms")
+        .query<
+          { recording_id: string; raw_sha256: Sha256 | null; clean_sha256: Sha256 | null },
+          []
+        >("select recording_id, raw_sha256, clean_sha256 from confirms")
         .all()
-        .map((r) => r.recording_id),
+        .map((r) => [r.recording_id, { raw: r.raw_sha256, clean: r.clean_sha256 }]),
     );
   }
 
