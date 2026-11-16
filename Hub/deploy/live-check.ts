@@ -1,9 +1,10 @@
-// Live checks of a deployed hub, run on the MacBook with the token of the test device:
-//   HUB_CA=<cert.pem> HUB_TOKEN_FILE=<file> bun deploy/live-check.ts <address> [address ...]
+// Live checks of a deployed hub, run on the MacBook with the tokens of the two test devices:
+//   HUB_CA=<cert.pem> HUB_TOKEN_FILE=<file> HUB_TOKEN_FILE_2=<file> bun deploy/live-check.ts <address> [address ...]
 //   HUB_CA=<cert.pem> HUB_TOKEN_FILE=<file> bun deploy/live-check.ts --revoked <address> [address ...]
 // For each address it posts a small generated FLAC record, replays it, cuts a post off twice and
 // resends it, sends a wrong hash, no token, a wrong token and a record of the MacBook device, then
-// reconfirms and searches. It reads the share and the database on services-01 over ssh (read only).
+// reconfirms and searches. It posts one new recording from both test devices at once (one wins,
+// the other gets 403) and resends a record with new texts (the rows take the new texts). It reads the share and the database on services-01 over ssh (read only).
 // With HUB_CHECK_LOCAL=1 it runs on services-01 itself and reads them directly. It makes each FLAC
 // from a generated 1-second WAV with macOS afconvert.
 // It prints one JSON line per check and exits 1 when a check fails. It never prints the token.
@@ -14,10 +15,12 @@ const PORT = Number(process.env.HUB_PORT || 8797);
 const ca = await Bun.file(process.env.HUB_CA!).text();
 const token = (await Bun.file(process.env.HUB_TOKEN_FILE!).text()).trim();
 const TEST_DEVICE = "hub-test-device";
+const TEST_DEVICE_2 = "hub-test-device-2";
 const MACBOOK = "05d8dedd-c925-4924-8db9-45f3e7452d34";
 const args = process.argv.slice(2);
 const revokedMode = args[0] === "--revoked";
 const addresses = revokedMode ? args.slice(1) : args;
+const token2 = revokedMode ? "" : (await Bun.file(process.env.HUB_TOKEN_FILE_2!).text()).trim();
 let failed = 0;
 
 const sha = (d: Uint8Array | string) => createHash("sha256").update(d).digest("hex");
@@ -297,6 +300,87 @@ async function checkAddress(address: string, n: number) {
     })
   ).json();
   report(address, "reconfirm re-hashes the FLAC on the share", re.ok === true, re);
+
+  // Two devices post the same new recording at once, each with its own text provider. Only one
+  // may write: the other gets 403, and the recording holds one transcription.
+  const raceFlac = await makeFlac(2000 + n * 110);
+  const a = record(raceFlac, `${word}race`, TEST_DEVICE);
+  const b = structuredClone(a);
+  b.recording.device_id = TEST_DEVICE_2;
+  b.transcription.provider = "hub-live-check-b";
+  const raceId = a.recording.recording_id;
+  const [ra, rb] = await Promise.all([
+    call(address, "/v1/records", { method: "POST", body: JSON.stringify(a) }),
+    call(address, "/v1/records", { method: "POST", body: JSON.stringify(b), auth: token2 }),
+  ]);
+  const raceRows = await stored(raceId, a.audio.sha256);
+  const owner = await ssh(
+    `sqlite3 -readonly ~/data/transcripts/transcripts.sqlite "select device_id from recordings where recording_id='${raceId}'"`,
+  );
+  const statuses = [ra.status, rb.status].sort();
+  const winner = ra.status === 200 ? TEST_DEVICE : TEST_DEVICE_2;
+  report(
+    address,
+    "two devices posting one new recording at once: one wins, the other gets 403",
+    statuses[0] === 200 &&
+      statuses[1] === 403 &&
+      owner === winner &&
+      raceRows.recordings === 1 &&
+      raceRows.transcriptions === 1 &&
+      raceRows.cleanups === 1,
+    { statuses: [ra.status, rb.status], owner, stored: raceRows },
+  );
+
+  // The same take processed again: a resend with new texts updates the rows of the same IDs.
+  const again = structuredClone(body);
+  const newWord = `${word}again`;
+  again.transcription.text = `hub live check raw ${newWord}`;
+  again.cleanup.text = `Hub live check, ${newWord}.`;
+  const changed = await call(address, "/v1/records", {
+    method: "POST",
+    body: JSON.stringify(again),
+  });
+  const changedConfirm = await changed.json();
+  const afterChange = await stored(id, body.audio.sha256);
+  const texts = await ssh(
+    `sqlite3 -readonly ~/data/transcripts/transcripts.sqlite "select text from transcriptions where recording_id='${id}'; select text from cleanups where recording_id='${id}'"`,
+  );
+  const oldHits = (await (await call(address, `/v1/search?q=${word}`)).json()).results ?? [];
+  const newHits = (await (await call(address, `/v1/search?q=${newWord}`)).json()).results ?? [];
+  const { recording_id: _id2, ...newHeld } = changedConfirm;
+  const reNew = await (
+    await call(address, `/v1/records/${id}/reconfirm`, {
+      method: "POST",
+      body: JSON.stringify(newHeld),
+    })
+  ).json();
+  report(
+    address,
+    "a resend with new texts updates the rows, and reconfirm passes with the new hashes",
+    changed.status === 200 &&
+      changedConfirm.text_sha256.raw === sha(again.transcription.text) &&
+      changedConfirm.text_sha256.clean === sha(again.cleanup.text) &&
+      changedConfirm.flac_sha256 === body.audio.sha256 &&
+      JSON.stringify(afterChange) === JSON.stringify(after) &&
+      texts === `${again.transcription.text}\n${again.cleanup.text}` &&
+      newHits[0]?.recording_id === id &&
+      !oldHits.some((h: { recording_id: string }) => h.recording_id === id) &&
+      reNew.ok === true,
+    {
+      status: changed.status,
+      stored: afterChange,
+      new_word_found: newHits[0]?.recording_id === id,
+      old_word_found: oldHits.some((h: { recording_id: string }) => h.recording_id === id),
+      reconfirm: reNew,
+    },
+  );
+  const reOld = await (
+    await call(address, `/v1/records/${id}/reconfirm`, {
+      method: "POST",
+      body: JSON.stringify(held),
+    })
+  ).json();
+  report(address, "reconfirm with the old text hashes now fails", reOld.ok === false, reOld);
 }
 
 async function checkRevoked(address: string) {
