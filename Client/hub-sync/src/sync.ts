@@ -96,9 +96,10 @@ export async function flacAudio(wav: string, expected: Sha256): Promise<FlacAudi
   const scan = await scanWav(wav);
   if (scan.sha256 !== expected)
     throw new Error("the source WAV does not hash to its listed sha256");
+  const frames = Math.floor(scan.layout.dataBytes / scan.layout.blockAlign);
   const temp = await mkdtemp(join(tmpdir(), "transcriber-hub-sync-"));
   try {
-    const flac = await monoFlac(wav, temp);
+    const flac = await monoFlac(wav, temp, frames);
     const flacSha = sha256Hex(flac);
     return {
       flacSha,
@@ -109,7 +110,7 @@ export async function flacAudio(wav: string, expected: Sha256): Promise<FlacAudi
         source_sha256: scan.sha256,
         source_bytes: scan.bytes,
         sample_rate: scan.layout.sampleRate,
-        frame_count: Math.floor(scan.layout.dataBytes / scan.layout.blockAlign),
+        frame_count: frames,
         flac_base64: Buffer.from(flac).toString("base64"),
       },
     };
