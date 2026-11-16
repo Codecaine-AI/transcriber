@@ -13,10 +13,11 @@ const dir = process.env.HUB_CONFIG || join(homedir(), ".config/transcriber-hub")
 const path = join(dir, "tokens.json");
 const [command, deviceArg] = process.argv.slice(2);
 await mkdir(dir, { recursive: true, mode: 0o700 });
+// Read the token before the table, so the table this run writes back is read a moment before.
+const token = command === "add" ? (await Bun.stdin.text()).replace(/[\r\n]+$/, "") : "";
 const table = await readTokens(path);
 
 if (command === "add" && deviceArg) {
-  const token = (await Bun.stdin.text()).replace(/[\r\n]+$/, "");
   await writeTokens(path, addToken(table, deviceArg as DeviceId, token));
   console.log(`tokens-cli: stored the hash of a ${token.length}-character token for ${deviceArg}`);
 } else if (command === "revoke" && deviceArg) {

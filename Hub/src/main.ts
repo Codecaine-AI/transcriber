@@ -47,10 +47,15 @@ process.stdout.write(
   `${JSON.stringify({ time: new Date().toISOString(), event: "listening", hosts, port })}\n`,
 );
 
-function stop() {
-  for (const s of servers) void s.stop();
+/// Let requests in flight finish (at most 60 s), then close the database. A second signal waits
+/// for the first shutdown.
+let stopping = false;
+async function stop() {
+  if (stopping) return;
+  stopping = true;
+  await Promise.race([Promise.all(servers.map((s) => s.stop())), Bun.sleep(60_000)]);
   db.close();
   process.exit(0);
 }
-process.on("SIGTERM", stop);
-process.on("SIGINT", stop);
+process.on("SIGTERM", () => void stop());
+process.on("SIGINT", () => void stop());

@@ -6,10 +6,12 @@ import type { Database } from "bun:sqlite";
 const FUSE_DEPTH = 20;
 const TOPN = 100;
 const K = 60;
-// Python re \w on str: letters, digits and "_" in every script.
-const TOKEN = /[\p{L}\p{N}_'’]+/gu;
+// The words the cleanups_fts tokenizer (unicode61, apostrophes as token characters) makes: letters
+// and digits in every script. "_" separates words there, so it does here. NFC keeps a decomposed
+// accented letter in its word.
+const TOKEN = /[\p{L}\p{N}'’]+/gu;
 
-const tokens = (q: string) => q.toLowerCase().match(TOKEN) ?? [];
+const tokens = (q: string) => q.normalize("NFC").toLowerCase().match(TOKEN) ?? [];
 
 export const ftsQuery = (q: string) =>
   tokens(q)
