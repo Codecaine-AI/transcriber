@@ -4,7 +4,8 @@
 # macOS denies a LaunchDaemon access to network volumes, and sshd holds Full Disk Access, so the hub
 # runs inside this ssh session (the agent-traces trace-nas pattern).
 #   1. Stop a hub that an earlier session left behind.
-#   2. Mount the share when needed, never in the NAS window, and at most once in 5 minutes: the NAS
+#   2. Mount or repair the share when it is not healthy (mounted read-write, marker there, a write
+#      probe passes), never in the NAS window, and at most once in 5 minutes: the NAS
 #      blocks an address after 10 failed sign-ins in 5 minutes.
 #   3. Start the hub. Every 15 minutes outside the window, check the mount again.
 #   4. When the ssh session ends (launchd stopped hub-job), its stdin closes and the hub stops.
@@ -21,16 +22,23 @@ say() { echo "hub-run: $(date -u +%FT%TZ) $*"; }
 [ -f "$app/src/main.ts" ] || { say "FAILED: $app/src/main.ts is missing. Run install-daemon.sh with the current folder." >&2; exit 1; }
 
 in_window() { local m=$((10#$(date -u +%H%M))); [ "$m" -ge 1057 ] && [ "$m" -lt 1200 ]; }
+share="$HOME/mnt/nas-transcripts"
+# Healthy: mounted read-write, the marker is there, and a small file writes, reads back and goes.
+healthy() {
+  mount | grep " on $share (smbfs" | grep -qv "read-only" &&
+    perl -e 'alarm 20; exec @ARGV' /bin/test -f "$share/.transcriber-hub-share" &&
+    perl -e 'alarm 20; exec @ARGV' /bin/sh -c 'f=$(mktemp "$1/.nas-probe.XXXXXX") && printf probe > "$f" && [ "$(cat "$f")" = probe ] && rm -f "$f"' sh "$share" 2>/dev/null
+}
 mount_check() {
   in_window && return 0
   local stamp="$state/last-mount-try"
-  if mount | grep -q " on $HOME/mnt/nas-transcripts (smbfs" && perl -e 'alarm 20; exec @ARGV' /bin/test -f "$HOME/mnt/nas-transcripts/.transcriber-hub-share"; then
-    return 0
-  fi
+  healthy && return 0
   if [ -f "$stamp" ] && [ $(( $(date +%s) - $(stat -f %m "$stamp") )) -lt 300 ]; then
     say "the share is not ready, and the last mount try was less than 5 minutes ago"
     return 0
   fi
+  # The probes above can take 40 s. Check the window again before mount.sh touches the share.
+  in_window && return 0
   touch "$stamp"
   /bin/bash "$app/deploy/mount.sh" || say "the mount failed. Share routes answer 503 until a later check mounts it." >&2
 }

@@ -20,6 +20,8 @@ app="${HUB_APP:-}"
 hosts="${HUB_HOSTS:-}"
 port="${HUB_PORT:-8797}"
 case "$app" in /*) ;; *) echo "install-daemon.sh: set HUB_APP to an absolute path" >&2; exit 1;; esac
+# hub-run takes the path as a bare shell word, and sed takes it as a replacement text.
+[[ "$app" =~ ^[A-Za-z0-9/._-]+$ ]] || { echo "install-daemon.sh: HUB_APP may hold only letters, digits and / . _ -" >&2; exit 1; }
 [ -f "$app/src/main.ts" ] || { echo "install-daemon.sh: $app/src/main.ts is missing" >&2; exit 1; }
 [[ "$hosts" =~ ^[0-9.]+(,[0-9.]+)*$ ]] || { echo "install-daemon.sh: HUB_HOSTS must be a comma list of IPv4 addresses" >&2; exit 1; }
 case ",$hosts," in *,0.0.0.0,*) echo "install-daemon.sh: HUB_HOSTS must not hold 0.0.0.0" >&2; exit 1;; esac

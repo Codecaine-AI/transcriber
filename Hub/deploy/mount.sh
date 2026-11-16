@@ -49,6 +49,9 @@ do_mount() {
   mkdir -p "$mount_point"
   [ ! -L "$mount_point" ] || die "the mount point $mount_point is a symbolic link"
   chmod 700 "$mount_point"
+  # A hub write cut off by a forced unmount can leave empty artifacts folders here. Only empty
+  # folders go. Any file stays and stops the mount below.
+  find "$mount_point" -mindepth 1 -type d -empty -delete
   # A file in the bare mount point means something wrote into it while the share was gone.
   if [ -n "$(ls -A "$mount_point")" ]; then die "the bare mount point $mount_point is not empty. Nothing was mounted."; fi
   build_helper

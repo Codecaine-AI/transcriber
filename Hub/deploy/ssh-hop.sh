@@ -18,6 +18,13 @@ mkdir -p "$cfg"
 [ ! -L "$cfg" ] || die "$cfg is a symbolic link"
 chmod 700 "$cfg"
 for f in "$key" "$key.pub" "$auth"; do plain "$f" || die "$f is a link or not a regular file. Nothing was written."; done
+# A first setup can have no authorized_keys yet.
+if [ ! -e "$auth" ]; then
+  mkdir -p "$(dirname "$auth")"
+  [ ! -L "$(dirname "$auth")" ] || die "$(dirname "$auth") is a symbolic link"
+  chmod 700 "$(dirname "$auth")"
+  ( umask 077 && : > "$auth" )
+fi
 if [ ! -f "$key" ]; then
   made=$(mktemp -d "$cfg/.hub-job-key.XXXXXX")
   ssh-keygen -q -t ed25519 -N "" -C "transcriber-hub@services-01" -f "$made/key"
