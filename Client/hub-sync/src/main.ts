@@ -15,6 +15,7 @@ import {
   closeSync,
   constants,
   fchmodSync,
+  ftruncateSync,
   mkdirSync,
   openSync,
   writeFileSync,
@@ -75,14 +76,12 @@ try {
       );
     mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
     // One descriptor for the mode and the write: O_NOFOLLOW refuses a symlink at --out, and
-    // fchmod makes an existing report owner-only (it fails on a file another user owns).
-    const fd = openSync(
-      out,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
-      0o600,
-    );
+    // fchmod makes an existing report owner-only (it fails on a file another user owns) before the
+    // truncate, so a refused file keeps its contents.
+    const fd = openSync(out, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
     try {
       fchmodSync(fd, 0o600);
+      ftruncateSync(fd, 0); // only after fchmod passed, so a refused file keeps its contents
       writeFileSync(
         fd,
         `${JSON.stringify({ generated_at: new Date().toISOString(), ...result }, null, 1)}\n`,
