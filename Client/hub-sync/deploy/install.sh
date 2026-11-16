@@ -14,9 +14,16 @@ release="$share/releases/$commit"
 config="$HOME/.config/transcriber-hub-client"
 label=ai.codecaine.transcriber.hub-sync
 plist="$HOME/Library/LaunchAgents/$label.plist"
-bun="$HOME/.bun/bin/bun"
+# The job runs Bun by its absolute path: the one on PATH, else the usual install places.
+bun=$(command -v bun || true)
+for b in "$bun" "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun; do
+  if [ -n "$b" ] && [ -x "$b" ]; then bun=$(cd "$(dirname "$b")" && pwd -P)/$(basename "$b"); break; fi
+  bun=""
+done
+[ -n "$bun" ] || { echo "install.sh: no bun found on PATH, in ~/.bun/bin or in Homebrew" >&2; exit 1; }
+case "$bun" in *[#\&]*) echo "install.sh: the bun path $bun holds a character the plist edit cannot take" >&2; exit 1;; esac
 
-mkdir -p "$share/releases" "$config" "$HOME/.local/state/transcriber-hub-client"
+mkdir -p "$share/releases" "$config" "$HOME/.local/state/transcriber-hub-client" "$HOME/Library/LaunchAgents"
 if [ ! -d "$release" ]; then
   tmp=$(mktemp -d "$share/releases/.new.XXXXXX")
   git -C "$repo" archive "$commit" Client/hub-sync Hub/src | tar -x -C "$tmp"
@@ -34,4 +41,4 @@ mv -f "$plist.new" "$plist"
 chmod 644 "$plist"
 launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$plist"
-echo "install.sh: $label from $commit, next run at 23:30"
+echo "install.sh: $label from $commit with $bun, next run at 23:30"
