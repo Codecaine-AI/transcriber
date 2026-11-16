@@ -1,7 +1,10 @@
 // The transcripts database (schema.sql, owned by the transcripts-nas Session). The hub never changes
-// its tables. It writes each record in one transaction with INSERT OR IGNORE, so a replay changes
-// nothing, and the cleanups_ai trigger indexes the cleaned text in cleanups_fts.
+// its tables. It writes each record in one BEGIN IMMEDIATE transaction with INSERT OR IGNORE, so a
+// replay changes nothing, and the cleanups_ai and cleanups_au triggers keep cleanups_fts in step.
+// A post whose texts differ from the stored rows of the same IDs (a take Transcriber processed
+// again) updates those rows in place.
 import { Database } from "bun:sqlite";
+import { HttpError } from "./errors.ts";
 import type { Confirm, DeviceId, RecordingId, Rows, Sha256 } from "./record.ts";
 import { sha256Hex } from "./record.ts";
 
@@ -30,8 +33,20 @@ export function recordingOwner(db: Database, id: RecordingId): Owner | null {
     .get(id);
 }
 
+/// 403 when the recording belongs to another device, 409 when it already has other audio.
+export function assertWritable(db: Database, rows: Rows) {
+  const owner = recordingOwner(db, rows.recording.recording_id);
+  if (owner && owner.device_id !== rows.recording.device_id)
+    throw new HttpError(403, "device_mismatch", "the recording belongs to another device");
+  if (owner?.audio_sha256 && rows.audio && owner.audio_sha256 !== rows.audio.sha256)
+    throw new HttpError(409, "audio_conflict", "the recording already has other audio");
+}
+
+/// Write one record. The ownership and audio checks run again inside the write lock, so two
+/// devices that post the same new recording at once cannot both write under it.
 export function writeRows(db: Database, rows: Rows) {
   db.transaction(() => {
+    assertWritable(db, rows);
     const { recording: r, audio: a, transcription: t, cleanup: c } = rows;
     if (a)
       db.query(
@@ -81,6 +96,20 @@ export function writeRows(db: Database, rows: Rows) {
         t.detected_language,
         t.text,
       );
+    // The same take processed again: the row of these IDs takes the new text and its run details.
+    if (t)
+      db.query(
+        "update transcriptions set model_version = ?, settings = ?, processing_seconds = ?," +
+          " detected_language = ?, text = ? where transcription_id = ? and text is not ?",
+      ).run(
+        t.model_version,
+        t.settings,
+        t.processing_seconds,
+        t.detected_language,
+        t.text,
+        t.transcription_id,
+        t.text,
+      );
     if (c)
       db.query(
         "insert or ignore into cleanups(cleanup_id, transcription_id, recording_id, engine, engine_version, model," +
@@ -98,7 +127,28 @@ export function writeRows(db: Database, rows: Rows) {
         c.status,
         c.text,
       );
-  })();
+    if (c)
+      db.query(
+        "update cleanups set engine = ?, engine_version = ?, model = ?, model_sha256 = ?, prompt_sha256 = ?," +
+          " status = ?, text = ? where cleanup_id = ? and text is not ?",
+      ).run(
+        c.engine,
+        c.engine_version,
+        c.model,
+        c.model_sha256,
+        c.prompt_sha256,
+        c.status,
+        c.text,
+        c.cleanup_id,
+        c.text,
+      );
+    if (t || c)
+      db.query("update recordings set status = ? where recording_id = ? and status is not ?").run(
+        r.status,
+        r.recording_id,
+        r.status,
+      );
+  }).immediate();
 }
 
 const textHash = (row: { text: string } | null) => (row ? sha256Hex(row.text) : null);
@@ -128,6 +178,7 @@ export function confirmFor(db: Database, rows: Rows): Confirm {
 
 export type Stored = {
   audio_sha256: Sha256 | null;
+  source_sha256: Sha256 | null;
   nas_path: string | null;
   raw: Sha256[];
   clean: Sha256[];
@@ -135,8 +186,12 @@ export type Stored = {
 
 export function storedHashes(db: Database, id: RecordingId): Stored {
   const row = db
-    .query<{ audio_sha256: Sha256 | null; nas_path: string | null }, [string]>(
-      "select r.audio_sha256, a.nas_path from recordings r left join audio a on a.sha256 = r.audio_sha256" +
+    .query<
+      { audio_sha256: Sha256 | null; source_sha256: Sha256 | null; nas_path: string | null },
+      [string]
+    >(
+      "select r.audio_sha256, a.source_sha256, a.nas_path from recordings r" +
+        " left join audio a on a.sha256 = r.audio_sha256" +
         " where r.recording_id = ?",
     )
     .get(id);
@@ -149,6 +204,7 @@ export function storedHashes(db: Database, id: RecordingId): Stored {
       .map((r) => sha256Hex(r.text));
   return {
     audio_sha256: row?.audio_sha256 ?? null,
+    source_sha256: row?.source_sha256 ?? null,
     nas_path: row?.nas_path ?? null,
     raw: texts("transcriptions"),
     clean: texts("cleanups"),

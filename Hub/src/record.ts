@@ -288,7 +288,9 @@ export type Confirm = {
   text_sha256: { raw: Sha256 | null; clean: Sha256 | null };
 };
 
-export type Held = Omit<Confirm, "recording_id">;
+/// source_sha256, when sent, is the SHA-256 of the client's WAV now. The reconfirm then also checks
+/// that the stored FLAC was made from that WAV (null: the client holds no audio).
+export type Held = Omit<Confirm, "recording_id"> & { source_sha256?: Sha256 | null };
 
 export function parseHeld(body: unknown, recordingId: RecordingId): Held {
   if (!isObj(body)) throw bad("the body must be a JSON object");
@@ -303,5 +305,8 @@ export function parseHeld(body: unknown, recordingId: RecordingId): Held {
       raw: shaOrNull(texts.raw, "text_sha256.raw"),
       clean: shaOrNull(texts.clean, "text_sha256.clean"),
     },
+    ...("source_sha256" in body
+      ? { source_sha256: shaOrNull(body.source_sha256, "source_sha256") }
+      : {}),
   };
 }

@@ -1,6 +1,7 @@
 // The hub's routes, as one fetch handler that main.ts serves over TLS and the tests call directly.
 //   POST /v1/records                       store one record, reply with the confirm
 //   POST /v1/records/{recording_id}/reconfirm  re-hash the FLAC on the share and compare every hash
+//                                          (and, when sent, the source WAV's SHA-256)
 //   GET  /v1/search?q=...                  keyword search over the cleaned text
 //   GET  /healthz                          "ok", no auth
 // It logs one line per request (time, route, device_id, status, recording_id) and never a token,
@@ -16,7 +17,7 @@ import {
 } from "./record.ts";
 import { search } from "./search.ts";
 import { assertWindowOpen, Share, type Clock, type Faults } from "./share.ts";
-import { confirmFor, recordingOwner, storedHashes, writeRows } from "./store.ts";
+import { assertWritable, confirmFor, recordingOwner, storedHashes, writeRows } from "./store.ts";
 import { deviceFor, readTokens } from "./tokens.ts";
 
 export type HubConfig = {
@@ -74,9 +75,8 @@ export function createHub(config: HubConfig) {
     assertWindowOpen(clock());
     const rows = parseRecordPost(await body(req), device);
     ctx.recording = rows.recording.recording_id;
-    const owner = assertOwner(rows.recording.recording_id, device);
-    if (owner?.audio_sha256 && rows.audio && owner.audio_sha256 !== rows.audio.sha256)
-      throw new HttpError(409, "audio_conflict", "the recording already has other audio");
+    // Refuse early, before the FLAC upload. writeRows checks again inside its write lock.
+    assertWritable(db, rows);
     if (rows.audio) await share.putFlac(rows.audio.sha256, rows.audio.flac);
     writeRows(db, rows);
     return json(confirmFor(db, rows));
@@ -108,6 +108,12 @@ export function createHub(config: HubConfig) {
       if (onShare !== stored.audio_sha256)
         mismatches.push({ field: "flac_file", expected: stored.audio_sha256, found: onShare });
     }
+    if (held.source_sha256 !== undefined && held.source_sha256 !== stored.source_sha256)
+      mismatches.push({
+        field: "source",
+        expected: held.source_sha256,
+        found: stored.source_sha256,
+      });
     for (const field of ["raw", "clean"] as const) {
       const want = held.text_sha256[field];
       const have = stored[field];
