@@ -92,11 +92,13 @@ export type FlacAudio = {
 
 /// Scan a source WAV and make its mono FLAC in a temp folder (never in the archive). The post sends
 /// the WAV's SHA-256 as audio.source_sha256. A WAV that does not hash to `expected` fails.
-export async function flacAudio(wav: string, expected: Sha256): Promise<FlacAudio> {
+/// A WAV with 0 frames holds no audio: it returns null, like a take with no WAV.
+export async function flacAudio(wav: string, expected: Sha256): Promise<FlacAudio | null> {
   const scan = await scanWav(wav);
   if (scan.sha256 !== expected)
     throw new Error("the source WAV does not hash to its listed sha256");
   const frames = Math.floor(scan.layout.dataBytes / scan.layout.blockAlign);
+  if (frames === 0) return null;
   const temp = await mkdtemp(join(tmpdir(), "transcriber-hub-sync-"));
   try {
     const flac = await monoFlac(wav, temp, frames);
@@ -131,6 +133,14 @@ async function prepare(dir: string): Promise<Prepared> {
       channels: null,
     };
   const a = await flacAudio(record.sourceWav.path, record.sourceWav.sha256);
+  if (!a)
+    return {
+      ...base,
+      post: { ...record.post, audio: null },
+      flacSha: null,
+      flacBytes: null,
+      channels: null,
+    };
   return {
     ...base,
     post: { ...record.post, audio: a.audio },
