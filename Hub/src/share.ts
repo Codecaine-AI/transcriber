@@ -145,7 +145,9 @@ export class Share {
       if (this.activePartials.has(path)) continue;
       await this.guard();
       const info = await stat(path).catch(() => null);
-      if (info && now - info.mtimeMs > STALE_PARTIAL_MS) await rm(path, { force: true });
+      if (!info || now - info.mtimeMs <= STALE_PARTIAL_MS) continue;
+      await this.guard();
+      await rm(path, { force: true });
     }
   }
 }
