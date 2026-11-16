@@ -1,9 +1,10 @@
-// The transcripts share: the only place the hub reads or writes audio. Every read and write first
-// checks the NAS window and the share marker, so a request that runs into 10:57 UTC stops at its
-// next share step, and a bare mount point (the share not mounted) is never written.
+// The transcripts share: the only place the hub reads or writes audio. Every file step first checks
+// the share marker, and every chunk read or written checks the NAS window, so a request that runs
+// into 10:57 UTC stops at its next chunk, and a bare mount point (the share not mounted) is never
+// written.
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, rename, rm, stat } from "node:fs/promises";
+import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { artifactPath, type Sha256 } from "./record.ts";
@@ -35,6 +36,11 @@ export const SHARE_MARKER = ".transcriber-hub-share";
 
 export type Faults = { afterFileWrite?: (sha: Sha256) => void };
 
+const CHUNK = 1 << 20;
+/// A temp file older than this belongs to no live upload (a post times out long before).
+const STALE_PARTIAL_MS = 60 * 60 * 1000;
+const PARTIAL = /^\.[0-9a-f]{64}\.flac\.[0-9a-f]{12}\.partial$/;
+
 export class Share {
   constructor(
     private readonly root: string,
@@ -63,8 +69,9 @@ export class Share {
     }
     try {
       const h = createHash("sha256");
-      const buffer = new Uint8Array(1 << 20);
+      const buffer = new Uint8Array(CHUNK);
       for (;;) {
+        assertWindowOpen(this.clock());
         const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
         if (bytesRead === 0) break;
         h.update(buffer.subarray(0, bytesRead));
@@ -83,18 +90,30 @@ export class Share {
     const final = join(this.root, relative);
     await this.guard();
     await mkdir(dirname(final), { recursive: true, mode: 0o700 });
-    // A temp name that a crashed post leaves behind is recognizable: .<sha>.flac.<random>.partial
+    await this.removeStalePartials(dirname(final));
+    // A temp name that a stopped post leaves behind is recognizable: .<sha>.flac.<random>.partial
     const temp = join(dirname(final), `.${sha}.flac.${randomBytes(6).toString("hex")}.partial`);
     await this.guard();
-    const file = await open(temp, "wx", 0o600);
     try {
-      await file.writeFile(flac);
-      await file.sync();
-    } finally {
-      await file.close();
+      const file = await open(temp, "wx", 0o600);
+      try {
+        for (let at = 0; at < flac.length;) {
+          assertWindowOpen(this.clock());
+          at += (await file.write(flac, at, Math.min(CHUNK, flac.length - at))).bytesWritten;
+        }
+        assertWindowOpen(this.clock());
+        await file.sync();
+      } finally {
+        await file.close();
+      }
+      await this.guard();
+      await rename(temp, final);
+    } catch (error) {
+      // Outside the NAS window, remove the temp file now. Inside it, the next upload to this
+      // folder after the window removes it (removeStalePartials).
+      if (windowWait(this.clock()) === 0) await rm(temp, { force: true }).catch(() => {});
+      throw error;
     }
-    await this.guard();
-    await rename(temp, final);
     this.faults.afterFileWrite?.(sha);
     const back = await this.hash(relative);
     if (back !== sha) {
@@ -107,5 +126,19 @@ export class Share {
       );
     }
     return { wrote: true };
+  }
+
+  /// Remove temp files older than an hour in one artifacts folder: what a failed or stopped upload
+  /// left. A live upload's temp file is minutes old at most, so it is never touched.
+  private async removeStalePartials(folder: string) {
+    await this.guard();
+    const now = this.clock().getTime();
+    for (const name of await readdir(folder)) {
+      if (!PARTIAL.test(name)) continue;
+      const path = join(folder, name);
+      await this.guard();
+      const info = await stat(path).catch(() => null);
+      if (info && now - info.mtimeMs > STALE_PARTIAL_MS) await rm(path, { force: true });
+    }
   }
 }
