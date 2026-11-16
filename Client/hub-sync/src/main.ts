@@ -10,7 +10,15 @@
 // Log: one JSON line per record and one per run, to ~/Library/Logs/transcriber-hub-sync.log and stdout.
 // --hub and --pin replace the configured addresses and pin for one run (live checks).
 // Exit 0 when the run finished, 75 when it stopped early (the rest wait for the next run), 1 on error.
-import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  closeSync,
+  constants,
+  fchmodSync,
+  mkdirSync,
+  openSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
@@ -66,15 +74,22 @@ try {
         `delete-dry-run-${new Date().toISOString().replaceAll(":", "")}.json`,
       );
     mkdirSync(dirname(out), { recursive: true, mode: 0o700 });
-    // mode only applies to a new file, so make an existing report owner-only before writing.
-    if (existsSync(out)) chmodSync(out, 0o600);
-    writeFileSync(
+    // One descriptor for the mode and the write: O_NOFOLLOW refuses a symlink at --out, and
+    // fchmod makes an existing report owner-only (it fails on a file another user owns).
+    const fd = openSync(
       out,
-      `${JSON.stringify({ generated_at: new Date().toISOString(), ...result }, null, 1)}\n`,
-      {
-        mode: 0o600,
-      },
+      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+      0o600,
     );
+    try {
+      fchmodSync(fd, 0o600);
+      writeFileSync(
+        fd,
+        `${JSON.stringify({ generated_at: new Date().toISOString(), ...result }, null, 1)}\n`,
+      );
+    } finally {
+      closeSync(fd);
+    }
     const { entries, ...summary } = result;
     log({ event: "delete_dry_run", ...summary, records: entries.length, out });
     process.exit(result.stopped ? 75 : 0);
