@@ -40,6 +40,10 @@ const STALE_PARTIAL_MS = 60 * 60 * 1000;
 const PARTIAL = /^\.[0-9a-f]{64}\.flac\.[0-9a-f]{12}\.partial$/;
 
 export class Share {
+  /// The temp files this process is writing now. removeStalePartials never removes them, so an
+  /// upload that stalls for over an hour keeps its own partial. One hub process writes the share.
+  private readonly activePartials = new Set<string>();
+
   constructor(
     private readonly root: string,
     private readonly clock: Clock,
@@ -94,6 +98,7 @@ export class Share {
     // A temp name that a stopped post leaves behind is recognizable: .<sha>.flac.<random>.partial
     const temp = join(dirname(final), `.${sha}.flac.${randomBytes(6).toString("hex")}.partial`);
     await this.guard();
+    this.activePartials.add(temp);
     try {
       const file = await open(temp, "wx", 0o600);
       try {
@@ -113,6 +118,8 @@ export class Share {
       // folder after the window removes it (removeStalePartials).
       if (windowWait(this.clock()) === 0) await rm(temp, { force: true }).catch(() => {});
       throw error;
+    } finally {
+      this.activePartials.delete(temp);
     }
     const back = await this.hash(relative);
     if (back !== sha) {
@@ -128,13 +135,14 @@ export class Share {
   }
 
   /// Remove temp files older than an hour in one artifacts folder: what a failed or stopped upload
-  /// left. A live upload's temp file is minutes old at most, so it is never touched.
+  /// left. A temp file that this process is writing now is never touched, however old.
   private async removeStalePartials(folder: string) {
     await this.guard();
     const now = this.clock().getTime();
     for (const name of await readdir(folder)) {
       if (!PARTIAL.test(name)) continue;
       const path = join(folder, name);
+      if (this.activePartials.has(path)) continue;
       await this.guard();
       const info = await stat(path).catch(() => null);
       if (info && now - info.mtimeMs > STALE_PARTIAL_MS) await rm(path, { force: true });
