@@ -83,6 +83,12 @@ try {
       const wav = join(temp, "audio.wav");
       await writeFile(wav, v.audio);
       const a = await flacAudio(wav, sha256Hex(v.audio));
+      // A 0-frame blob holds no audio. The import already holds the row's texts.
+      if (!a) {
+        summary.no_audio++;
+        log({ ...base, result: "no_audio", frames: 0 });
+        continue;
+      }
       const post = wisprPost({
         recordingId: e.recording_id,
         timestamp: v.timestamp,
