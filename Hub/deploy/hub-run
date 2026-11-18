@@ -8,8 +8,8 @@
 #      probe passes), never in the NAS window, and at most once in 5 minutes: the NAS
 #      blocks an address after 10 failed sign-ins in 5 minutes.
 #   3. Start the hub. Every 15 minutes outside the window, check the mount again, and from 03:00
-#      local time make the day's database copy on the share once (src/backup.ts), at most one try
-#      an hour.
+#      local time make the day's database copy on the share once (src/backup.ts), then run its
+#      --restore-check and --jsonl-check, at most one try an hour.
 #   4. When the ssh session ends (launchd stopped hub-job), its stdin closes and the hub stops.
 set -uo pipefail
 app=@APP@
@@ -46,8 +46,9 @@ mount_check() {
   /bin/bash "$app/deploy/mount.sh" || say "the mount failed. Share routes answer 503 until a later check mounts it." >&2
 }
 
-# The day's database copy, once a day from 03:00 local time (after the 23:30 client syncs). A failed
-# copy tries again an hour later. The copy takes seconds and never runs in the NAS window.
+# The day's database copy, once a day from 03:00 local time (after the 23:30 client syncs), then the
+# restore check and the JSONL check. A failed copy or check tries again an hour later (a copy that
+# is already whole on the share is kept). None of the three runs in the NAS window.
 backup_check() {
   in_window && return 0
   [ "$((10#$(date +%H)))" -ge 3 ] || return 0
@@ -57,11 +58,19 @@ backup_check() {
   if [ -f "$try" ] && [ $(( $(date +%s) - $(stat -f %m "$try") )) -lt 3600 ]; then return 0; fi
   touch "$try"
   healthy || { say "the share is not ready. The database copy waits for the next check."; return 0; }
-  if (cd "$app" && perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" --day "$today"); then
-    echo "$today" > "$done"
-  else
+  if ! (cd "$app" && perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" --day "$today"); then
     say "the database copy failed. It tries again in an hour."
+    return 0
   fi
+  local check
+  for check in --restore-check --jsonl-check; do
+    in_window && { say "the NAS window started. The $check waits for the next check."; return 0; }
+    if ! (cd "$app" && perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" "$check"); then
+      say "FAILED: backup.ts $check. The copy and its checks try again in an hour." >&2
+      return 0
+    fi
+  done
+  echo "$today" > "$done"
 }
 
 pkill -u "$(id -u)" -f "^$bun $app/src/main.ts" && sleep 1
