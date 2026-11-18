@@ -100,13 +100,18 @@ async function attempt<T>(what: string, read: () => Promise<T> | T): Promise<May
 const iso = (ms: number) => new Date(ms).toISOString();
 const hoursSince = (ms: number) => Math.round((Date.now() - ms) / 360_000) / 10;
 
-/// Read a small regular file, never through a link and never waiting on a FIFO.
-async function readSmall(path: string): Promise<string> {
+/// Read a small regular file, never through a link and never waiting on a FIFO. For a file on the
+/// NAS, it checks the window before each file call, so no call starts after 10:57 UTC.
+async function readSmall(path: string, onNas = true): Promise<string> {
+  const guard = onNas ? checkWindow : () => {};
+  guard();
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
+    guard();
     const info = await file.stat();
     if (!info.isFile()) throw new Error(`${path} is not a regular file`);
     if (info.size > MAX_JSON_BYTES) throw new Error(`${path} is over ${MAX_JSON_BYTES} bytes`);
+    guard();
     return await file.readFile("utf8");
   } finally {
     await file.close();
@@ -389,6 +394,7 @@ async function sha256File(path: string): Promise<{ sha256: string; bytes: number
   checkWindow();
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
+    checkWindow();
     if (!(await file.stat()).isFile()) throw new Error(`${path} is not a regular file`);
     const hash = createHash("sha256");
     const buffer = Buffer.alloc(1 << 20);
@@ -499,7 +505,7 @@ async function lastSync() {
   const statePath = join(configDir, "last-sync.json");
   let stateError: string;
   try {
-    const state = JSON.parse(await readSmall(statePath)) as { last_sync?: unknown };
+    const state = JSON.parse(await readSmall(statePath, false)) as { last_sync?: unknown };
     const ms = typeof state.last_sync === "string" ? Date.parse(state.last_sync) : NaN;
     if (Number.isFinite(ms))
       return { time: iso(ms), from: "state_file", hours_ago: hoursSince(ms) };
