@@ -8,16 +8,28 @@
 //                                          rebuild that day's JSONL and check it against its
 //                                          manifest (hub-run uses this one)
 // hub-run runs the copy once a day from 03:00 local time, outside the NAS window, then both checks.
-// The copy: VACUUM INTO a local temp file (a consistent snapshot while the hub writes), an
-// integrity check, and the JSONL and rest export of that snapshot (export.ts) into local temp
-// files. Every check runs on the temp files first. Only then do the local copy and the share files
-// change, each through a temp file, a rename and a read-back. The manifest db/transcripts-<day>.json
-// (SHA-256, bytes, row counts, the text hash, and the JSONL and rest SHA-256) goes last, so a copy
-// with a manifest is whole.
-// The history stays: a count below the highest count in any manifest, or a JSONL and rest file
-// that do not hold every row, exits 1 and changes no file. Otherwise the share drops a SQLite copy
-// only when it is older than 30 days and not one of the newest 30, and HUB_BACKUP_DIR keeps the
-// newest 7. Manifests, JSONL and rest files are never removed. A --day after tomorrow exits 2.
+// The copy: VACUUM INTO a file in a new temp folder, HUB_BACKUP_DIR/.run-<random> (a consistent
+// snapshot while the hub writes), an integrity check, and the JSONL and rest export of that
+// snapshot (export.ts) into the same folder. Every check runs on the temp files first. Only then
+// do the local copy and the share files change. The manifest db/transcripts-<day>.json (SHA-256,
+// bytes, row counts, the text hash, and the JSONL and rest SHA-256) goes last, so a copy with a
+// manifest is whole.
+// The copy never replaces a file. A day path that holds the new bytes is kept. A day path that
+// holds other bytes (a local copy, a share SQLite, JSONL, rest file or manifest that an earlier
+// run of the day left) is first moved to <name>.<UTC time> in db/superseded on the share, or in
+// HUB_BACKUP_DIR/superseded, and read back there. The manifest moves first, so a manifest in db/
+// always names the files beside it. All moves come before the first write, and a move that fails
+// stops the run with no write. Nothing removes a file from the two superseded folders, or a .run-
+// folder that a killed run left.
+// The history stays: a count below the highest count in any manifest (in db/ or db/superseded), or
+// a JSONL and rest file that do not hold every row, exits 1 and changes no file. The live counts
+// are checked first, so a second run on a day that is whole on the share also exits 1 on a drop.
+// Otherwise the share drops a SQLite copy only when it is older than 30 days, not one of the
+// newest 30, and its day has a manifest, and HUB_BACKUP_DIR keeps the newest 7 and each copy whose
+// day has no manifest. Manifests, JSONL and rest files are never removed.
+// A copy writes only today or tomorrow on this clock: a --day before today exits 2 with no read of
+// the share, so a past day is never written again. One copy runs at a time (a lock file in
+// HUB_BACKUP_DIR).
 // The restore check reads the newest copy back from the share into a temp folder. It checks the
 // SHA-256 against the manifest, the integrity, the row counts and the keyword index, and that every
 // row of the copy is in the live database (the hub never deletes a row).
@@ -27,20 +39,22 @@
 // on the first match.
 // Settings: HUB_DB and HUB_SHARE (as main.ts), HUB_BACKUP_DIR (default ~/data/transcripts/backups).
 // One JSON line to stdout. Exit 0 when done, 75 when the NAS window or a missing share stopped it,
-// 2 for a --day after tomorrow, 1 on any other error.
+// 2 for a --day that is refused (not a real date, after tomorrow, or a copy before today), 1 on any
+// other error.
 import { Database } from "bun:sqlite";
 import {
   chmodSync,
+  existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 import { HttpError } from "./errors.ts";
 import { type Covered, exportJsonl, rebuildJsonl, textHash } from "./export.ts";
@@ -65,7 +79,13 @@ const KEYS = {
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const COPY = /^transcripts-(\d{4}-\d{2}-\d{2})\.sqlite$/;
 const MANIFEST = /^transcripts-(\d{4}-\d{2}-\d{2})\.json$/;
+/// The folder, in db/ on the share and in HUB_BACKUP_DIR, for each file that a copy found at a
+/// path it had to write. A file there is <name>.<UTC time>. No code removes one.
+const SUPERSEDED = "superseded";
+const SUPERSEDED_MANIFEST = /^transcripts-\d{4}-\d{2}-\d{2}\.json\.\d{8}T\d{6}Z$/;
 
+/// A real calendar date, YYYY-MM-DD.
+type Day = string & { readonly __brand: "Day" };
 type Table = (typeof TABLES)[number];
 type Counts = Record<Table, number>;
 type FileEntry = { name: string; sha256: Sha256; bytes: number };
@@ -105,8 +125,15 @@ const localDay = (d: Date) =>
 const daysOf = (names: string[], pattern: RegExp) =>
   names.map((n) => pattern.exec(n)?.[1]).filter((d): d is string => d !== undefined);
 
-/// The day n days before a YYYY-MM-DD day.
-const daysBefore = (day: string, n: number) =>
+/// Whether text is YYYY-MM-DD and a date of the calendar: 2026-11-31 is not.
+function isDay(text: string): text is Day {
+  if (!DAY.test(text)) return false;
+  const ms = Date.parse(`${text}T00:00:00Z`);
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === text;
+}
+
+/// The day n days before a day.
+const daysBefore = (day: Day, n: number) =>
   new Date(Date.parse(`${day}T00:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10);
 
 const entryOf = (name: string, bytes: Uint8Array): FileEntry => ({
@@ -171,28 +198,114 @@ function highest(all: { manifest: Manifest }[]): Partial<Counts> {
   return top;
 }
 
-/// The reasons this copy must not be written: a count below the highest count in any manifest, or
-/// a table row that the JSONL and rest file do not hold.
-function problems(rowCounts: Counts, top: Partial<Counts>, covered: Covered): string[] {
+/// Every manifest that a copy moved to db/superseded. Its counts stay on record.
+async function supersededManifests(): Promise<{ manifest: Manifest }[]> {
+  const out = [];
+  for (const name of (await share.list(`db/${SUPERSEDED}`)).sort())
+    if (SUPERSEDED_MANIFEST.test(name))
+      out.push({ manifest: await readManifest(`db/${SUPERSEDED}/${name}`) });
+  return out;
+}
+
+/// The tables with a count below the highest count in any manifest.
+function drops(rowCounts: Counts, top: Partial<Counts>): string[] {
   const out: string[] = [];
   for (const t of TABLES) {
     const high = top[t];
     if (high !== undefined && rowCounts[t] < high)
       out.push(`${t} has ${rowCounts[t]} rows, below the ${high} of an earlier manifest`);
+  }
+  return out;
+}
+
+/// The reasons this copy must not be written: a count below the highest count in any manifest, or
+/// a table row that the JSONL and rest file do not hold.
+function problems(rowCounts: Counts, top: Partial<Counts>, covered: Covered): string[] {
+  const out = drops(rowCounts, top);
+  for (const t of TABLES)
     if (covered[t] !== rowCounts[t])
       out.push(`the JSONL and rest file hold ${covered[t]} of the ${rowCounts[t]} ${t} rows`);
-  }
   if (covered.lines !== rowCounts.recordings)
     out.push(`the JSONL has ${covered.lines} lines for ${rowCounts.recordings} recordings`);
   return out;
 }
 
-async function backup(day: string) {
+/// The row counts of the live database, from one read transaction.
+function liveCounts(): Counts {
+  const live = new Database(dbPath, { readonly: true, strict: true });
+  try {
+    live.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    return live.transaction(() => counts(live))();
+  } finally {
+    live.close();
+  }
+}
+
+/// Let one copy run at a time on this machine: an exclusive transaction on a lock file in
+/// HUB_BACKUP_DIR. The system drops the lock when the process ends, however it ends. A second run
+/// throws at once. The lock file stays empty, and its journal stays in memory, so a killed copy
+/// leaves no journal file.
+function lockCopies(): Database {
+  const path = join(localDir, ".backup-lock.sqlite");
+  const lock = new Database(path, { create: true });
+  try {
+    lock.run("PRAGMA busy_timeout = 0");
+    lock.run("PRAGMA journal_mode = MEMORY");
+    lock.run("BEGIN EXCLUSIVE");
+  } catch (error) {
+    lock.close();
+    throw new Error(
+      `another copy holds the lock ${path}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  return lock;
+}
+
+/// The UTC time in a superseded file name, such as 20261118T182301Z.
+const stampOf = (d: Date) => d.toISOString().replace(/[-:]|\.\d{3}/g, "");
+
+/// Move a file in HUB_BACKUP_DIR to its superseded folder. A hard link, then the removal of the
+/// old name: the link fails when the target exists, so the move never replaces a file.
+function supersedeLocal(path: string, stamp: string): string {
+  const folder = join(localDir, SUPERSEDED);
+  mkdirSync(folder, { recursive: true, mode: 0o700 });
+  const to = join(folder, `${basename(path)}.${stamp}`);
+  linkSync(path, to);
+  rmSync(path);
+  return to;
+}
+
+/// Move the share file at a db/ path, whose SHA-256 is sha, to db/superseded, and read it back
+/// there. Share.move never replaces a file.
+async function supersedeOnShare(relative: string, sha: Sha256, stamp: string): Promise<string> {
+  const to = `db/${SUPERSEDED}/${basename(relative)}.${stamp}`;
+  await share.move(relative, to);
+  if ((await share.hash(to)) !== sha || (await share.hash(relative)) !== null)
+    throw new Error(`the move of ${relative} to ${to} did not hold. Nothing is written`);
+  return to;
+}
+
+async function backup(day: Day) {
+  mkdirSync(localDir, { recursive: true, mode: 0o700 });
+  chmodSync(localDir, 0o700);
+  const lock = lockCopies();
+  try {
+    return await copy(day);
+  } finally {
+    lock.close();
+  }
+}
+
+async function copy(day: Day) {
   const name = `transcripts-${day}.sqlite`;
   const jsonlName = `transcripts-${day}.jsonl.gz`;
   const restName = `transcripts-${day}.rest.json.gz`;
   const manifestPath = `db/transcripts-${day}.json`;
   const before = await manifests();
+  const top = highest([...before, ...(await supersededManifests())]);
+  // The live counts come before the "exists" answer, so a drop exits 1 on every run of the day.
+  const dropped = drops(liveCounts(), top);
+  if (dropped.length) throw new Error(`nothing is written or pruned: ${dropped.join("; ")}`);
   const done = before.find((m) => m.day === day)?.manifest;
   if (
     done?.jsonl &&
@@ -204,16 +317,12 @@ async function backup(day: string) {
   )
     return { event: "backup", day, result: "exists", sha256: done.sha256 };
 
-  mkdirSync(localDir, { recursive: true, mode: 0o700 });
-  chmodSync(localDir, 0o700);
-  // The snapshot and its export go to temp files. No existing file changes until every check passes.
-  const temp = join(localDir, `.${name}.tmp`);
-  const jsonlTemp = join(localDir, `.${jsonlName}.tmp`);
-  const restTemp = join(localDir, `.${restName}.tmp`);
-  const clean = () => {
-    for (const path of [temp, jsonlTemp, restTemp]) rmSync(path, { force: true });
-  };
-  clean();
+  // The snapshot and its export go to a temp folder of this run alone. No existing file changes
+  // until every check passes.
+  const folder = mkdtempSync(join(localDir, ".run-"));
+  const temp = join(folder, name);
+  const jsonlTemp = join(folder, jsonlName);
+  const restTemp = join(folder, restName);
   try {
     const live = new Database(dbPath, { readonly: true });
     try {
@@ -229,7 +338,7 @@ async function backup(day: string) {
 
     // A drop or a gap refuses the copy before any write, so the highest counts stay on record and
     // every earlier file stays as it was.
-    const found = problems(rowCounts, highest(before), covered);
+    const found = problems(rowCounts, top, covered);
     if (found.length) throw new Error(`nothing is written or pruned: ${found.join("; ")}`);
 
     const bytes = readFileSync(temp);
@@ -238,11 +347,6 @@ async function backup(day: string) {
     const jsonl: Jsonl = { ...entryOf(jsonlName, jsonlBytes), lines: covered.lines };
     const restBytes = readFileSync(restTemp);
     const rest = entryOf(restName, restBytes);
-    renameSync(temp, join(localDir, name));
-    const { wrote } = await share.putFile(`db/${name}`, bytes, sha);
-    await share.putFile(`db/${jsonlName}`, jsonlBytes, jsonl.sha256);
-    await share.putFile(`db/${restName}`, restBytes, rest.sha256);
-
     const manifest: Manifest = {
       name,
       sha256: sha,
@@ -254,36 +358,65 @@ async function backup(day: string) {
       rest,
     };
     const text = new TextEncoder().encode(`${JSON.stringify(manifest, null, 1)}\n`);
-    await share.putFile(manifestPath, text, sha256Hex(text));
 
-    // Only SQLite copies go: those older than 30 days that are not among the newest 30.
-    // Manifests, JSONL and rest files stay.
+    // Read what each day path holds now. A path that holds the new bytes is kept as it is.
+    const files = [
+      { path: `db/${name}`, bytes, sha },
+      { path: `db/${jsonlName}`, bytes: jsonlBytes, sha: jsonl.sha256 },
+      { path: `db/${restName}`, bytes: restBytes, sha: rest.sha256 },
+      { path: manifestPath, bytes: text, sha: sha256Hex(text) },
+    ];
+    const stale = [];
+    for (const file of files) {
+      const held = await share.hash(file.path);
+      if (held !== file.sha) stale.push({ ...file, held });
+    }
+    const local = join(localDir, name);
+    const localHeld = existsSync(local) ? sha256Hex(readFileSync(local)) : null;
+
+    // Every move comes before the first write, and the manifest moves first: a failed move stops
+    // the run with no write, and a manifest in db/ always names the files beside it.
+    const stamp = stampOf(new Date());
+    const superseded: string[] = [];
+    for (const file of [...stale].reverse())
+      if (file.held !== null) superseded.push(await supersedeOnShare(file.path, file.held, stamp));
+    if (localHeld !== null && localHeld !== sha) superseded.push(supersedeLocal(local, stamp));
+
+    // Each write goes to a path that holds no file. linkSync and putNewFile fail when one does.
+    if (localHeld !== sha) linkSync(temp, local);
+    for (const file of stale) await share.putNewFile(file.path, file.bytes, file.sha);
+
+    // Only SQLite copies go, and only of a day with a manifest: on the share those older than 30
+    // days that are not among the newest 30, in HUB_BACKUP_DIR those that are not among the newest
+    // 7. Manifests, JSONL and rest files stay, and so does every file in a superseded folder.
+    const manifested = new Set(before.map((m) => m.day));
     const oldest = daysBefore(day, KEEP_ON_SHARE);
     const pruned = daysOf(await share.list("db"), COPY)
       .sort()
       .reverse()
       .slice(KEEP_ON_SHARE)
-      .filter((d) => d < oldest && d !== day);
+      .filter((d) => d < oldest && d !== day && manifested.has(d));
     for (const d of pruned) await share.remove(`db/transcripts-${d}.sqlite`);
     const localDays = daysOf(readdirSync(localDir), COPY).sort().reverse();
-    const prunedLocal = localDays.slice(KEEP_LOCAL).filter((d) => d !== day);
+    const prunedLocal = localDays.slice(KEEP_LOCAL).filter((d) => d !== day && manifested.has(d));
     for (const d of prunedLocal) rmSync(join(localDir, `transcripts-${d}.sqlite`), { force: true });
 
     return {
       event: "backup",
       day,
-      result: wrote ? "written" : "kept",
+      result: stale.some((file) => file.path === `db/${name}`) ? "written" : "kept",
       sha256: sha,
       bytes: bytes.length,
       counts: rowCounts,
       text_sha256,
       jsonl,
       rest,
+      superseded,
       pruned,
       pruned_local: prunedLocal,
     };
   } finally {
-    clean();
+    rmSync(folder, { recursive: true, force: true });
   }
 }
 
@@ -412,7 +545,7 @@ async function rebuildDay(day: string, manifest: Manifest) {
 
 /// Rebuild one day's JSONL and check it against its own manifest: what hub-run runs after the
 /// copy, so a live write after the copy cannot fail it.
-async function jsonlDayCheck(day: string) {
+async function jsonlDayCheck(day: Day) {
   const manifest = await readManifest(`db/transcripts-${day}.json`);
   if (!manifest.text_sha256) throw new Error(`the manifest of ${day} has no text hash`);
   const result = await rebuildDay(day, manifest);
@@ -467,15 +600,20 @@ const event = values["jsonl-check"]
     : "backup";
 const say = (line: Record<string, unknown>) =>
   process.stdout.write(`${JSON.stringify({ time: new Date().toISOString(), ...line })}\n`);
-// A --day after tomorrow on this clock would keep a future manifest forever. Refuse it first.
-const tomorrow = localDay(new Date(Date.now() + 86_400_000));
-if (values.day !== undefined && DAY.test(values.day) && values.day > tomorrow) {
-  say({ event, result: "refused", error: `--day ${values.day} is after tomorrow, ${tomorrow}` });
+function refuse(error: string): never {
+  say({ event, result: "refused", error });
   process.exit(2);
 }
+// The day is checked before any read of the share. A --day after tomorrow on this clock would keep
+// a future manifest forever, and a copy of a day before today would write a past day again.
+const today = localDay(new Date());
+const tomorrow = localDay(new Date(Date.now() + 86_400_000));
+const day = values.day ?? today;
+if (!isDay(day)) refuse(`--day ${day} is not a real YYYY-MM-DD date`);
+if (day > tomorrow) refuse(`--day ${day} is after tomorrow, ${tomorrow}`);
+if (event === "backup" && day < today)
+  refuse(`--day ${day} is before today, ${today}. A copy never writes a past day again`);
 try {
-  const day = values.day ?? localDay(new Date());
-  if (!DAY.test(day)) throw new Error("--day must be YYYY-MM-DD");
   say(
     event === "jsonl_check"
       ? values.day === undefined

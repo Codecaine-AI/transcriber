@@ -4,7 +4,7 @@
 // (the share not mounted) is never written.
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { artifactPath, type Sha256 } from "./record.ts";
@@ -39,6 +39,17 @@ const CHUNK = 1 << 20;
 const STALE_PARTIAL_MS = 60 * 60 * 1000;
 /// A temp file: .<final name>.<12 hex>.partial, such as .<sha>.flac.0123456789ab.partial
 const PARTIAL = /^\.[A-Za-z0-9][A-Za-z0-9._-]*\.[0-9a-f]{12}\.partial$/;
+
+/// Whether a path holds anything: a file, a folder or a link. Any error but "no entry" throws.
+async function exists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 export class Share {
   /// The temp files this process is writing now. removeStalePartials never removes them, so an
@@ -93,9 +104,33 @@ export class Share {
   }
 
   /// Put bytes whose SHA-256 is sha at a share path through a temp file and a rename, then read
-  /// them back. A file that already holds these bytes is kept as it is. Returns whether it wrote.
+  /// them back. A file that already holds these bytes is kept as it is, and a file that holds
+  /// other bytes is replaced. Returns whether it wrote.
   async putFile(relative: string, bytes: Uint8Array, sha: Sha256): Promise<{ wrote: boolean }> {
     if ((await this.hash(relative)) === sha) return { wrote: false };
+    await this.write(relative, bytes, sha, "replace");
+    return { wrote: true };
+  }
+
+  /// Put bytes whose SHA-256 is sha at a share path that holds no file, through a temp file and a
+  /// rename, then read them back. Throws when the path holds a file: it never replaces one.
+  async putNewFile(relative: string, bytes: Uint8Array, sha: Sha256) {
+    await this.write(relative, bytes, sha, "new");
+  }
+
+  /// Move the file at a share path to a share path that holds no file. Throws when the target
+  /// holds a file: it never replaces one.
+  async move(from: string, to: string) {
+    const target = join(this.root, to);
+    await this.guard();
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    await this.guard();
+    if (await exists(target)) throw new Error(`${to} holds a file. Nothing is moved`);
+    await this.guard();
+    await rename(join(this.root, from), target);
+  }
+
+  private async write(relative: string, bytes: Uint8Array, sha: Sha256, mode: "replace" | "new") {
     const final = join(this.root, relative);
     await this.guard();
     await mkdir(dirname(final), { recursive: true, mode: 0o700 });
@@ -120,6 +155,8 @@ export class Share {
         await file.close();
       }
       await this.guard();
+      if (mode === "new" && (await exists(final)))
+        throw new Error(`${relative} holds a file. Nothing is written`);
       await rename(temp, final);
     } catch (error) {
       // Outside the NAS window, remove the temp file now. Inside it, the next upload to this
@@ -139,7 +176,6 @@ export class Share {
         `the file read back from ${relative} holds other bytes`,
       );
     }
-    return { wrote: true };
   }
 
   /// The names in a share folder, or [] when there is no folder.

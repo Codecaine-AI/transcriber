@@ -16,10 +16,13 @@
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
 import {
+  closeSync,
   createReadStream,
   createWriteStream,
   existsSync,
+  openSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { Readable } from "node:stream";
@@ -104,9 +107,10 @@ function* lines(
   }
 }
 
-/// Write the export of the database at dbPath to a gzip JSONL file at out, and the rows that no
-/// line holds to a gzip JSON file at restOut. The lines stream from the database to the file, so
-/// only one recording is in memory at a time.
+/// Write the export of the database at dbPath to a new gzip JSONL file at out, and the rows that no
+/// line holds to a new gzip JSON file at restOut. Fails when out or restOut exists: it never
+/// replaces a file. The lines stream from the database to the file, so only one recording is in
+/// memory at a time.
 export async function exportJsonl(dbPath: string, out: string, restOut: string): Promise<Covered> {
   const covered = emptyCovered();
   const devices = new Set<string>();
@@ -116,7 +120,7 @@ export async function exportJsonl(dbPath: string, out: string, restOut: string):
     await pipeline(
       Readable.from(lines(db, covered, devices, audios)),
       createGzip(),
-      createWriteStream(out, { mode: 0o600 }),
+      createWriteStream(out, { flags: "wx", mode: 0o600 }),
     );
     const rest: Rest = {
       devices: db
@@ -127,7 +131,7 @@ export async function exportJsonl(dbPath: string, out: string, restOut: string):
     };
     for (const r of db.query<Row, []>("select * from audio order by sha256").iterate())
       if (!audios.has(audioKey(r))) rest.audio.push(r);
-    writeFileSync(restOut, gzipSync(JSON.stringify(rest)), { mode: 0o600 });
+    writeFileSync(restOut, gzipSync(JSON.stringify(rest)), { flag: "wx", mode: 0o600 });
     covered.devices = devices.size + rest.devices.length;
     covered.audio = audios.size + rest.audio.length;
   } finally {
@@ -197,13 +201,29 @@ function columnsOf(db: Database, table: string): Set<string> {
 }
 
 /// Rebuild the gzip JSONL file at jsonl and the rest file at rest into a new database at out, made
-/// from schema.sql. Refuses an out path that exists. Every insert fails on any constraint error.
+/// from schema.sql. Refuses an out path that exists, or that has a -wal or -shm file beside it, and
+/// touches none of them. Every insert fails on any constraint error.
 /// The one row that the format repeats, a devices or audio row that two lines hold, goes in once,
 /// and only when both copies are the same. Throws when a table's count after the rebuild is not
-/// the count of rows that the files hold.
+/// the count of rows that the files hold. A rebuild that fails removes the out file it made, with
+/// its -wal and -shm files, so the same out path works again.
 export async function rebuildJsonl(jsonl: string, rest: string, out: string): Promise<Covered> {
-  if (existsSync(out)) throw new Error(`${out} exists. The rebuild needs a new path`);
-  const db = new Database(out, { create: true, strict: true });
+  const made = [out, `${out}-wal`, `${out}-shm`];
+  const there = made.find((path) => existsSync(path));
+  if (there !== undefined) throw new Error(`${there} exists. The rebuild needs a new path`);
+  // "wx" fails when out exists, so every file removed below is one that this call made.
+  closeSync(openSync(out, "wx", 0o600));
+  try {
+    return await fill(jsonl, rest, out);
+  } catch (error) {
+    for (const path of made) rmSync(path, { force: true });
+    throw error;
+  }
+}
+
+/// Fill the empty database file at out from the two files. The database is closed on return.
+async function fill(jsonl: string, rest: string, out: string): Promise<Covered> {
+  const db = new Database(out, { readwrite: true, strict: true });
   try {
     db.run(readFileSync(SCHEMA, "utf8"));
     const columns = Object.fromEntries(
