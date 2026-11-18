@@ -3,6 +3,9 @@
 //                                          db/transcripts-<day>.jsonl.gz and
 //                                          db/transcripts-<day>.rest.json.gz on the share
 //   bun src/backup.ts --restore-check      restore the newest copy from the share and check it
+//   bun src/backup.ts --restore-check --day YYYY-MM-DD
+//                                          restore that day's copy and check it against its
+//                                          manifest (hub-run uses this one)
 //   bun src/backup.ts --jsonl-check        rebuild the newest JSONL that matches the live database
 //   bun src/backup.ts --jsonl-check --day YYYY-MM-DD
 //                                          rebuild that day's JSONL and check it against its
@@ -25,14 +28,16 @@
 // a JSONL and rest file that do not hold every row, exits 1 and changes no file. The live counts
 // are checked first, so a second run on a day that is whole on the share also exits 1 on a drop.
 // Otherwise the share drops a SQLite copy only when it is older than 30 days, not one of the
-// newest 30, and its day has a manifest, and HUB_BACKUP_DIR keeps the newest 7 and each copy whose
+// newest 30, and its day has a manifest that lists a JSONL and a rest file (a manifest from before
+// cp2 lists none, so its SQLite copy stays), and HUB_BACKUP_DIR keeps the newest 7 and each copy whose
 // day has no manifest. Manifests, JSONL and rest files are never removed.
 // A copy writes only today or tomorrow on this clock: a --day before today exits 2 with no read of
 // the share, so a past day is never written again. One copy runs at a time (a lock file in
 // HUB_BACKUP_DIR).
-// The restore check reads the newest copy back from the share into a temp folder. It checks the
-// SHA-256 against the manifest, the integrity, the row counts and the keyword index, and that every
-// row of the copy is in the live database (the hub never deletes a row).
+// The restore check reads the newest copy, or with --day that day's copy, back from the share into
+// a temp folder. It checks the SHA-256 against the manifest, the integrity, the row counts, the
+// keyword index against the cleanups table (the FTS5 integrity-check), and that every row of the
+// copy is in the live database (the hub never deletes a row).
 // The JSONL check rebuilds a JSONL and its rest file into an empty database in a temp folder and
 // compares the counts and the text hash. With --day, against that day's manifest. Without it,
 // against the live database: it tries each manifest with the live counts, newest first, and passes
@@ -171,6 +176,22 @@ function checkCopy(path: string): Counts {
           .join("; ")}`,
       );
     return counts(db);
+  } finally {
+    db.close();
+  }
+}
+
+/// Refuse a database file unless its keyword index agrees with the cleanups table: the FTS5
+/// integrity-check with a rank of 1 compares the index with its external content table. The command
+/// is an INSERT, so the file opens read-write. It changes no row.
+function checkKeywordIndex(path: string) {
+  const db = new Database(path, { strict: true });
+  try {
+    db.run("INSERT INTO cleanups_fts(cleanups_fts, rank) VALUES ('integrity-check', 1)");
+  } catch (error) {
+    throw new Error(
+      `${path} fails the keyword index check: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     db.close();
   }
@@ -388,14 +409,19 @@ async function copy(day: Day) {
 
     // Only SQLite copies go, and only of a day with a manifest: on the share those older than 30
     // days that are not among the newest 30, in HUB_BACKUP_DIR those that are not among the newest
-    // 7. Manifests, JSONL and rest files stay, and so does every file in a superseded folder.
+    // 7. Manifests, JSONL and rest files stay, and so does every file in a superseded folder. The
+    // share keeps each SQLite copy whose manifest lists no JSONL and rest file: it is the only
+    // restorable copy of its day.
     const manifested = new Set(before.map((m) => m.day));
+    const restorable = new Set(
+      before.filter((m) => m.manifest.jsonl && m.manifest.rest).map((m) => m.day),
+    );
     const oldest = daysBefore(day, KEEP_ON_SHARE);
     const pruned = daysOf(await share.list("db"), COPY)
       .sort()
       .reverse()
       .slice(KEEP_ON_SHARE)
-      .filter((d) => d < oldest && d !== day && manifested.has(d));
+      .filter((d) => d < oldest && d !== day && restorable.has(d));
     for (const d of pruned) await share.remove(`db/transcripts-${d}.sqlite`);
     const localDays = daysOf(readdirSync(localDir), COPY).sort().reverse();
     const prunedLocal = localDays.slice(KEEP_LOCAL).filter((d) => d !== day && manifested.has(d));
@@ -420,10 +446,13 @@ async function copy(day: Day) {
   }
 }
 
-async function restoreCheck() {
-  const day = daysOf(await share.list("db"), MANIFEST)
-    .sort()
-    .at(-1);
+/// Restore one day's copy, or without a day the newest copy, and check it.
+async function restoreCheck(only?: Day) {
+  const day =
+    only ??
+    daysOf(await share.list("db"), MANIFEST)
+      .sort()
+      .at(-1);
   if (!day) throw new Error("the share holds no database copy with a manifest");
   const manifest = await readManifest(`db/transcripts-${day}.json`);
   const bytes = await share.read(`db/${manifest.name}`);
@@ -436,6 +465,7 @@ async function restoreCheck() {
     const path = join(dir, manifest.name);
     writeFileSync(path, bytes, { mode: 0o600 });
     const restored = checkCopy(path);
+    checkKeywordIndex(path);
     // A manifest from before cp2 has no devices count.
     for (const t of TABLES)
       if (manifest.counts[t] !== undefined && restored[t] !== manifest.counts[t])
@@ -445,13 +475,6 @@ async function restoreCheck() {
     // A read-only main database attaches the live one read-only too.
     const db = new Database(path, { readonly: true, strict: true });
     try {
-      const found =
-        db
-          .query<{ n: number }, []>(
-            "select count(*) n from cleanups_fts where cleanups_fts match 'the'",
-          )
-          .get()?.n ?? 0;
-      if (found === 0) throw new Error("the restored keyword index finds no cleanup for 'the'");
       db.run(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
       db.run("ATTACH DATABASE ? AS live", [dbPath]);
       const missing = Object.fromEntries(
@@ -482,7 +505,7 @@ async function restoreCheck() {
         bytes: bytes.length,
         counts: restored,
         live: liveCounts,
-        keyword_hits_for_the: found,
+        keyword_index: "ok",
       };
     } finally {
       db.close();
@@ -514,6 +537,7 @@ async function rebuildDay(day: string, manifest: Manifest) {
     if (covered.lines !== jsonl.lines)
       throw new Error(`the JSONL has ${covered.lines} lines, not the manifest's ${jsonl.lines}`);
     const rebuilt = checkCopy(path);
+    checkKeywordIndex(path);
     const off = TABLES.filter((t) => rebuilt[t] !== manifest.counts[t]);
     if (off.length)
       throw new Error(
@@ -521,19 +545,12 @@ async function rebuildDay(day: string, manifest: Manifest) {
       );
     const db = new Database(path, { readonly: true, strict: true });
     try {
-      const found =
-        db
-          .query<{ n: number }, []>(
-            "select count(*) n from cleanups_fts where cleanups_fts match 'the'",
-          )
-          .get()?.n ?? 0;
-      if (found === 0) throw new Error("the rebuilt keyword index finds no cleanup for 'the'");
       return {
         jsonl_sha256: jsonl.sha256,
         lines: covered.lines,
         counts: rebuilt,
         text_sha256: textHash(db),
-        keyword_hits_for_the: found,
+        keyword_index: "ok",
       };
     } finally {
       db.close();
@@ -620,7 +637,7 @@ try {
         ? await jsonlLiveCheck()
         : await jsonlDayCheck(day)
       : event === "restore_check"
-        ? await restoreCheck()
+        ? await restoreCheck(values.day === undefined ? undefined : day)
         : await backup(day),
   );
   process.exit(0);

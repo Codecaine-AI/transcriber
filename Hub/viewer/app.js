@@ -775,6 +775,9 @@ function sharesTable(shares) {
 
 function alarmBanner(hw) {
   if (!isObject(hw)) hw = MISSING;
+  // Only a boolean alarm is a verified state. A missing or malformed alarm is unknown.
+  if (!isUnavailable(hw) && typeof hw.alarm !== "boolean")
+    hw = { unavailable: true, reason: "the status file gives no alarm state" };
   if (isUnavailable(hw)) {
     const b = node("div", undefined, "banner unknown");
     b.append(
@@ -783,7 +786,7 @@ function alarmBanner(hw) {
     );
     return b;
   }
-  if (hw.alarm) {
+  if (hw.alarm === true) {
     const b = node("div", undefined, "banner alarm");
     b.setAttribute("role", "alert");
     b.append(node("strong", "High-water alarm: a live count is below a backup"));

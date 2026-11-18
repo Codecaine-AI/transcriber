@@ -9,7 +9,7 @@
 #      blocks an address after 10 failed sign-ins in 5 minutes.
 #   3. Start the hub. Every 15 minutes outside the window, check the mount again, and from 03:00
 #      local time make the day's database copy on the share once (src/backup.ts), then run its
-#      --restore-check and --jsonl-check --day <day>, at most one try an hour. From 07:30 Central
+#      --restore-check --day <day> and --jsonl-check --day <day>, at most one try an hour. From 07:30 Central
 #      (DSM task 5 writes the snapshot list from 07:10 Central, 92 s on 2026-11-18), run the NAS status job
 #      (src/nas-status.ts) once a day, inside deploy/mount-ro.sh, which mounts agents read-only as
 #      nas-status for two short folder listings. The share totals come from that task's file, not
@@ -64,18 +64,20 @@ backup_check() {
   if [ -f "$try" ] && [ $(( $(date +%s) - $(stat -f %m "$try") )) -lt 3600 ]; then return 0; fi
   touch "$try"
   healthy || { say "the share is not ready. The database copy waits for the next check."; return 0; }
-  if ! (cd "$app" && perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" --day "$today"); then
+  # No subshell: perl execs bun, so it is a direct child of the checker and a stop reaches it.
+  # hub-run is already in $app.
+  if ! perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" --day "$today"; then
     say "the database copy failed. It tries again in an hour."
     return 0
   fi
-  # The JSONL check rebuilds the day's JSONL against its own manifest, so a live write after the
-  # copy cannot fail it.
+  # Both checks read the day that the copy wrote. The JSONL check rebuilds the day's JSONL against
+  # its own manifest, so a live write after the copy cannot fail it.
   local check
-  for check in "--restore-check" "--jsonl-check --day $today"; do
+  for check in "--restore-check --day $today" "--jsonl-check --day $today"; do
     in_window && { say "the NAS window started. The $check waits for the next check."; return 0; }
-    # $check is unquoted on purpose: "--jsonl-check --day <day>" is two arguments.
+    # $check is unquoted on purpose: "--jsonl-check --day <day>" is three arguments.
     # shellcheck disable=SC2086
-    if ! (cd "$app" && perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" $check); then
+    if ! perl -e 'alarm 1800; exec @ARGV' "$bun" "$app/src/backup.ts" $check; then
       say "FAILED: backup.ts $check. The copy and its checks try again in an hour." >&2
       return 0
     fi
