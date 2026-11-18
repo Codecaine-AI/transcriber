@@ -410,18 +410,24 @@ async function copy(day: Day) {
     // Only SQLite copies go, and only of a day with a manifest: on the share those older than 30
     // days that are not among the newest 30, in HUB_BACKUP_DIR those that are not among the newest
     // 7. Manifests, JSONL and rest files stay, and so does every file in a superseded folder. The
-    // share keeps each SQLite copy whose manifest lists no JSONL and rest file: it is the only
-    // restorable copy of its day.
+    // share keeps each SQLite copy whose day has no JSONL and rest file on the share with the
+    // sha256 its manifest lists: then that copy is the only restorable copy of its day.
     const manifested = new Set(before.map((m) => m.day));
-    const restorable = new Set(
-      before.filter((m) => m.manifest.jsonl && m.manifest.rest).map((m) => m.day),
-    );
+    const listed = new Map(before.map((m) => [m.day, m.manifest]));
     const oldest = daysBefore(day, KEEP_ON_SHARE);
-    const pruned = daysOf(await share.list("db"), COPY)
+    const candidates = daysOf(await share.list("db"), COPY)
       .sort()
       .reverse()
       .slice(KEEP_ON_SHARE)
-      .filter((d) => d < oldest && d !== day && restorable.has(d));
+      .filter((d) => d < oldest && d !== day);
+    const pruned: string[] = [];
+    for (const d of candidates) {
+      const m = listed.get(d);
+      if (!m?.jsonl || !m.rest) continue;
+      if ((await share.hash(`db/${m.jsonl.name}`)) !== m.jsonl.sha256) continue;
+      if ((await share.hash(`db/${m.rest.name}`)) !== m.rest.sha256) continue;
+      pruned.push(d);
+    }
     for (const d of pruned) await share.remove(`db/transcripts-${d}.sqlite`);
     const localDays = daysOf(readdirSync(localDir), COPY).sort().reverse();
     const prunedLocal = localDays.slice(KEEP_LOCAL).filter((d) => d !== day && manifested.has(d));
