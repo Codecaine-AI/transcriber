@@ -2,7 +2,7 @@
 // manifests and the database, and writes nas-status.json, which the viewer's /api/nas serves. A page
 // load never touches the NAS.
 //   bun src/nas-status.ts
-// hub-run runs it once a day after 07:15 local time, outside the NAS window, inside
+// hub-run runs it once a day after 07:30 Central, outside the NAS window, inside
 // deploy/mount-ro.sh, which mounts the agents share read-only as nas-status and unmounts it after:
 //   deploy/mount-ro.sh agents ~/mnt/nas-status-agents -- bun src/nas-status.ts
 // It reads:
@@ -10,8 +10,9 @@
 //                   Central. For each share: the snapshots (its api field first, its dirs list only
 //                   when api is null), and the files, bytes and newest write from its totals field,
 //                   which the task counts on the NAS disk. The job walks neither share over SMB: a
-//                   walk of agents (over 800,000 files) does not end in 600 s. Totals over 36 hours
-//                   old, null or missing make those three fields unavailable.
+//                   walk of agents (over 800,000 files) does not end in 600 s. Totals that are null,
+//                   missing or not marked complete make those three fields unavailable. A file over 36
+//                   hours old makes the totals and the snapshots unavailable.
 //   transcripts     the hub's own mount, HUB_SHARE (it never mounts it and never writes it)
 //   agents          NAS_RO_MOUNT from mount-ro.sh, or the reason NAS_RO_ERROR when the mount failed.
 //                   Only two folder listings: agent-traces/trace-db and gateway-backups.
@@ -24,7 +25,9 @@
 // Each value it cannot read is {"unavailable": true, "reason": ...}, never 0, and the top-level
 // unavailable list names each one.
 // It writes HUB_NAS_STATUS (default ~/data/transcripts/nas-status.json) through a temp file and a
-// rename. It never starts in the NAS window, 10:57 to 12:00 UTC.
+// rename. It never starts in the NAS window, 10:57 to 12:00 UTC, and it checks the window again
+// before each read of the NAS. When the window starts during a run, the job stops at once with exit
+// 75 and writes nothing.
 // Settings: HUB_DB, HUB_SHARE, HUB_CONFIG and HUB_NAS_STATUS (as main.ts), HUB_LOG (default
 // ~/transcriber-hub-logs/hub.log), HUB_NAS_MANIFESTS (default <HUB_SHARE>/db, the folder of the
 // manifests, for a check against a copy).
@@ -71,11 +74,25 @@ const isUnavailable = (v: unknown): v is Unavailable =>
   typeof v === "object" && v !== null && (v as { unavailable?: unknown }).unavailable === true;
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-/// Run a read, and turn a throw into an unavailable value with the reason.
+/// The NAS window started during the run. It stops the whole job (exit 75), never one value.
+class WindowError extends Error {
+  constructor() {
+    super("the NAS window started at 10:57 UTC");
+  }
+}
+
+/// Throw a WindowError when the NAS window has started. Called before each read of the NAS.
+function checkWindow() {
+  if (windowWait(new Date()) > 0) throw new WindowError();
+}
+
+/// Run a read, and turn a throw into an unavailable value with the reason. A WindowError passes
+/// through, so the job stops.
 async function attempt<T>(what: string, read: () => Promise<T> | T): Promise<Maybe<T>> {
   try {
     return await read();
   } catch (error) {
+    if (error instanceof WindowError) throw error;
     return unavailable(`${what}: ${messageOf(error)}`);
   }
 }
@@ -111,9 +128,36 @@ type TotalsSource = {
   count_seconds: number | null;
 };
 
+/// The generated time and age of snapshots.json, and why it is not fresh (null when it is): no valid
+/// generated time, over TOTALS_MAX_HOURS old, or over 1 hour in the future. totalsOf and snapshotsOf
+/// both use it.
+function freshness(file: SnapshotFile): {
+  generated: string | null;
+  age_hours: number | null;
+  stale: string | null;
+} {
+  const generatedMs = typeof file.generated === "string" ? Date.parse(file.generated) : NaN;
+  if (!Number.isFinite(generatedMs))
+    return {
+      generated: null,
+      age_hours: null,
+      stale: "snapshots.json has no valid generated time",
+    };
+  const generated = iso(generatedMs);
+  const age_hours = hoursSince(generatedMs);
+  const stale =
+    age_hours > TOTALS_MAX_HOURS
+      ? `snapshots.json is ${age_hours} h old, over ${TOTALS_MAX_HOURS} h: DSM task 5 has not written it since ${generated}`
+      : age_hours < -1
+        ? `snapshots.json was generated in the future, ${generated}`
+        : null;
+  return { generated, age_hours, stale };
+}
+
 /// The files, bytes and newest write of one share from the totals field in snapshots.json. Each is
-/// unavailable with one reason when the file does not read, is over TOTALS_MAX_HOURS old or has no
-/// valid totals for the share (null when the count on the NAS failed). Never 0 in place of a number.
+/// unavailable with one reason when the file does not read, is not fresh or has no complete totals
+/// for the share: null when the count on the NAS failed, and complete must be exactly true (a file
+/// from an older DSM task has no complete field). Never 0 in place of a number.
 function totalsOf(file: Maybe<SnapshotFile>, share: string) {
   const source: TotalsSource = {
     file: "status/snapshots.json",
@@ -127,23 +171,23 @@ function totalsOf(file: Maybe<SnapshotFile>, share: string) {
     return { files: u, bytes: u, newest_write: u, totals_source: source };
   };
   if (isUnavailable(file)) return none(file.reason);
-  const generatedMs = typeof file.generated === "string" ? Date.parse(file.generated) : NaN;
-  if (!Number.isFinite(generatedMs)) return none("snapshots.json has no valid generated time");
-  source.generated = iso(generatedMs);
-  source.age_hours = hoursSince(generatedMs);
-  if (source.age_hours > TOTALS_MAX_HOURS)
-    return none(
-      `snapshots.json is ${source.age_hours} h old, over ${TOTALS_MAX_HOURS} h: DSM task 5 has not written it since ${source.generated}`,
-    );
-  if (source.age_hours < -1)
-    return none(`snapshots.json was generated in the future, ${source.generated}`);
+  const fresh = freshness(file);
+  source.generated = fresh.generated;
+  source.age_hours = fresh.age_hours;
+  if (fresh.stale) return none(fresh.stale);
   const entry = file.shares?.[share];
   if (!entry) return none(`snapshots.json has no entry for ${share}`);
   if (entry.totals === undefined)
     return none(`snapshots.json has no totals for ${share}: DSM task 5 is an older version`);
   if (entry.totals === null)
-    return none(`the count of ${share} on the NAS failed (totals is null)`);
+    return none(`the count of ${share} on the NAS failed or was partial (totals is null)`);
+  if (typeof entry.totals !== "object")
+    return none(`the totals of ${share} in snapshots.json are not an object`);
   const t = entry.totals as Record<string, unknown>;
+  if (t.complete !== true)
+    return none(
+      `the totals of ${share} in snapshots.json are not marked complete: DSM task 5 is an older version or its count did not finish`,
+    );
   const count = (key: string) => {
     const v = t[key];
     return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
@@ -167,6 +211,7 @@ function totalsOf(file: Maybe<SnapshotFile>, share: string) {
 
 /// Whether the transcripts share is mounted: the hub's marker is there. null when it is.
 async function transcriptsReady(): Promise<string | null> {
+  checkWindow();
   try {
     await stat(join(shareRoot, SHARE_MARKER));
     return null;
@@ -214,11 +259,12 @@ type Snapshots = {
 };
 
 /// The snapshots of one share from snapshots.json: its api answer first, its dirs list only when
-/// api is null. Names in dirs that are not snapshot names (desktop.ini) are left out.
-function snapshotsOf(file: SnapshotFile, share: string): Maybe<Snapshots> {
-  const generatedMs = typeof file.generated === "string" ? Date.parse(file.generated) : NaN;
-  const generated = Number.isFinite(generatedMs) ? iso(generatedMs) : null;
-  const age_hours = Number.isFinite(generatedMs) ? hoursSince(generatedMs) : null;
+/// api is null. Names in dirs that are not snapshot names (desktop.ini) are left out. Unavailable
+/// when the file is not fresh, or when api is null and dirs is not a list (null: the listing failed).
+function snapshotsOf(file: Maybe<SnapshotFile>, share: string): Maybe<Snapshots> {
+  if (isUnavailable(file)) return file;
+  const { generated, age_hours, stale } = freshness(file);
+  if (stale) return unavailable(stale);
   const entry = file.shares?.[share];
   if (!entry) return unavailable(`snapshots.json has no entry for ${share}`);
   let times: (number | null)[];
@@ -244,7 +290,11 @@ function snapshotsOf(file: SnapshotFile, share: string): Maybe<Snapshots> {
     from = "api";
   } else {
     if (!Array.isArray(entry.dirs))
-      return unavailable(`snapshots.json has no dirs list for ${share}`);
+      return unavailable(
+        entry.dirs === null
+          ? `the DSM snapshot list of ${share} failed and its snapshot folder could not be listed (api and dirs are null)`
+          : `the DSM snapshot list of ${share} failed (api is null) and snapshots.json has no dirs list`,
+      );
     times = entry.dirs
       .map((d) => (typeof d === "string" ? snapshotTime(d) : null))
       .filter((t) => t !== null);
@@ -260,6 +310,7 @@ async function readSnapshotFile(): Promise<Maybe<SnapshotFile>> {
   const ready = await transcriptsReady();
   if (ready) return unavailable(ready);
   return attempt("status/snapshots.json on the transcripts share cannot be read", async () => {
+    checkWindow();
     const parsed: unknown = JSON.parse(await readSmall(join(shareRoot, "status/snapshots.json")));
     if (typeof parsed !== "object" || parsed === null) throw new Error("it is not a JSON object");
     return parsed as SnapshotFile;
@@ -300,18 +351,26 @@ type Manifests = {
 
 /// Every manifest. Any one that does not read makes the whole set unavailable, so the highest
 /// counts are never taken from part of the history.
+/// On the default path (no HUB_NAS_MANIFESTS) the transcripts share must be mounted first.
 async function readManifests(): Promise<Manifests> {
+  if (!process.env.HUB_NAS_MANIFESTS) {
+    const ready = await transcriptsReady();
+    if (ready) throw new Error(ready);
+  }
+  checkWindow();
   const days = [];
   for (const name of (await readdir(manifestDir)).sort()) {
     const day = MANIFEST.exec(name)?.[1];
     if (!day) continue;
     const path = join(manifestDir, name);
+    checkWindow();
     days.push({ day, manifest: parseManifest(await readSmall(path), path) });
   }
   const superseded = [];
   const folder = join(manifestDir, "superseded");
   let names: string[] = [];
   try {
+    checkWindow();
     names = await readdir(folder);
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
@@ -319,6 +378,7 @@ async function readManifests(): Promise<Manifests> {
   for (const name of names.sort())
     if (SUPERSEDED_MANIFEST.test(name)) {
       const path = join(folder, name);
+      checkWindow();
       superseded.push(parseManifest(await readSmall(path), path));
     }
   return { days, superseded };
@@ -326,6 +386,7 @@ async function readManifests(): Promise<Manifests> {
 
 /// The SHA-256 of a file, read in chunks. It stops when the NAS window starts.
 async function sha256File(path: string): Promise<{ sha256: string; bytes: number }> {
+  checkWindow();
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     if (!(await file.stat()).isFile()) throw new Error(`${path} is not a regular file`);
@@ -333,7 +394,7 @@ async function sha256File(path: string): Promise<{ sha256: string; bytes: number
     const buffer = Buffer.alloc(1 << 20);
     let bytes = 0;
     for (;;) {
-      if (windowWait(new Date()) > 0) throw new Error("the NAS window started at 10:57 UTC");
+      checkWindow();
       const { bytesRead } = await file.read(buffer, 0, buffer.length, bytes);
       if (bytesRead === 0) break;
       hash.update(buffer.subarray(0, bytesRead));
@@ -459,8 +520,8 @@ async function lastSync() {
       const size = (await file.stat()).size;
       const start = Math.max(0, size - LOG_TAIL_BYTES);
       const buffer = Buffer.alloc(size - start);
-      await file.read(buffer, 0, buffer.length, start);
-      text = buffer.toString("utf8");
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, start);
+      text = buffer.subarray(0, bytesRead).toString("utf8");
     } finally {
       await file.close();
     }
@@ -521,20 +582,18 @@ async function collect() {
   const database = await attempt("the database cannot be read", databaseNumbers);
   const manifests = await attempt("the manifests cannot be read", readManifests);
   const snapshotFile = await readSnapshotFile();
-  const snapshots = (share: string) =>
-    isUnavailable(snapshotFile) ? snapshotFile : snapshotsOf(snapshotFile, share);
 
   const transcripts = {
     name: "transcripts",
     ...totalsOf(snapshotFile, "transcripts"),
     newest_backup: await newestBackup(manifests),
-    snapshots: snapshots("transcripts"),
+    snapshots: snapshotsOf(snapshotFile, "transcripts"),
   };
   const agents = {
     name: "agents",
     ...totalsOf(snapshotFile, "agents"),
     newest_backup: await agentsBackup(),
-    snapshots: snapshots("agents"),
+    snapshots: snapshotsOf(snapshotFile, "agents"),
   };
   const status = {
     checked_at: "",
@@ -550,30 +609,37 @@ async function collect() {
   return { ...status, unavailable: unavailableList(status, "", []) };
 }
 
-/// The newest backup on the agents share: the newest ClickHouse backup folder in
-/// agent-traces/trace-db and the newest Token Gateway copy in gateway-backups, by the time in
-/// their names, which the trace job's nas:copy and nas:gateway-backups write.
+/// A ClickHouse backup name in agent-traces/trace-db, the same names that agent-traces
+/// parseBackupName (packages/nas/archive.ts) reads: <database>-<YYYY-MM-DDTHH-MM-SS-mmmZ>.zip, which
+/// nas:backup makes and nas:copy carries, or the older folder of the same name without .zip. An
+/// older -incr folder is an increment, which agent-traces never counts as a backup, so it does not
+/// match. A .zip.lock, a .nas-tmp-<pid> file and a scratch folder (agents_history) do not match.
+const TRACE_BACKUP =
+  /^[A-Za-z_][A-Za-z0-9_]*-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:\.zip)?$/;
+
+/// The newest backup on the agents share: the newest ClickHouse backup in agent-traces/trace-db and
+/// the newest Token Gateway copy in gateway-backups, by the time in their names, which the trace
+/// job's nas:copy and nas:gateway-backups write.
 async function agentsBackup() {
   const why = await agentsReady().catch((error: unknown) => messageOf(error));
   if (why) return unavailable(why);
   const root = process.env.NAS_RO_MOUNT ?? "";
   /// The name whose time (the first match group) is newest.
   const newestIn = async (folder: string, pattern: RegExp) => {
+    checkWindow();
     const timed = (await readdir(join(root, folder))).flatMap((n) => {
       const time = pattern.exec(n)?.[1];
       return time ? [{ n, time }] : [];
     });
     if (!timed.length) return unavailable(`${folder} holds no backup`);
     const name = timed.sort((a, b) => a.time.localeCompare(b.time)).at(-1)!.n;
+    checkWindow();
     const info = await lstat(join(root, folder, name));
     return { name, modified: iso(info.mtimeMs) };
   };
   return {
     trace_db: await attempt("agent-traces/trace-db cannot be read", () =>
-      newestIn(
-        "agent-traces/trace-db",
-        /^[a-z_]+-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-incr)?$/,
-      ),
+      newestIn("agent-traces/trace-db", TRACE_BACKUP),
     ),
     gateway: await attempt("gateway-backups cannot be read", () =>
       newestIn("gateway-backups", /^gateway-(\d{4}-\d{2}-\d{2})\.sqlite$/),
@@ -601,6 +667,10 @@ try {
   });
   process.exit(0);
 } catch (error) {
+  if (error instanceof WindowError) {
+    say({ result: "stopped", error: `${error.message}: the run stopped and wrote nothing` });
+    process.exit(75);
+  }
   say({ result: "failed", error: messageOf(error).slice(0, 300) });
   process.exit(1);
 }

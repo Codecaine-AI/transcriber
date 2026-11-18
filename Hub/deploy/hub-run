@@ -9,12 +9,14 @@
 #      blocks an address after 10 failed sign-ins in 5 minutes.
 #   3. Start the hub. Every 15 minutes outside the window, check the mount again, and from 03:00
 #      local time make the day's database copy on the share once (src/backup.ts), then run its
-#      --restore-check and --jsonl-check --day <day>, at most one try an hour. From 07:15 local
-#      time (after DSM task 5 writes the snapshot list at 07:10 Central), run the NAS status job
+#      --restore-check and --jsonl-check --day <day>, at most one try an hour. From 07:30 Central
+#      (DSM task 5 writes the snapshot list from 07:10 Central, 92 s on 2026-11-18), run the NAS status job
 #      (src/nas-status.ts) once a day, inside deploy/mount-ro.sh, which mounts agents read-only as
 #      nas-status for two short folder listings. The share totals come from that task's file, not
 #      from a walk. One try a day and no retry: one sign-in a day.
-#   4. When the ssh session ends (launchd stopped hub-job), its stdin closes and the hub stops.
+#   4. When the ssh session ends (launchd stopped hub-job), its stdin closes and the hub stops. On
+#      a stop, hub-run signals the running check (such as mount-ro.sh, which then unmounts) and waits
+#      for it, so no check is left running without hub-run.
 set -uo pipefail
 app=@APP@
 export HOME=/Users/services-admin
@@ -81,20 +83,25 @@ backup_check() {
   echo "$today" > "$done"
 }
 
-# The NAS status job, once a day from 07:15 local time, never in the NAS window. 07:15 Central is
-# 13:15 UTC in winter and 12:15 UTC in summer, after the window ends at 12:00 UTC. The day is
+# The NAS status job, once a day from 07:30 Central, never in the NAS window. The time and the day
+# are read in TZ, or America/Chicago when TZ is not set. 07:30 Central is 13:30 UTC in winter and
+# 12:30 UTC in summer, after the window ends at 12:00 UTC. The day is
 # recorded before the run, so a failed run (a failed sign-in too) is not tried again that day:
 # one sign-in a day, far below the NAS lockout of 10 failed sign-ins in 5 minutes. The job writes
 # nas-status.json even when a source fails, with that source marked unavailable.
 status_check() {
   in_window && return 0
-  [ "$((10#$(date +%H%M)))" -ge 715 ] || return 0
+  local tz="${TZ:-America/Chicago}"
+  [ "$((10#$(TZ="$tz" date +%H%M)))" -ge 730 ] || return 0
   local today done="$state/last-status-day"
-  today=$(date +%F)
+  today=$(TZ="$tz" date +%F)
   [ "$(cat "$done" 2>/dev/null)" = "$today" ] && return 0
-  echo "$today" > "$done"
-  if ! (cd "$app" && perl -e 'alarm 1800; exec @ARGV' /bin/bash "$app/deploy/mount-ro.sh" agents "$HOME/mnt/nas-status-agents" -- "$bun" "$app/src/nas-status.ts"); then
-    say "the NAS status job failed. It runs again tomorrow from 07:15." >&2
+  # A day that cannot be recorded is not run: the run could then repeat every 15 minutes.
+  echo "$today" > "$done" || { say "FAILED: cannot write $done. The NAS status job does not run." >&2; return 0; }
+  # No subshell: perl execs mount-ro.sh, so it is a direct child of the checker and a stop reaches it.
+  # hub-run is already in $app.
+  if ! perl -e 'alarm 1800; exec @ARGV' /bin/bash "$app/deploy/mount-ro.sh" agents "$HOME/mnt/nas-status-agents" -- "$bun" "$app/src/nas-status.ts"; then
+    say "the NAS status job failed. It runs again tomorrow from 07:30 Central." >&2
   fi
 }
 
@@ -107,12 +114,22 @@ cd "$app" || exit 1
 hub=$!
 ( cat <&3 >/dev/null; say "the ssh session ended. Stopping the hub."; kill -TERM "$hub" 2>/dev/null ) &
 watcher=$!
-( while sleep 900; do mount_check; backup_check; status_check; done ) </dev/null &
+# The checker stops on TERM only after its running check ends, so that check can clean up.
+( trap 'exit 143' TERM; while sleep 900; do mount_check; backup_check; status_check; done ) </dev/null &
 checker=$!
 exec 3<&-
-wait "$hub"
-rc=$?
+# A stop of hub-run stops the hub first, and the steps below then stop the rest.
+trap 'kill -TERM "$hub" 2>/dev/null' TERM HUP INT
+while :; do
+  wait "$hub"
+  rc=$?
+  kill -0 "$hub" 2>/dev/null || break
+done
+trap - TERM HUP INT
 pkill -P "$watcher" 2>/dev/null; kill "$watcher" 2>/dev/null
-pkill -P "$checker" 2>/dev/null; kill "$checker" 2>/dev/null
+# TERM to the checker, then to its running check (sleep, mount-ro.sh, backup.ts or mount.sh), and
+# wait: mount-ro.sh stops its command and unmounts before it exits.
+kill -TERM "$checker" 2>/dev/null; pkill -TERM -P "$checker" 2>/dev/null
+wait "$checker" 2>/dev/null
 say "the hub exited with $rc"
 exit "$rc"

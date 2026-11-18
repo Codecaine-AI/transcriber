@@ -16,7 +16,10 @@
 #                         built from deploy/nas-mount.swift when it is missing or older, as mount.sh does.
 # Mount rules from cp1: a mount folder under /tmp fails with error 62 (/tmp is a link), so the
 # mount point must be outside it. NetAuthSysAgent is stopped first, or the mount fails with error 80.
-# It never mounts in the NAS window, 10:57 to 12:00 UTC (exit 75, the command does not run).
+# It never mounts in the NAS window, 10:57 to 12:00 UTC (exit 75, the command does not run). It checks
+# the window at the start and again right before the sign-in, after the helper build.
+# The mount point is made canonical once (no trailing slash, no linked parent folder), and that one
+# path is used for each mount check and the unmount, as /sbin/mount prints it.
 set -uo pipefail
 umask 077
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -33,9 +36,22 @@ mount_point="$2"
 shift 3
 [[ "$share" =~ ^[A-Za-z0-9_-]+$ ]] || die "the share name $share may hold only letters, digits, _ and -"
 case "$mount_point" in
-  /tmp/* | /private/tmp/*) die "the mount point $mount_point is under /tmp, which fails with error 62. Use ~/mnt." ;;
   /*) ;;
   *) die "the mount point $mount_point must be an absolute path" ;;
+esac
+# The canonical path: no trailing slashes, and the parent folder with its links resolved. The last
+# part stays as it is, so prepare() still refuses a mount point that is itself a link.
+while [ "${mount_point%/}" != "$mount_point" ]; do mount_point="${mount_point%/}"; done
+base="$(basename "$mount_point")"
+case "$base" in
+  "" | . | ..) die "the mount point $2 must name a folder" ;;
+esac
+parent="$(dirname "$mount_point")"
+mkdir -p "$parent" || die "cannot make $parent"
+parent="$(cd "$parent" && pwd -P)" || die "cannot resolve $parent"
+mount_point="${parent%/}/$base"
+case "$mount_point" in
+  /tmp/* | /private/tmp/*) die "the mount point $mount_point is under /tmp, which fails with error 62. Use ~/mnt." ;;
 esac
 host="${NAS_RO_HOST:-10.10.60.10}"
 user="${NAS_RO_USER:-nas-status}"
@@ -70,6 +86,8 @@ cleanup() {
     kill -TERM "$child" 2>/dev/null
     for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$child" 2>/dev/null || break; sleep 1; done
     kill -KILL "$child" 2>/dev/null
+    # Reap it, so its open files on the share are closed before the unmount.
+    wait "$child" 2>/dev/null
   fi
   if [ -n "$mounted_here" ] && is_mounted; then
     if unmount; then
@@ -125,6 +143,11 @@ if ! reason=$(prepare); then
   export NAS_RO_ERROR="$reason. No sign-in was tried."
   log "$NAS_RO_ERROR"
 else
+  # prepare() can take up to 2 minutes (an old unmount, the helper build). Check the window again.
+  if in_window; then
+    log "the NAS window started at 10:57 UTC during the preparation. Nothing was mounted or run."
+    exit 75
+  fi
   # The one sign-in of this run. A failure is never tried again.
   mounted_here=1
   if ! out=$(limit 60 "$helper" "$share_url" "$mount_point" "$user" "$password_file" --read-only 2>&1); then

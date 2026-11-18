@@ -333,13 +333,26 @@ try {
           " (select 1 from transcriptions t where t.recording_id = r.recording_id)",
       )
       .get()?.n ?? 0;
-  const withMode =
-    db.query<{ n: number }, []>("select count(*) as n from recordings where mode is not null").get()
-      ?.n ?? 0;
+  // A Transcriber take has no Wispr Flow transcription, and it has a mode or some transcription.
+  // A take with no mode and a Transcriber transcription is a Transcriber take too.
+  const transcriberTakes =
+    db
+      .query<{ n: number }, [string]>(
+        "select count(*) as n from recordings r where not exists (select 1 from transcriptions t" +
+          " where t.recording_id = r.recording_id and t.provider = ?) and (r.mode is not null or" +
+          " exists (select 1 from transcriptions t where t.recording_id = r.recording_id))",
+      )
+      .get("Wispr Flow")?.n ?? 0;
   report(
     "source totals split all takes, textless Wispr Flow takes count as wispr-flow",
-    fromWispr + fromTranscriber === all && fromTranscriber === withMode,
-    { all, wispr_flow: fromWispr, transcriber: fromTranscriber, textless, with_mode: withMode },
+    fromWispr + fromTranscriber === all && fromTranscriber === transcriberTakes,
+    {
+      all,
+      wispr_flow: fromWispr,
+      transcriber: fromTranscriber,
+      textless,
+      transcriber_takes: transcriberTakes,
+    },
   );
   // HEAD carries the Content-Length of the GET body.
   for (const path of ["/", "/api/records", "/api/insights", "/api/nas"]) {
