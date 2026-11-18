@@ -2,21 +2,29 @@
 // One line per recording, in recordings rowid order:
 //   { recording, device, transcriptions, cleanups, audio }
 // recording: every column of the recordings row. device: the devices row of recording.device_id
-// whose owner period holds recorded_at (else the nearest one), or null when there is none.
-// transcriptions and cleanups: every row of the recording, in rowid order. audio: the audio row of
+// with the latest owner period that starts at or before recorded_at, or null when recorded_at is
+// NULL or no period starts by then (the export never guesses a period). transcriptions and
+// cleanups: every row of the recording, in rowid order. audio: the audio row of
 // recording.audio_sha256, or null for a text-only take. Each row keeps every column, so a column
 // that schema.sql adds later goes into the export with no change here.
-// The rebuild needs only a JSONL file and schema.sql. It restores devices, audio, recordings,
-// transcriptions and cleanups, and the cleanups_ai trigger fills cleanups_fts again. A devices row
-// that no recording points to, or an audio row that no recording points to, is not in the export:
-// the export counts what it holds, and backup.ts compares that with the table counts.
+// U+2028 and U+2029 are written as \u2028 and \u2029, so a line holds no character that a line
+// reader can take as a line end.
+// The rest file, a gzip JSON object { devices, audio }, holds every devices and audio row that no
+// recording line holds, so the two files together hold every row of the five tables.
+// The rebuild needs only the two files and schema.sql. It restores devices, audio, recordings,
+// transcriptions and cleanups, and the cleanups_ai trigger fills cleanups_fts again.
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { createReadStream, createWriteStream, readFileSync } from "node:fs";
-import { createInterface } from "node:readline";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGunzip, createGzip } from "node:zlib";
+import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
 
 type Value = string | number | null;
 type Row = Record<string, Value>;
@@ -27,7 +35,9 @@ export type JsonlLine = {
   cleanups: Row[];
   audio: Row | null;
 };
-/// The rows that a JSONL file holds, per table, with each devices and audio row once.
+/// The rows that no recording line holds.
+export type Rest = { devices: Row[]; audio: Row[] };
+/// The rows that a JSONL file and its rest file hold, per table, with each devices and audio row once.
 export type Covered = {
   lines: number;
   devices: number;
@@ -39,11 +49,33 @@ export type Covered = {
 
 export const SCHEMA = new URL("../schema.sql", import.meta.url);
 
-/// The lines of the export, read one recording at a time from the database.
-function* lines(db: Database, covered: Covered): Generator<string> {
-  const device = db.query<Row, [Value, Value, Value]>(
-    'select * from devices where device_id = ? order by "from" <= coalesce(?, "from") desc,' +
-      ' case when "from" <= coalesce(?, "from") then "from" end desc, "from" limit 1',
+const deviceKey = (row: Row) => JSON.stringify([row.device_id ?? null, row.from ?? null]);
+const audioKey = (row: Row) => JSON.stringify([row.sha256 ?? null]);
+
+/// A JSON line with U+2028 and U+2029 escaped. They can only occur inside JSON strings.
+const jsonLine = (v: unknown) =>
+  `${JSON.stringify(v).replace(/[\u2028\u2029]/g, (c) => (c === "\u2028" ? "\\u2028" : "\\u2029"))}\n`;
+
+const emptyCovered = (): Covered => ({
+  lines: 0,
+  devices: 0,
+  audio: 0,
+  recordings: 0,
+  transcriptions: 0,
+  cleanups: 0,
+});
+
+/// The lines of the export, read one recording at a time from the database. Adds the key of each
+/// devices and audio row that a line holds to devices and audios.
+function* lines(
+  db: Database,
+  covered: Covered,
+  devices: Set<string>,
+  audios: Set<string>,
+): Generator<string> {
+  // "from" <= NULL is NULL, so a NULL recorded_at selects no period.
+  const device = db.query<Row, [Value, Value]>(
+    'select * from devices where device_id = ? and "from" <= ? order by "from" desc limit 1',
   );
   const transcriptions = db.query<Row, [Value]>(
     "select * from transcriptions where recording_id = ? order by rowid",
@@ -52,49 +84,52 @@ function* lines(db: Database, covered: Covered): Generator<string> {
     "select * from cleanups where recording_id = ? order by rowid",
   );
   const audio = db.query<Row, [Value]>("select * from audio where sha256 = ?");
-  const devices = new Set<string>();
-  const audios = new Set<string>();
   for (const recording of db.query<Row, []>("select * from recordings order by rowid").iterate()) {
     const id = recording.recording_id ?? null;
-    const at = recording.recorded_at ?? null;
     const sha = recording.audio_sha256 ?? null;
     const line: JsonlLine = {
       recording,
-      device: device.get(recording.device_id ?? null, at, at),
+      device: device.get(recording.device_id ?? null, recording.recorded_at ?? null),
       transcriptions: transcriptions.all(id),
       cleanups: cleanups.all(id),
       audio: sha === null ? null : audio.get(sha),
     };
-    if (line.device) devices.add(JSON.stringify([line.device.device_id, line.device.from]));
-    if (line.audio) audios.add(String(line.audio.sha256));
+    if (line.device) devices.add(deviceKey(line.device));
+    if (line.audio) audios.add(audioKey(line.audio));
     covered.lines += 1;
     covered.recordings += 1;
     covered.transcriptions += line.transcriptions.length;
     covered.cleanups += line.cleanups.length;
-    covered.devices = devices.size;
-    covered.audio = audios.size;
-    yield `${JSON.stringify(line)}\n`;
+    yield jsonLine(line);
   }
 }
 
-/// Write the export of the database at dbPath to a gzip file at out. The rows stream from the
-/// database to the file, so only one recording is in memory at a time.
-export async function exportJsonl(dbPath: string, out: string): Promise<Covered> {
-  const covered: Covered = {
-    lines: 0,
-    devices: 0,
-    audio: 0,
-    recordings: 0,
-    transcriptions: 0,
-    cleanups: 0,
-  };
+/// Write the export of the database at dbPath to a gzip JSONL file at out, and the rows that no
+/// line holds to a gzip JSON file at restOut. The lines stream from the database to the file, so
+/// only one recording is in memory at a time.
+export async function exportJsonl(dbPath: string, out: string, restOut: string): Promise<Covered> {
+  const covered = emptyCovered();
+  const devices = new Set<string>();
+  const audios = new Set<string>();
   const db = new Database(dbPath, { readonly: true, strict: true });
   try {
     await pipeline(
-      Readable.from(lines(db, covered)),
+      Readable.from(lines(db, covered, devices, audios)),
       createGzip(),
       createWriteStream(out, { mode: 0o600 }),
     );
+    const rest: Rest = {
+      devices: db
+        .query<Row, []>('select * from devices order by device_id, "from"')
+        .all()
+        .filter((r) => !devices.has(deviceKey(r))),
+      audio: [],
+    };
+    for (const r of db.query<Row, []>("select * from audio order by sha256").iterate())
+      if (!audios.has(audioKey(r))) rest.audio.push(r);
+    writeFileSync(restOut, gzipSync(JSON.stringify(rest)), { mode: 0o600 });
+    covered.devices = devices.size + rest.devices.length;
+    covered.audio = audios.size + rest.audio.length;
   } finally {
     db.close();
   }
@@ -134,6 +169,23 @@ function parseLine(text: string, at: number): JsonlLine {
   throw new Error(`line ${at} of the JSONL is not a recording line`);
 }
 
+/// Parse a rest file, or throw when it does not have the rest shape.
+function parseRest(bytes: Uint8Array): Rest {
+  const v: unknown = JSON.parse(
+    new TextDecoder("utf-8", { fatal: true }).decode(gunzipSync(bytes)),
+  );
+  if (
+    typeof v === "object" &&
+    v !== null &&
+    "devices" in v &&
+    isRows(v.devices) &&
+    "audio" in v &&
+    isRows(v.audio)
+  )
+    return { devices: v.devices, audio: v.audio };
+  throw new Error("the rest file is not a { devices, audio } object");
+}
+
 /// The columns of a table, to check each JSONL key before it goes into SQL.
 function columnsOf(db: Database, table: string): Set<string> {
   return new Set(
@@ -144,9 +196,13 @@ function columnsOf(db: Database, table: string): Set<string> {
   );
 }
 
-/// Rebuild the gzip JSONL file at jsonl into a new database at out, made from schema.sql. A
-/// devices or audio row that two lines hold goes in once. Throws on a key that is not a column.
-export async function rebuildJsonl(jsonl: string, out: string): Promise<Covered> {
+/// Rebuild the gzip JSONL file at jsonl and the rest file at rest into a new database at out, made
+/// from schema.sql. Refuses an out path that exists. Every insert fails on any constraint error.
+/// The one row that the format repeats, a devices or audio row that two lines hold, goes in once,
+/// and only when both copies are the same. Throws when a table's count after the rebuild is not
+/// the count of rows that the files hold.
+export async function rebuildJsonl(jsonl: string, rest: string, out: string): Promise<Covered> {
+  if (existsSync(out)) throw new Error(`${out} exists. The rebuild needs a new path`);
   const db = new Database(out, { create: true, strict: true });
   try {
     db.run(readFileSync(SCHEMA, "utf8"));
@@ -157,12 +213,12 @@ export async function rebuildJsonl(jsonl: string, out: string): Promise<Covered>
       ]),
     );
     const statements = new Map<string, ReturnType<Database["query"]>>();
-    const insert = (table: string, row: Row, verb: "insert" | "insert or ignore") => {
+    const insert = (table: string, row: Row) => {
       const keys = Object.keys(row);
       const bad = keys.find((k) => !columns[table]?.has(k));
       if (bad !== undefined)
         throw new Error(`the JSONL has ${table}.${bad}, which is not a column`);
-      const sql = `${verb} into ${table}(${keys.map((k) => `"${k}"`).join(", ")}) values (${keys.map(() => "?").join(", ")})`;
+      const sql = `insert into ${table}(${keys.map((k) => `"${k}"`).join(", ")}) values (${keys.map(() => "?").join(", ")})`;
       let statement = statements.get(sql);
       if (!statement) {
         statement = db.query(sql);
@@ -170,42 +226,66 @@ export async function rebuildJsonl(jsonl: string, out: string): Promise<Covered>
       }
       statement.run(...Object.values(row));
     };
-    const covered: Covered = {
-      lines: 0,
-      devices: 0,
-      audio: 0,
-      recordings: 0,
-      transcriptions: 0,
-      cleanups: 0,
+    // The key of each devices and audio row put in so far, with the row's JSON.
+    const seen = { devices: new Map<string, string>(), audio: new Map<string, string>() };
+    const insertOnce = (table: "devices" | "audio", key: string, row: Row) => {
+      const text = JSON.stringify(row);
+      const before = seen[table].get(key);
+      if (before === text) return;
+      if (before !== undefined)
+        throw new Error(`the JSONL holds two different ${table} rows with the key ${key}`);
+      insert(table, row);
+      seen[table].set(key, text);
     };
-    const input = createInterface({
-      input: createReadStream(jsonl).pipe(createGunzip()),
-      crlfDelay: Infinity,
-    });
+    const covered = emptyCovered();
+    const take = (text: string) => {
+      if (text === "") return;
+      const line = parseLine(text, covered.lines + 1);
+      if (line.device) insertOnce("devices", deviceKey(line.device), line.device);
+      if (line.audio) insertOnce("audio", audioKey(line.audio), line.audio);
+      insert("recordings", line.recording);
+      for (const t of line.transcriptions) insert("transcriptions", t);
+      for (const c of line.cleanups) insert("cleanups", c);
+      covered.lines += 1;
+      covered.recordings += 1;
+      covered.transcriptions += line.transcriptions.length;
+      covered.cleanups += line.cleanups.length;
+    };
     db.run("BEGIN");
     try {
-      for await (const text of input) {
-        if (text === "") continue;
-        const line = parseLine(text, covered.lines + 1);
-        if (line.device) insert("devices", line.device, "insert or ignore");
-        if (line.audio) insert("audio", line.audio, "insert or ignore");
-        insert("recordings", line.recording, "insert");
-        for (const t of line.transcriptions) insert("transcriptions", t, "insert");
-        for (const c of line.cleanups) insert("cleanups", c, "insert");
-        covered.lines += 1;
-      }
+      // The rows that no line holds. The export never puts a row in both files.
+      const extra = parseRest(readFileSync(rest));
+      for (const d of extra.devices) insertOnce("devices", deviceKey(d), d);
+      for (const a of extra.audio) insertOnce("audio", audioKey(a), a);
+      // Lines end only at \n. pipeline() fails the rebuild on a read or gunzip error.
+      await pipeline(
+        createReadStream(jsonl),
+        createGunzip(),
+        async (source: AsyncIterable<Uint8Array>) => {
+          const decoder = new TextDecoder("utf-8", { fatal: true });
+          let tail = "";
+          for await (const chunk of source) {
+            const parts = (tail + decoder.decode(chunk, { stream: true })).split("\n");
+            tail = parts.pop() ?? "";
+            for (const part of parts) take(part);
+          }
+          take(tail + decoder.decode());
+        },
+      );
       db.run("COMMIT");
     } catch (error) {
       db.run("ROLLBACK");
       throw error;
     }
+    covered.devices = seen.devices.size;
+    covered.audio = seen.audio.size;
     const one = (table: string) =>
       db.query<{ n: number }, []>(`select count(*) n from ${table}`).get()?.n ?? 0;
-    covered.devices = one("devices");
-    covered.audio = one("audio");
-    covered.recordings = one("recordings");
-    covered.transcriptions = one("transcriptions");
-    covered.cleanups = one("cleanups");
+    const off = (["devices", "audio", "recordings", "transcriptions", "cleanups"] as const).filter(
+      (t) => one(t) !== covered[t],
+    );
+    if (off.length)
+      throw new Error(`the rebuilt ${off.join(", ")} counts are not the counts the files hold`);
     // schema.sql turns on WAL. A WAL file with no -shm beside it cannot open read-only.
     db.run("PRAGMA journal_mode = DELETE");
     return covered;
