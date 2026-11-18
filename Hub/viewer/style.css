@@ -116,6 +116,19 @@ aside {
   gap: 10px;
   align-items: end;
 }
+/* min-width 0 lets a grid cell shrink below its date control's natural width. */
+.filterrow > * {
+  min-width: 0;
+}
+/* Two date controls need about 150 px each. Where the sidebar is narrower, they stack. */
+.filterrow.dates {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+.fieldnote {
+  margin: -4px 0 0;
+  font-size: 11px;
+  color: #a73829;
+}
 .filterrow label {
   display: grid;
   gap: 4px;
@@ -273,6 +286,10 @@ h2 {
   max-height: 420px;
   overflow: auto;
   margin: 0;
+}
+.transcript.none {
+  color: #8a948d;
+  font-style: italic;
 }
 .textcard.clean {
   border-top: 3px solid #729270;
@@ -632,6 +649,15 @@ th {
 }
 .num {
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.num .sub {
+  white-space: normal;
+}
+.check {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
 }
 
 footer {

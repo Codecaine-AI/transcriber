@@ -151,6 +151,8 @@ window.addEventListener("popstate", route);
 
 const browse = {
   page: 1,
+  pages: 1,
+  loading: false,
   total: 0,
   selected: null,
   listSequence: 0,
@@ -158,6 +160,69 @@ const browse = {
   listAbort: null,
   modes: new Set(),
 };
+
+// The limits of Hub/src/viewer.ts. A filter outside them is caught here, so no request is refused.
+const MAX_Q_LENGTH = 200;
+const MAX_Q_WORDS = 16;
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+const MIN_DAY = "2000-01-01";
+const MAX_DAY = "2100-12-31";
+const DAY = /^(\d{4,})-(\d{2})-(\d{2})$/;
+/// The words of a search, as the server counts them (search.ts tokens).
+const words = (q) =>
+  q
+    .normalize("NFC")
+    .toLowerCase()
+    .match(/[\p{L}\p{N}'’]+/gu) ?? [];
+
+/// Why a date input cannot be sent, or null. A real date in the years 2000 to 2100 passes.
+function dateProblem(input) {
+  if (input.validity.badInput) return "is not a full, real date";
+  const v = input.value;
+  if (!v) return null;
+  const m = DAY.exec(v);
+  if (!m) return "is not a full, real date";
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d)
+    return "is not a full, real date";
+  if (y < MIN_YEAR || y > MAX_YEAR) return `must be from ${MIN_DAY} to ${MAX_DAY}`;
+  return null;
+}
+
+/// Check the search and the dates before a request. Each problem shows next to its field.
+/// Returns the problems, or an empty list when the filters can be sent.
+function filterProblems() {
+  const problems = [];
+  const q = $("q").value.trim();
+  const n = words(q).length;
+  let qNote = "";
+  if (q.length > MAX_Q_LENGTH)
+    qNote = `A search can have at most ${MAX_Q_LENGTH} characters. This one has ${q.length}.`;
+  else if (n > MAX_Q_WORDS)
+    qNote = `A search can have at most ${MAX_Q_WORDS} words. This one has ${n}.`;
+  const dateNotes = [];
+  for (const [id, label] of [
+    ["from", "From"],
+    ["to", "To"],
+  ]) {
+    const why = dateProblem($(id));
+    if (why) dateNotes.push(`${label} ${why}.`);
+  }
+  const from = $("from").value;
+  const to = $("to").value;
+  if (!dateNotes.length && from && to && from > to) dateNotes.push("From must not be after To.");
+  for (const [id, text] of [
+    ["q-note", qNote],
+    ["date-note", dateNotes.join(" ")],
+  ]) {
+    $(id).textContent = text;
+    $(id).hidden = !text;
+    if (text) problems.push(text);
+  }
+  return problems;
+}
 
 function filterParams() {
   const p = new URLSearchParams();
@@ -214,9 +279,21 @@ function listItem(item, searching) {
 async function loadList() {
   const sequence = ++browse.listSequence;
   browse.listAbort?.abort();
+  const list = $("records");
+  $("previous").disabled = true;
+  $("next").disabled = true;
+  if (filterProblems().length) {
+    // No request: the API refuses these filters. The notes next to the fields say why.
+    browse.loading = false;
+    $("count").textContent = "";
+    $("order").textContent = "";
+    $("page").textContent = "";
+    list.replaceChildren(empty("Check the filters", "Fix the field marked above to search.", true));
+    return;
+  }
   const abort = new AbortController();
   browse.listAbort = abort;
-  const list = $("records");
+  browse.loading = true;
   const q = $("q").value.trim();
   $("count").textContent = "Loading…";
   $("order").textContent = q ? "Best match first" : "Newest first";
@@ -225,6 +302,7 @@ async function loadList() {
     data = await api(`/api/records?${filterParams()}`, abort.signal);
   } catch (e) {
     if (e.name === "AbortError" || sequence !== browse.listSequence) return;
+    browse.loading = false;
     $("count").textContent = "";
     $("page").textContent = "";
     $("previous").disabled = true;
@@ -233,6 +311,7 @@ async function loadList() {
     return;
   }
   if (sequence !== browse.listSequence) return;
+  browse.loading = false;
   const items = Array.isArray(data.items) ? data.items : [];
   learnModes(items);
   browse.total = data.total || 0;
@@ -241,6 +320,7 @@ async function loadList() {
     ? `${number(browse.total)} ${browse.total === 1 ? "match" : "matches"} (top 20)`
     : `${number(browse.total)} ${browse.total === 1 ? "recording" : "recordings"}`;
   const pages = searching ? 1 : Math.max(1, Math.ceil(browse.total / (data.page_size || 20)));
+  browse.pages = pages;
   $("page").textContent = `Page ${number(browse.page)} of ${number(pages)}`;
   $("previous").disabled = searching || browse.page <= 1;
   $("next").disabled = searching || browse.page >= pages;
@@ -275,17 +355,25 @@ $("filters").addEventListener("submit", (event) => {
 });
 for (const id of ["source", "mode", "from", "to", "audio"])
   $(id).addEventListener("change", refilter);
+// A partial or impossible date can leave the value empty with no change event. Leaving the field
+// checks it again, so it never stays on screen while the list shows every date.
+for (const id of ["from", "to"])
+  $(id).addEventListener("blur", () => {
+    if (dateProblem($(id)) || !$("date-note").hidden) refilter();
+  });
 $("clear").addEventListener("click", () => {
+  // reset() also clears a partial date, which setting value to "" can leave behind.
+  $("filters").reset();
   for (const id of ["q", "source", "mode", "from", "to", "audio"]) $(id).value = "";
   refilter();
 });
 $("previous").addEventListener("click", () => {
-  if (browse.page > 1) {
-    browse.page--;
-    loadList();
-  }
+  if (browse.loading || browse.page <= 1) return;
+  browse.page--;
+  loadList();
 });
 $("next").addEventListener("click", () => {
+  if (browse.loading || browse.page >= browse.pages) return;
   browse.page++;
   loadList();
 });
@@ -316,7 +404,11 @@ function fieldsTable(obj) {
 
 function textCard(title, about, text, clean) {
   const card = node("div", undefined, clean ? "textcard clean" : "textcard");
-  card.append(node("h3", title), node("p", about, "about"), node("p", text, "transcript"));
+  const body =
+    typeof text === "string" && text.trim()
+      ? node("p", text, "transcript")
+      : node("p", "Empty text. This row holds no words.", "transcript none");
+  card.append(node("h3", title), node("p", about, "about"), body);
   return card;
 }
 
@@ -538,6 +630,9 @@ async function loadInsights() {
 // ---- NAS ---------------------------------------------------------------------------------------
 
 const isUnavailable = (v) => typeof v === "object" && v !== null && v.unavailable === true;
+const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+/// The reason for a part the status file does not have. Each such part shows as unavailable.
+const MISSING = { unavailable: true, reason: "not in the status file" };
 
 /// One table cell, labeled for the phone layout. content is a string, a node or a list of them.
 function cell(label, content) {
@@ -545,20 +640,26 @@ function cell(label, content) {
   td.dataset.label = label;
   const wrap = node("div");
   for (const c of Array.isArray(content) ? content : [content])
-    wrap.append(typeof c === "string" ? document.createTextNode(c) : c);
+    wrap.append(c instanceof Node ? c : document.createTextNode(String(c ?? "")));
   td.append(wrap);
   return td;
 }
 
-/// A value, or "Unavailable" with its reason.
+/// A value, or "Unavailable" with its reason. A part the file lacks, or one that cannot be drawn,
+/// is unavailable too, so one bad part never hides the rest of the NAS view.
 function value(v, show) {
+  if (v === undefined) return value(MISSING);
   if (isUnavailable(v)) {
     const span = node("span", "Unavailable", "unavail");
     span.append(node("small", v.reason || "no reason given"));
     return span;
   }
-  if (v === null || v === undefined) return node("span", "None", "unavail");
-  return show(v);
+  if (v === null) return node("span", "None", "unavail");
+  try {
+    return show(v);
+  } catch {
+    return value({ unavailable: true, reason: "has an unexpected shape in the status file" });
+  }
 }
 
 const timeWithAgo = (s) => {
@@ -594,6 +695,15 @@ function backupCell(b) {
     if (m.match === true) bits.push("sha256 matches the manifest");
     if (m.match === false) bits.push("sha256 does not match the manifest");
     s.append(node("small", bits.join(" · "), "sub"));
+    if (m.match !== true && m.match !== false) {
+      // The backup file could not be read, so its SHA-256 is not checked.
+      const check = node("span", undefined, "check");
+      check.append(
+        node("span", "sha256 check: "),
+        value(m.match ?? MISSING, () => node("span", "Unknown", "unavail")),
+      );
+      s.append(check);
+    }
     return s;
   });
 }
@@ -606,9 +716,10 @@ function sharesTable(shares) {
   for (const l of labels) hr.append(node("th", l));
   head.append(hr);
   const body = node("tbody");
-  for (const s of shares) {
+  for (const share of shares) {
+    const s = isObject(share) ? share : {};
     const tr = node("tr");
-    const name = node("strong", s.name);
+    const name = node("strong", s.name || "Unnamed share");
     const source = s.totals_source;
     const totals = node(
       "small",
@@ -663,16 +774,20 @@ function sharesTable(shares) {
 }
 
 function alarmBanner(hw) {
+  if (!isObject(hw)) hw = MISSING;
   if (isUnavailable(hw)) {
     const b = node("div", undefined, "banner unknown");
-    b.append(node("strong", "High-water alarm: unknown"), node("span", hw.reason));
+    b.append(
+      node("strong", "High-water alarm: unknown"),
+      node("span", hw.reason || "no reason given"),
+    );
     return b;
   }
   if (hw.alarm) {
     const b = node("div", undefined, "banner alarm");
     b.setAttribute("role", "alert");
     b.append(node("strong", "High-water alarm: a live count is below a backup"));
-    for (const d of hw.drops || [])
+    for (const d of Array.isArray(hw.drops) ? hw.drops.filter(isObject) : [])
       b.append(
         node(
           "div",
@@ -701,14 +816,15 @@ function countsTable(database, hw) {
   for (const l of labels) hr.append(node("th", l));
   head.append(hr);
   const body = node("tbody");
-  const counts = database.counts;
+  const counts = isObject(database.counts) ? database.counts : MISSING;
   if (isUnavailable(counts)) {
     const tr = node("tr");
     tr.append(cell(labels[0], "All tables"), cell(labels[1], value(counts)), cell(labels[2], "—"));
     body.append(tr);
   } else {
-    const highest = isUnavailable(hw) ? null : hw.highest || {};
-    for (const [table, n] of Object.entries(counts || {})) {
+    if (!isObject(hw)) hw = MISSING;
+    const highest = isUnavailable(hw) ? null : isObject(hw.highest) ? hw.highest : {};
+    for (const [table, n] of Object.entries(counts)) {
       const tr = node("tr");
       tr.append(
         cell(labels[0], table),
@@ -760,30 +876,55 @@ async function loadNas() {
     body.replaceChildren(failure(`The NAS status did not load: ${e.message}`, loadNas));
     return;
   }
+  if (!isObject(data)) {
+    body.replaceChildren(
+      failure("The NAS status did not load: the reply is not an object.", loadNas),
+    );
+    return;
+  }
   if (!data.available) {
     body.replaceChildren(
       empty("No NAS status yet", data.message || "The NAS status job has not run yet."),
     );
     return;
   }
-  const s = data.status;
-  if (!s || typeof s !== "object" || !Array.isArray(s.shares)) {
-    body.replaceChildren(failure("The NAS status file does not have the expected shape.", loadNas));
-    return;
+  try {
+    body.replaceChildren(...nasParts(data));
+  } catch (e) {
+    // The file parsed but a part could not be drawn. Show the error state, never "Reading…".
+    body.replaceChildren(
+      failure(
+        `The NAS status file could not be shown: ${e.message || "an unexpected shape"}`,
+        loadNas,
+      ),
+    );
   }
+}
+
+/// The NAS view of one status file. A part the file lacks shows as unavailable.
+function nasParts(data) {
+  const s = data.status;
+  if (!isObject(s)) throw new Error("the file holds no status object");
   const parts = [];
   const top = node("p", undefined, "sub");
-  top.textContent = `Checked ${when(s.checked_at)} (${ago(s.checked_at)}). The daily status job writes this file after 07:30 Central. A page load never touches the NAS.`;
+  const checked = s.checked_at
+    ? `Checked ${when(s.checked_at)} (${ago(s.checked_at)}).`
+    : "The check time is not in the status file.";
+  top.textContent = `${checked} The daily status job writes this file after 07:30 Central. A page load never touches the NAS.`;
   parts.push(alarmBanner(s.high_water), top);
 
   parts.push(
     block(
       "Shares",
-      s.shares.length ? tableCard(sharesTable(s.shares)) : empty("No shares", "", true),
+      !Array.isArray(s.shares)
+        ? value(s.shares ?? MISSING, () => node("span", "Unavailable: not a list", "unavail"))
+        : s.shares.length
+          ? tableCard(sharesTable(s.shares))
+          : empty("No shares", "", true),
     ),
   );
 
-  const database = s.database || {};
+  const database = isObject(s.database) ? s.database : {};
   const mini = node("div", undefined, "mini");
   mini.append(
     miniCard(
@@ -822,7 +963,7 @@ async function loadNas() {
   parts.push(block("Backup and sync", mini));
   parts.push(block("Database counts", tableCard(countsTable(database, s.high_water))));
 
-  const list = Array.isArray(s.unavailable) ? s.unavailable : [];
+  const list = Array.isArray(s.unavailable) ? s.unavailable.filter(isObject) : [];
   if (list.length) {
     const t = node("table", undefined, "stack");
     const head = node("thead");
@@ -847,7 +988,7 @@ async function loadNas() {
   p.append(link);
   parts.push(block("Trace runs", p));
   parts.push(node("p", `Status file written ${when(data.file_time)}.`, "computed"));
-  body.replaceChildren(...parts);
+  return parts;
 }
 
 route();

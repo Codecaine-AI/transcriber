@@ -31,7 +31,9 @@
               maxlength="200"
               placeholder="Search every transcript…"
               aria-label="Search every transcript"
+              aria-describedby="q-note"
             />
+            <p class="fieldnote" id="q-note" role="alert" hidden></p>
             <div class="filterrow">
               <select id="source" aria-label="Source">
                 <option value="">All sources</option>
@@ -43,10 +45,27 @@
                 <option value="none">No mode</option>
               </select>
             </div>
-            <div class="filterrow">
-              <label>From <input id="from" type="date" /></label>
-              <label>To <input id="to" type="date" /></label>
+            <div class="filterrow dates">
+              <label
+                >From
+                <input
+                  id="from"
+                  type="date"
+                  min="2000-01-01"
+                  max="2100-12-31"
+                  aria-describedby="date-note"
+              /></label>
+              <label
+                >To
+                <input
+                  id="to"
+                  type="date"
+                  min="2000-01-01"
+                  max="2100-12-31"
+                  aria-describedby="date-note"
+              /></label>
             </div>
+            <p class="fieldnote" id="date-note" role="alert" hidden></p>
             <div class="filterrow">
               <select id="audio" aria-label="Audio">
                 <option value="">With or without audio</option>
@@ -59,8 +78,8 @@
           <div class="listheading"><span id="count"></span><span id="order"></span></div>
           <div id="records" aria-live="polite"></div>
           <div class="pager">
-            <button type="button" id="previous">Previous</button><span id="page"></span
-            ><button type="button" id="next">Next</button>
+            <button type="button" id="previous" disabled>Previous</button><span id="page"></span
+            ><button type="button" id="next" disabled>Next</button>
           </div>
         </aside>
         <article id="detail" tabindex="-1">
