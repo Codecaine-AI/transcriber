@@ -1,24 +1,28 @@
-// The daily NAS status job. It reads both shares, the snapshot list, the manifests and the database,
-// and writes nas-status.json, which the viewer's /api/nas serves. A page load never touches the NAS.
+// The daily NAS status job. It reads the snapshot list and share totals, the newest backups, the
+// manifests and the database, and writes nas-status.json, which the viewer's /api/nas serves. A page
+// load never touches the NAS.
 //   bun src/nas-status.ts
 // hub-run runs it once a day after 07:15 local time, outside the NAS window, inside
 // deploy/mount-ro.sh, which mounts the agents share read-only as nas-status and unmounts it after:
 //   deploy/mount-ro.sh agents ~/mnt/nas-status-agents -- bun src/nas-status.ts
 // It reads:
-//   transcripts  the hub's own mount, HUB_SHARE (it never mounts it and never writes it)
-//   agents       NAS_RO_MOUNT from mount-ro.sh, or the reason NAS_RO_ERROR when the mount failed
-//   snapshots    status/snapshots.json on the transcripts share, which DSM task 5 writes at 07:10
-//                Central. For each share its api field first, and its dirs list only when api is null.
-//   manifests    db/transcripts-<day>.json and db/superseded/ on the transcripts share
-//   database     HUB_DB, read-only: row counts and the newest recorded_at
-//   last sync    HUB_CONFIG/last-sync.json, which the hub writes after each 200 POST /v1/records, or
-//                the newest such line in HUB_LOG while that file does not exist yet
+//   snapshots.json  status/snapshots.json on the transcripts share, which DSM task 5 writes at 07:10
+//                   Central. For each share: the snapshots (its api field first, its dirs list only
+//                   when api is null), and the files, bytes and newest write from its totals field,
+//                   which the task counts on the NAS disk. The job walks neither share over SMB: a
+//                   walk of agents (over 800,000 files) does not end in 600 s. Totals over 36 hours
+//                   old, null or missing make those three fields unavailable.
+//   transcripts     the hub's own mount, HUB_SHARE (it never mounts it and never writes it)
+//   agents          NAS_RO_MOUNT from mount-ro.sh, or the reason NAS_RO_ERROR when the mount failed.
+//                   Only two folder listings: agent-traces/trace-db and gateway-backups.
+//   manifests       db/transcripts-<day>.json and db/superseded/ on the transcripts share
+//   database        HUB_DB, read-only: row counts and the newest recorded_at
+//   last sync       HUB_CONFIG/last-sync.json, which the hub writes after each 200 POST /v1/records,
+//                   or the newest such line in HUB_LOG while that file does not exist yet
 // The high-water alarm is set when a live count is below the highest count in any manifest, in db/
 // or db/superseded. The backup age is the time since the newest manifest was made.
 // Each value it cannot read is {"unavailable": true, "reason": ...}, never 0, and the top-level
-// unavailable list names each one. A share walk stops at NAS_STATUS_WALK_SECONDS (default 600) or
-// NAS_STATUS_WALK_ENTRIES (default 2,000,000), or when the NAS window starts, and its walk field
-// then says complete: false and why.
+// unavailable list names each one.
 // It writes HUB_NAS_STATUS (default ~/data/transcripts/nas-status.json) through a temp file and a
 // rename. It never starts in the NAS window, 10:57 to 12:00 UTC.
 // Settings: HUB_DB, HUB_SHARE, HUB_CONFIG and HUB_NAS_STATUS (as main.ts), HUB_LOG (default
@@ -42,8 +46,6 @@ const configDir = env("HUB_CONFIG", join(home, ".config/transcriber-hub"));
 const statusPath = env("HUB_NAS_STATUS", join(home, "data/transcripts/nas-status.json"));
 const hubLog = env("HUB_LOG", join(home, "transcriber-hub-logs/hub.log"));
 const manifestDir = env("HUB_NAS_MANIFESTS", join(shareRoot, "db"));
-const walkSeconds = Number(env("NAS_STATUS_WALK_SECONDS", "600"));
-const walkEntries = Number(env("NAS_STATUS_WALK_ENTRIES", "2000000"));
 
 const TABLES = ["recordings", "transcriptions", "cleanups", "audio", "devices"] as const;
 type Table = (typeof TABLES)[number];
@@ -52,9 +54,8 @@ const MANIFEST = /^transcripts-(\d{4}-\d{2}-\d{2})\.json$/;
 const SUPERSEDED_MANIFEST = /^transcripts-\d{4}-\d{2}-\d{2}\.json\.\d{8}T\d{6}Z$/;
 /// A DSM snapshot name, such as GMT-06-2026.11.18-04.00.01: the local time and its UTC offset.
 const SNAPSHOT = /^GMT([+-])(\d{2})-(\d{4})\.(\d{2})\.(\d{2})-(\d{2})\.(\d{2})\.(\d{2})$/;
-/// Folders that are not share contents: the snapshot view and Synology's index folders.
-const SKIP = new Set(["#snapshot", "@eaDir"]);
-const STAT_BATCH = 32;
+/// The oldest snapshots.json whose share totals are used. DSM task 5 writes it once a day.
+const TOTALS_MAX_HOURS = 36;
 const BUSY_TIMEOUT_MS = 10_000;
 const LOG_TAIL_BYTES = 8 << 20;
 const MAX_JSON_BYTES = 8 << 20;
@@ -95,117 +96,73 @@ async function readSmall(path: string): Promise<string> {
   }
 }
 
-// ---- Share walks -------------------------------------------------------------------------------
+// ---- Share totals ------------------------------------------------------------------------------
 
-type Walk = {
-  files: number;
-  bytes: number;
-  newest_write: string | null;
-  walk: {
-    complete: boolean;
-    stopped: string | null;
-    entries: number;
-    folders: number;
-    seconds: number;
-    errors: number;
-    first_error: string | null;
-  };
+/// The writer of the totals, named in the output next to each share's numbers.
+const TOTALS_WRITER =
+  "DSM task 5 (root, daily 07:10 Central): find on the NAS disk, without @eaDir and #recycle";
+
+type TotalsSource = {
+  file: "status/snapshots.json";
+  writer: string;
+  generated: string | null;
+  age_hours: number | null;
+  /// How long the count took on the NAS, in seconds.
+  count_seconds: number | null;
 };
 
-/// Count the regular files under root, their bytes and the newest change time. It never follows a
-/// link. It stops at the time or entry limit, or when the NAS window starts, and says so. A folder
-/// it cannot read counts as an error and the walk goes on. A root it cannot read throws.
-async function walkShare(root: string): Promise<Walk> {
-  const started = Date.now();
-  const deadline = started + walkSeconds * 1000;
-  let files = 0;
-  let bytes = 0;
-  let newest = -1;
-  let entries = 0;
-  let folders = 0;
-  let errors = 0;
-  let firstError: string | null = null;
-  let stopped: string | null = null;
-  const noteError = (error: unknown) => {
-    errors++;
-    firstError ??= messageOf(error).slice(0, 200);
+/// The files, bytes and newest write of one share from the totals field in snapshots.json. Each is
+/// unavailable with one reason when the file does not read, is over TOTALS_MAX_HOURS old or has no
+/// valid totals for the share (null when the count on the NAS failed). Never 0 in place of a number.
+function totalsOf(file: Maybe<SnapshotFile>, share: string) {
+  const source: TotalsSource = {
+    file: "status/snapshots.json",
+    writer: TOTALS_WRITER,
+    generated: null,
+    age_hours: null,
+    count_seconds: null,
   };
-  const stopReason = () => {
-    if (windowWait(new Date()) > 0) return "the NAS window started at 10:57 UTC";
-    if (Date.now() > deadline) return `the time limit of ${walkSeconds} s`;
-    if (entries >= walkEntries) return `the limit of ${walkEntries} entries`;
-    return null;
+  const none = (reason: string) => {
+    const u = unavailable(reason);
+    return { files: u, bytes: u, newest_write: u, totals_source: source };
   };
-
-  const stack = [root];
-  // The root must read, or the share gives no numbers at all.
-  let first = true;
-  while (stack.length) {
-    stopped = stopReason();
-    if (stopped) break;
-    const dir = stack.pop()!;
-    let names;
-    try {
-      names = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (first) throw error;
-      noteError(error);
-      continue;
-    }
-    first = false;
-    folders++;
-    const toStat: string[] = [];
-    for (const entry of names) {
-      if (SKIP.has(entry.name)) continue;
-      entries++;
-      const path = join(dir, entry.name);
-      if (entry.isDirectory()) stack.push(path);
-      else if (entry.isFile()) toStat.push(path);
-    }
-    for (let i = 0; i < toStat.length; i += STAT_BATCH) {
-      stopped = stopReason();
-      if (stopped) break;
-      const infos = await Promise.allSettled(toStat.slice(i, i + STAT_BATCH).map((p) => lstat(p)));
-      for (const info of infos) {
-        if (info.status === "rejected") {
-          noteError(info.reason);
-          continue;
-        }
-        if (!info.value.isFile()) continue;
-        files++;
-        bytes += info.value.size;
-        newest = Math.max(newest, info.value.mtimeMs);
-      }
-    }
-    if (stopped) break;
-  }
+  if (isUnavailable(file)) return none(file.reason);
+  const generatedMs = typeof file.generated === "string" ? Date.parse(file.generated) : NaN;
+  if (!Number.isFinite(generatedMs)) return none("snapshots.json has no valid generated time");
+  source.generated = iso(generatedMs);
+  source.age_hours = hoursSince(generatedMs);
+  if (source.age_hours > TOTALS_MAX_HOURS)
+    return none(
+      `snapshots.json is ${source.age_hours} h old, over ${TOTALS_MAX_HOURS} h: DSM task 5 has not written it since ${source.generated}`,
+    );
+  if (source.age_hours < -1)
+    return none(`snapshots.json was generated in the future, ${source.generated}`);
+  const entry = file.shares?.[share];
+  if (!entry) return none(`snapshots.json has no entry for ${share}`);
+  if (entry.totals === undefined)
+    return none(`snapshots.json has no totals for ${share}: DSM task 5 is an older version`);
+  if (entry.totals === null)
+    return none(`the count of ${share} on the NAS failed (totals is null)`);
+  const t = entry.totals as Record<string, unknown>;
+  const count = (key: string) => {
+    const v = t[key];
+    return typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : null;
+  };
+  const files = count("files");
+  const bytes = count("bytes");
+  const newest = count("newest_epoch");
+  if (files === null || bytes === null || newest === null)
+    return none(
+      `the totals of ${share} in snapshots.json are not whole numbers: ${JSON.stringify(t).slice(0, 120)}`,
+    );
+  source.count_seconds = count("seconds");
   return {
     files,
     bytes,
-    newest_write: newest >= 0 ? iso(newest) : null,
-    walk: {
-      complete: stopped === null,
-      stopped,
-      entries,
-      folders,
-      seconds: Math.round((Date.now() - started) / 100) / 10,
-      errors,
-      first_error: firstError,
-    },
+    // The NAS writes newest_epoch 0 when the share holds no files.
+    newest_write: files > 0 ? iso(newest * 1000) : null,
+    totals_source: source,
   };
-}
-
-/// The share numbers, or one unavailable reason for files, bytes and newest_write together.
-async function shareNumbers(root: string, ready: () => Promise<string | null>) {
-  const why = await ready().catch((error: unknown) => messageOf(error));
-  if (why) {
-    const u = unavailable(why);
-    return { files: u, bytes: u, newest_write: u, walk: u };
-  }
-  const result = await attempt("the walk of the share root failed", () => walkShare(root));
-  if (isUnavailable(result))
-    return { files: result, bytes: result, newest_write: result, walk: result };
-  return result;
 }
 
 /// Whether the transcripts share is mounted: the hub's marker is there. null when it is.
@@ -245,7 +202,7 @@ function snapshotTime(name: string): number | null {
 
 type SnapshotFile = {
   generated?: unknown;
-  shares?: Record<string, { api?: unknown; dirs?: unknown } | undefined>;
+  shares?: Record<string, { api?: unknown; dirs?: unknown; totals?: unknown } | undefined>;
 };
 
 type Snapshots = {
@@ -569,13 +526,13 @@ async function collect() {
 
   const transcripts = {
     name: "transcripts",
-    ...(await shareNumbers(shareRoot, transcriptsReady)),
+    ...totalsOf(snapshotFile, "transcripts"),
     newest_backup: await newestBackup(manifests),
     snapshots: snapshots("transcripts"),
   };
   const agents = {
     name: "agents",
-    ...(await shareNumbers(process.env.NAS_RO_MOUNT ?? "", agentsReady)),
+    ...totalsOf(snapshotFile, "agents"),
     newest_backup: await agentsBackup(),
     snapshots: snapshots("agents"),
   };

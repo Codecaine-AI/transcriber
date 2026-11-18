@@ -12,7 +12,8 @@
 #      --restore-check and --jsonl-check --day <day>, at most one try an hour. From 07:15 local
 #      time (after DSM task 5 writes the snapshot list at 07:10 Central), run the NAS status job
 #      (src/nas-status.ts) once a day, inside deploy/mount-ro.sh, which mounts agents read-only as
-#      nas-status. One try a day and no retry: one sign-in a day.
+#      nas-status for two short folder listings. The share totals come from that task's file, not
+#      from a walk. One try a day and no retry: one sign-in a day.
 #   4. When the ssh session ends (launchd stopped hub-job), its stdin closes and the hub stops.
 set -uo pipefail
 app=@APP@

@@ -2,8 +2,8 @@
 # Mount one NAS share read-only as nas-status at its own folder, run one command, and unmount the
 # share on every way out. Run as services-admin:
 #   deploy/mount-ro.sh <share> <mount point> -- <command> [args...]
-# The NAS status job (src/nas-status.ts) reads the agents share through it. hub-run runs it once a
-# day. The command runs whether the mount worked or not, with one of these set:
+# The NAS status job (src/nas-status.ts) lists the newest backup folders of the agents share
+# through it. hub-run runs it once a day. The command runs whether the mount worked or not, with one of these set:
 #   NAS_RO_MOUNT   the mount point, when the share is mounted read-only there
 #   NAS_RO_ERROR   why the share is not mounted, when the mount failed
 # One sign-in per run: the helper runs at most once and a failed mount is never tried again, so
