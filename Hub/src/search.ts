@@ -13,7 +13,7 @@ const K = 60;
 // accented letter in its word.
 const TOKEN = /[\p{L}\p{N}'’]+/gu;
 
-const tokens = (q: string) => q.normalize("NFC").toLowerCase().match(TOKEN) ?? [];
+export const tokens = (q: string) => q.normalize("NFC").toLowerCase().match(TOKEN) ?? [];
 
 export const ftsQuery = (q: string) =>
   tokens(q)
@@ -71,7 +71,14 @@ export function search(db: Database, q: string, filter?: RecordingFilter) {
 }
 
 /// The number of words in a text: the words the search index makes (TOKEN).
-export const wordCount = (text: string) => text.normalize("NFC").match(TOKEN)?.length ?? 0;
+/// It counts matches one at a time, so it never builds an array of every word.
+export function wordCount(text: string): number {
+  const word = new RegExp(TOKEN);
+  const body = text.normalize("NFC");
+  let n = 0;
+  while (word.exec(body)) n++;
+  return n;
+}
 
 const WORD_CHAR = "[\\p{L}\\p{N}'’]";
 const SNIPPET_BEFORE = 60;
@@ -83,11 +90,13 @@ export function snippet(text: string, q: string): { text: string; marks: [number
   const body = text.normalize("NFC");
   const words = [...new Set(tokens(q))].map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   if (!words.length) return { text: body.slice(0, SNIPPET_LENGTH), marks: [] };
-  const word = new RegExp(`(?<!${WORD_CHAR})(?:${words.join("|")})(?!${WORD_CHAR})`, "giu");
-  const first = word.exec(body);
+  const source = `(?<!${WORD_CHAR})(?:${words.join("|")})(?!${WORD_CHAR})`;
+  // Two RegExps: the first has no g flag, so it keeps no lastIndex for matchAll to start from.
+  const first = new RegExp(source, "iu").exec(body);
   const start = first ? Math.max(0, first.index - SNIPPET_BEFORE) : 0;
   const part = body.slice(start, start + SNIPPET_LENGTH);
   const marks: [number, number][] = [];
-  for (const m of part.matchAll(word)) marks.push([m.index, m.index + m[0].length]);
+  for (const m of part.matchAll(new RegExp(source, "giu")))
+    marks.push([m.index, m.index + m[0].length]);
   return { text: part, marks };
 }

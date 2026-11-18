@@ -3,6 +3,7 @@
 //   GET /, /insights, /nas    Hub/viewer/index.html     GET /app.js, /style.css   Hub/viewer files
 //   GET /api/records?q=&source=&mode=&from=&to=&audio=&page=   20 rows per page, newest first.
 //                             With q, the fused search of /v1/search, filtered before its top 20 cut.
+//                             q has at most 200 characters and 16 words, else 400 q_too_long.
 //   GET /api/records/<id>     one recording, its transcriptions, cleanups, audio row and device
 //   GET /audio/<sha256>.flac  the FLAC, with 206 for a Range request. 503 nas_window 10:57-12:00 UTC
 //   GET /api/insights         words per minute, total words, takes and words per app
@@ -12,12 +13,13 @@
 // viewer bug never stops the hub. It logs one line per request (time, listener, route, status) and
 // never a query or a text.
 import { Database, type SQLQueryBindings } from "bun:sqlite";
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { insights, type Insights } from "./insights.ts";
 import { parseRecordingId, type Sha256 } from "./record.ts";
-import { search, snippet, type RecordingFilter } from "./search.ts";
+import { search, snippet, tokens, type RecordingFilter } from "./search.ts";
 import { ArtifactReader, type Clock } from "./share.ts";
 
 export type ViewerConfig = {
@@ -35,6 +37,14 @@ const PAGE_SIZE = 20;
 const MAX_PAGE = 100_000;
 const INSIGHTS_TTL_MS = 60_000;
 const MAX_STATUS_BYTES = 1 << 20;
+const MAX_STATIC_BYTES = 8 << 20;
+/// The longest search: each word adds FTS5 work that runs on the thread of the client listener.
+const MAX_Q_LENGTH = 200;
+const MAX_Q_WORDS = 16;
+const MIN_YEAR = 2000;
+const MAX_YEAR = 2100;
+/// Open for reading, never through a link, and never waiting on a FIFO or a device.
+const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
 const SHA_FLAC = /^\/audio\/([0-9a-f]{64})\.flac$/;
 const RECORD = /^\/api\/records\/([^/]+)$/;
 const WISPR = "Wispr Flow";
@@ -45,14 +55,15 @@ const BASE_HEADERS = {
   "X-Content-Type-Options": "nosniff",
 };
 
-const STATIC: Record<string, { file: string; type: string }> = {
-  "/": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/insights": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/nas": { file: "index.html", type: "text/html; charset=utf-8" },
-  "/app.js": { file: "app.js", type: "text/javascript; charset=utf-8" },
-  "/style.css": { file: "style.css", type: "text/css; charset=utf-8" },
-};
+const HTML = { file: "index.html", type: "text/html; charset=utf-8" };
+const STATIC = new Map<string, { file: string; type: string }>([
+  ["/", HTML],
+  ["/index.html", HTML],
+  ["/insights", HTML],
+  ["/nas", HTML],
+  ["/app.js", { file: "app.js", type: "text/javascript; charset=utf-8" }],
+  ["/style.css", { file: "style.css", type: "text/css; charset=utf-8" }],
+]);
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { ...BASE_HEADERS, ...headers } });
@@ -79,13 +90,16 @@ const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 const badFilter = (message: string) => new HttpError(400, "bad_filter", message);
 
-/// The UTC start of a day given as YYYY-MM-DD, plus a number of days, as stored in recorded_at.
+/// The UTC start of a day given as YYYY-MM-DD in the years 2000 to 2100, plus a number of days, as
+/// stored in recorded_at. The year bound keeps the result a 4-digit year that sorts as text.
 function dayStart(value: string, name: string, plusDays = 0): string {
   const m = DAY.exec(value);
   const [y, mo, d] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
   const time = new Date(Date.UTC(y, mo - 1, d));
   if (!m || time.getUTCFullYear() !== y || time.getUTCMonth() !== mo - 1 || time.getUTCDate() !== d)
     throw badFilter(`${name} must be a date YYYY-MM-DD`);
+  if (y < MIN_YEAR || y > MAX_YEAR)
+    throw badFilter(`${name} must be in the years ${MIN_YEAR} to ${MAX_YEAR}`);
   return new Date(time.getTime() + plusDays * 86_400_000).toISOString();
 }
 
@@ -200,6 +214,8 @@ export function createViewer(config: ViewerConfig) {
   const reader = new ArtifactReader(config.shareRoot, clock);
   const { db } = config;
   let cached: { at: number; value: Insights } | null = null;
+  /// The one insights run in progress. Requests that come during a run wait for it.
+  let running: Promise<{ at: number; value: Insights }> | null = null;
 
   function records(url: URL) {
     const params = url.searchParams;
@@ -208,6 +224,12 @@ export function createViewer(config: ViewerConfig) {
     const pageText = params.get("page") ?? "1";
     const page = /^\d{1,6}$/.test(pageText) ? Number(pageText) : 0;
     if (page < 1 || page > MAX_PAGE) throw badFilter(`page must be 1 to ${MAX_PAGE}`);
+    if (q.length > MAX_Q_LENGTH || tokens(q).length > MAX_Q_WORDS)
+      throw new HttpError(
+        400,
+        "q_too_long",
+        `q must have at most ${MAX_Q_LENGTH} characters and ${MAX_Q_WORDS} words`,
+      );
     if (q) {
       // The fused search gives one page: the top 20, as /v1/search does.
       const one = db.query<ListRow, SQLQueryBindings[]>(`${LIST_COLUMNS} where r.recording_id = ?`);
@@ -276,13 +298,15 @@ export function createViewer(config: ViewerConfig) {
           " where r.recording_id = ?",
       )
       .get(id);
-    const device = db
-      .query<Record<string, unknown>, [string]>(
-        "select d.* from devices d join recordings r on d.device_id = r.device_id" +
-          ' where r.recording_id = ? and (r.recorded_at is null or d."from" <= r.recorded_at)' +
-          ' order by d."from" desc limit 1',
-      )
-      .get(id);
+    // A take with no recorded_at has no device, as in export.ts: it never guesses a later owner.
+    const device =
+      db
+        .query<Record<string, unknown>, [string]>(
+          "select d.* from devices d join recordings r on d.device_id = r.device_id" +
+            ' where r.recording_id = ? and d."from" <= r.recorded_at' +
+            ' order by d."from" desc limit 1',
+        )
+        .get(id) ?? null;
     return json({ recording, transcriptions, cleanups, audio, device });
   }
 
@@ -317,66 +341,127 @@ export function createViewer(config: ViewerConfig) {
     return new Response(reader.stream(artifact, start, end), { status, headers });
   }
 
-  function insightsRoute() {
+  async function insightsRoute() {
     const now = clock().getTime();
-    if (!cached || now - cached.at > INSIGHTS_TTL_MS || now < cached.at)
-      cached = { at: now, value: insights(db) };
+    if (!cached || now - cached.at > INSIGHTS_TTL_MS || now < cached.at) {
+      running ??= insights(db)
+        .then((value) => ({ at: now, value }))
+        .finally(() => (running = null));
+      cached = await running;
+    }
     return json({ computed_at: new Date(cached.at).toISOString(), ...cached.value });
   }
 
-  async function nas() {
-    let info;
+  /// A small regular file opened with READ_FLAGS, or null when there is none. It never follows a
+  /// link and never waits on a FIFO. The caller closes the handle.
+  async function openSmallFile(path: string, max: number, refuse: () => HttpError) {
+    let file: FileHandle;
     try {
-      info = await stat(config.nasStatusPath);
+      file = await open(path, READ_FLAGS);
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT")
-        return json({
-          available: false,
-          reason: "not_yet",
-          message: "The NAS status job has not written nas-status.json yet.",
-        });
+      if (error instanceof Error && "code" in error) {
+        if (error.code === "ENOENT") return null;
+        if (error.code === "ELOOP" || error.code === "ENXIO" || error.code === "EOPNOTSUPP")
+          throw refuse();
+      }
       throw error;
     }
-    if (!info.isFile() || info.size > MAX_STATUS_BYTES)
-      throw new HttpError(500, "bad_status_file", "nas-status.json is not a small file");
-    const status: unknown = JSON.parse(await readFile(config.nasStatusPath, "utf8"));
-    return json({ available: true, file_time: info.mtime.toISOString(), status });
+    const info = await file.stat().catch(async (error: unknown) => {
+      await file.close();
+      throw error;
+    });
+    if (!info.isFile() || info.size > max) {
+      await file.close();
+      throw refuse();
+    }
+    return { file, info };
+  }
+
+  async function nas() {
+    const refuse = () =>
+      new HttpError(500, "bad_status_file", "nas-status.json is not a small regular file");
+    const opened = await openSmallFile(config.nasStatusPath, MAX_STATUS_BYTES, refuse);
+    if (!opened)
+      return json({
+        available: false,
+        reason: "not_yet",
+        message: "The NAS status job has not written nas-status.json yet.",
+      });
+    const { file, info } = opened;
+    try {
+      const status: unknown = JSON.parse(await file.readFile("utf8"));
+      return json({ available: true, file_time: info.mtime.toISOString(), status });
+    } finally {
+      await file.close();
+    }
   }
 
   async function staticFile(pathname: string) {
-    const entry = STATIC[pathname];
+    const entry = STATIC.get(pathname);
     if (!entry) return null;
-    const file = Bun.file(join(config.staticRoot, entry.file));
-    if (!(await file.exists()))
-      throw new HttpError(404, "not_found", `${entry.file} is not built yet`);
-    return new Response(file, { headers: { ...BASE_HEADERS, "Content-Type": entry.type } });
+    const path = join(config.staticRoot, entry.file);
+    const refuse = () =>
+      new HttpError(403, "link_refused", `${entry.file} is a link, not a file, or not in viewer/`);
+    const opened = await openSmallFile(path, MAX_STATIC_BYTES, refuse);
+    if (!opened) throw new HttpError(404, "not_found", `${entry.file} is not built yet`);
+    const { file, info } = opened;
+    try {
+      // The file must be the one in the real viewer folder: its real path is <viewer>/<name>,
+      // and the open handle is that same file.
+      const real = await realpath(path);
+      if (real !== join(await realpath(config.staticRoot), entry.file)) throw refuse();
+      const same = await stat(real);
+      if (same.dev !== info.dev || same.ino !== info.ino) throw refuse();
+      const bytes = await file.readFile();
+      return new Response(bytes, { headers: { ...BASE_HEADERS, "Content-Type": entry.type } });
+    } finally {
+      await file.close();
+    }
   }
 
-  async function route(req: Request, url: URL): Promise<[string, Response]> {
+  /// The route of a request. It names the route in at before it runs it, so the log line of a
+  /// failed request names the route too.
+  async function route(req: Request, url: URL, at: { name: string }): Promise<Response> {
     const { pathname } = url;
-    if (req.method !== "GET" && req.method !== "HEAD")
-      return ["method", json({ error: "method" }, 405, { Allow: "GET, HEAD" })];
-    if (pathname === "/api/records") return ["/api/records", records(url)];
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      at.name = "method";
+      return json({ error: "method" }, 405, { Allow: "GET, HEAD" });
+    }
+    if (pathname === "/api/records") {
+      at.name = "/api/records";
+      return records(url);
+    }
     const r = RECORD.exec(pathname);
-    if (r) return ["/api/records/:id", record(r[1]!)];
+    if (r) {
+      at.name = "/api/records/:id";
+      return record(r[1]!);
+    }
     if (pathname.startsWith("/audio/")) {
+      at.name = "/audio/:sha";
       const m = SHA_FLAC.exec(pathname);
       if (!m) throw new HttpError(400, "bad_sha", "send /audio/<64 lowercase hex>.flac");
-      return ["/audio/:sha", await audio(req, m[1]! as Sha256)];
+      return await audio(req, m[1]! as Sha256);
     }
-    if (pathname === "/api/insights") return ["/api/insights", insightsRoute()];
-    if (pathname === "/api/nas") return ["/api/nas", await nas()];
+    if (pathname === "/api/insights") {
+      at.name = "/api/insights";
+      return await insightsRoute();
+    }
+    if (pathname === "/api/nas") {
+      at.name = "/api/nas";
+      return await nas();
+    }
+    if (STATIC.has(pathname)) at.name = pathname;
     const file = await staticFile(pathname);
-    if (file) return [pathname, file];
-    return ["other", json({ error: "not_found" }, 404)];
+    if (file) return file;
+    return json({ error: "not_found" }, 404);
   }
 
   async function fetch(req: Request): Promise<Response> {
-    let name = "other";
+    const at = { name: "other" };
     let res: Response;
     try {
       const url = new URL(req.url);
-      [name, res] = await route(req, url);
+      res = await route(req, url, at);
     } catch (error) {
       if (error instanceof HttpError) {
         res = json({ error: error.code, message: error.message }, error.status, error.headers);
@@ -384,7 +469,7 @@ export function createViewer(config: ViewerConfig) {
         const code = error instanceof Error && "code" in error ? String(error.code) : "internal";
         const message = error instanceof Error ? error.message.slice(0, 300) : "unknown";
         process.stderr.write(
-          `${JSON.stringify({ time: clock().toISOString(), event: "error", listener: "viewer", route: name, code, message })}\n`,
+          `${JSON.stringify({ time: clock().toISOString(), event: "error", listener: "viewer", route: at.name, code, message })}\n`,
         );
         res = json({ error: "internal" }, 500);
       }
@@ -399,7 +484,7 @@ export function createViewer(config: ViewerConfig) {
         JSON.stringify({
           time: clock().toISOString(),
           listener: "viewer",
-          route: `${req.method.slice(0, 10)} ${name}`,
+          route: `${req.method.slice(0, 10)} ${at.name}`,
           status: res.status,
         }),
       );

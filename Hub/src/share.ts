@@ -248,6 +248,7 @@ export type OpenArtifact = { file: FileHandle; size: number };
 /// checks the share marker and the NAS window, and every chunk read checks the window again, so a
 /// stream that runs into 10:57 UTC stops at its next chunk. It never follows a link: the file opens
 /// with O_NOFOLLOW, no folder on the way may be a link, and the real path must lie in artifacts/.
+/// It opens with O_NONBLOCK and serves only a regular file, so a FIFO never blocks the open.
 export class ArtifactReader {
   constructor(
     private readonly root: string,
@@ -274,17 +275,21 @@ export class ArtifactReader {
     await this.guard();
     let file: FileHandle;
     try {
-      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+      // O_NONBLOCK: a FIFO or a device opens at once, and the regular-file check below refuses it.
+      // A blocked open would hold a filesystem worker that the client sync routes also need.
+      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     } catch (error) {
       if (error instanceof Error && "code" in error) {
         if (error.code === "ENOENT") return null;
-        if (error.code === "ELOOP") throw refuse();
+        if (error.code === "ELOOP" || error.code === "ENXIO" || error.code === "EOPNOTSUPP")
+          throw refuse();
       }
       throw error;
     }
     try {
       const info = await file.stat();
-      if (!info.isFile()) throw refuse();
+      if (!info.isFile())
+        throw new HttpError(403, "not_a_file", "the audio path is not a regular file");
       for (const folder of [artifacts, dirname(path)]) {
         await this.guard();
         if (!(await lstat(folder)).isDirectory()) throw refuse();

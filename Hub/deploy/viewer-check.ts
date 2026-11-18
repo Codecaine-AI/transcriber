@@ -2,9 +2,11 @@
 //   bun deploy/viewer-check.ts <database> <share>
 // It starts the viewer on free loopback ports: one with the real clock and two with fixed clocks
 // (11:00 and 12:01 UTC). It only reads the database (a readonly handle) and the share. For the
-// link refusals it builds a small fake share in a temp folder, with links to one real FLAC. It
-// checks the method refusals, encoded ../ paths, bad and unknown shas, the NAS window, Range reads,
-// filters, and that search equals /v1/search (the hub handler, called in this process) for 5 queries.
+// link refusals it builds a small fake share in a temp folder, with links to one real FLAC, and a
+// FIFO in place of that FLAC. It builds a fake viewer folder with a link and a FIFO. It checks the
+// method refusals, encoded ../ paths, bad and unknown shas, the NAS window, Range reads, filters,
+// the q cap, that search equals /v1/search (the hub handler, called in this process) for 5 queries
+// with a mark in each snippet, and that the hub still answers while 32 FIFO requests run.
 // Run it outside 10:57 to 12:00 UTC: it reads the share. It prints one JSON line per check and
 // exits 1 when a check fails.
 import { createHash, randomBytes, randomUUID } from "node:crypto";
@@ -40,12 +42,16 @@ const temp = await mkdtemp(join(tmpdir(), "viewer-check-"));
 const servers: ReturnType<typeof Bun.serve>[] = [];
 const quiet = () => {};
 
-function serve(shareRoot: string, clock?: () => Date) {
+function serve(
+  shareRoot: string,
+  clock?: () => Date,
+  paths: { staticRoot?: string; nasStatusPath?: string } = {},
+) {
   const viewer = createViewer({
     db,
     shareRoot,
-    staticRoot: join(import.meta.dir, "../viewer"),
-    nasStatusPath: join(temp, "nas-status.json"),
+    staticRoot: paths.staticRoot ?? join(import.meta.dir, "../viewer"),
+    nasStatusPath: paths.nasStatusPath ?? join(temp, "nas-status.json"),
     clock,
     log: quiet,
   });
@@ -68,6 +74,23 @@ function rawStatus(base: string, path: string): Promise<number> {
     socket.on("error", reject);
     socket.setTimeout(10_000, () => socket.destroy(new Error("timeout")));
   });
+}
+
+/// A FIFO with no writer, made by mkfifo.
+function mkfifo(path: string) {
+  const made = Bun.spawnSync(["mkfifo", path]);
+  if (made.exitCode !== 0) throw new Error(`mkfifo ${path} failed`);
+}
+
+/// A fetch that gives up after ms: its status, or "timeout".
+async function timed(url: string, ms: number): Promise<number | "timeout"> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(ms) });
+    await res.arrayBuffer();
+    return res.status;
+  } catch {
+    return "timeout";
+  }
 }
 
 const getJson = async (url: string) => {
@@ -297,10 +320,28 @@ try {
     "to=yesterday",
     "page=0",
     "color=red",
+    "from=1999-12-31",
+    "to=2101-01-01",
+    "to=9999-12-31",
   ]) {
     const res = await fetch(`${base}/api/records?${query}`);
     await res.arrayBuffer();
     report(`filter ${query} gets 400`, res.status === 400, res.status);
+  }
+  // The q cap: 200 characters and 16 words.
+  const words15 = Array.from({ length: 15 }, (_, i) => `w${i}`).join(" ");
+  const words16 = `${words15} w15`;
+  for (const [name, q, want] of [
+    ["q of 201 characters", "a".repeat(201), 400],
+    ["q of 17 words", `${words16} w16`, 400],
+    ["q of 200 characters and 16 words", `${words15} ${"x".repeat(199 - words15.length)}`, 200],
+  ] as const) {
+    const res = await getJson(`${base}/api/records?q=${encodeURIComponent(q)}`);
+    report(
+      `${name} gets ${want}`,
+      res.res.status === want && (want === 200 || res.body.error === "q_too_long"),
+      { status: res.res.status, error: res.body.error, length: q.length },
+    );
   }
   const one = await getJson(`${base}/api/records/${newest[0]}`);
   report(
@@ -312,6 +353,22 @@ try {
       cleanups: (one.body.cleanups as unknown[] | undefined)?.length,
     },
   );
+  const dateless = db
+    .query<{ recording_id: string }, []>(
+      "select recording_id from recordings where recorded_at is null limit 1",
+    )
+    .get();
+  if (dateless) {
+    const rec = await getJson(`${base}/api/records/${encodeURIComponent(dateless.recording_id)}`);
+    report(
+      "a record with no recorded_at has no device",
+      rec.res.status === 200 && rec.body.device === null,
+      {
+        status: rec.res.status,
+        device: rec.body.device,
+      },
+    );
+  }
   const none = await fetch(`${base}/api/records/${randomUUID()}`);
   await none.arrayBuffer();
   report("an id with no row gets 404", none.status === 404, none.status);
@@ -346,9 +403,44 @@ try {
       v1Res.status === 200 &&
       JSON.stringify(v1Body.results.map((r) => [r.recording_id, r.score])) ===
         JSON.stringify(viewItems.map((r) => [r.recording_id, r.score]));
+    const marked = viewItems.filter((i) => (i.snippet?.marks.length ?? 0) > 0).length;
     report(`search "${q}" equals /v1/search`, same && viewItems.length > 0, {
       results: viewItems.length,
-      marked: viewItems.filter((i) => (i.snippet?.marks.length ?? 0) > 0).length,
+    });
+    report(`search "${q}" marks a word in each snippet`, marked === viewItems.length, {
+      results: viewItems.length,
+      marked,
+    });
+  }
+
+  // A FIFO in place of the FLAC: 32 requests get 403 at once, and the hub answers meanwhile.
+  if (flac) {
+    const fifoShare = join(temp, "share-fifo");
+    await mkdir(join(fifoShare, "artifacts", flac.sha.slice(0, 2)), { recursive: true });
+    await writeFile(join(fifoShare, SHARE_MARKER), "");
+    mkfifo(join(fifoShare, artifactPath(flac.sha)));
+    const fifoBase = serve(fifoShare);
+    const started = performance.now();
+    const fifoRequests = Promise.all(
+      Array.from({ length: 32 }, () => timed(fifoBase + audioPath, 5000)),
+    );
+    const hubRes = await hub.fetch(
+      new Request("https://hub/v1/search?q=the", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+    await hubRes.arrayBuffer();
+    const hubMs = Math.round(performance.now() - started);
+    const fifoStatuses = await fifoRequests;
+    const fifoMs = Math.round(performance.now() - started);
+    report(
+      "a FIFO in place of a FLAC is refused at once",
+      fifoStatuses.every((s) => s === 403) && fifoMs < 5000,
+      { statuses: [...new Set(fifoStatuses)], ms: fifoMs },
+    );
+    report("the hub answers while the FIFO requests run", hubRes.status === 200 && hubMs < 2000, {
+      status: hubRes.status,
+      ms: hubMs,
     });
   }
 
@@ -379,6 +471,43 @@ try {
     const status = await rawStatus(base, path);
     report(`static ${path} is refused`, status === 404, status);
   }
+
+  // A fake viewer folder: app.js is a link to a file outside it, style.css is a FIFO, and
+  // index.html is a file. nas-status.json there is a link too.
+  const outside = join(temp, "outside-secret.txt");
+  await writeFile(outside, "VIEWER_CHECK_OUTSIDE_SECRET");
+  const fakeStatic = join(temp, "viewer-links");
+  await mkdir(fakeStatic);
+  await symlink(outside, join(fakeStatic, "app.js"));
+  mkfifo(join(fakeStatic, "style.css"));
+  await writeFile(join(fakeStatic, "index.html"), "<!doctype html>");
+  const linkedStatus = join(temp, "nas-status-link.json");
+  await symlink(join(temp, "nas-status.json"), linkedStatus);
+  const linkBase = serve(shareRoot, undefined, {
+    staticRoot: fakeStatic,
+    nasStatusPath: linkedStatus,
+  });
+  for (const path of ["/app.js", "/style.css"]) {
+    const res = await fetch(linkBase + path, { signal: AbortSignal.timeout(5000) });
+    const body = await res.text();
+    report(
+      `static ${path} that is a link or a FIFO is refused`,
+      res.status === 403 && !body.includes("VIEWER_CHECK_OUTSIDE_SECRET"),
+      { status: res.status, body: body.slice(0, 120) },
+    );
+  }
+  const index = await fetch(`${linkBase}/`);
+  const indexBody = await index.text();
+  report("static / in the fake viewer folder gets 200", index.status === 200, {
+    status: index.status,
+    body: indexBody.slice(0, 40),
+  });
+  const nasLink = await getJson(`${linkBase}/api/nas`);
+  report(
+    "a nas-status.json that is a link is refused",
+    nasLink.res.status === 500 && nasLink.body.error === "bad_status_file",
+    { status: nasLink.res.status, error: nasLink.body.error },
+  );
 } catch (error) {
   report("the check ran to the end", false, error instanceof Error ? error.message : String(error));
 } finally {
