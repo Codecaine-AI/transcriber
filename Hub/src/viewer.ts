@@ -14,7 +14,7 @@
 // never a query or a text.
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { constants } from "node:fs";
-import { open, realpath, stat, type FileHandle } from "node:fs/promises";
+import { lstat, open, realpath, stat, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { insights, type Insights } from "./insights.ts";
@@ -402,6 +402,11 @@ export function createViewer(config: ViewerConfig) {
     const path = join(config.staticRoot, entry.file);
     const refuse = () =>
       new HttpError(403, "link_refused", `${entry.file} is a link, not a file, or not in viewer/`);
+    // The viewer folder itself must be a real folder, not a link, or realpath below would
+    // follow it and approve a file outside it.
+    const root = await lstat(config.staticRoot).catch(() => null);
+    if (!root) throw new HttpError(404, "not_found", `${entry.file} is not built yet`);
+    if (root.isSymbolicLink() || !root.isDirectory()) throw refuse();
     const opened = await openSmallFile(path, MAX_STATIC_BYTES, refuse);
     if (!opened) throw new HttpError(404, "not_found", `${entry.file} is not built yet`);
     const { file, info } = opened;

@@ -502,6 +502,20 @@ try {
     status: index.status,
     body: indexBody.slice(0, 40),
   });
+  // A viewer folder that is itself a link to a folder outside, with a plain app.js there.
+  const outsideDir = join(temp, "outside-viewer");
+  await mkdir(outsideDir);
+  await writeFile(join(outsideDir, "app.js"), "VIEWER_CHECK_OUTSIDE_SECRET");
+  const linkedRoot = join(temp, "viewer-dir-link");
+  await symlink(outsideDir, linkedRoot);
+  const dirLinkBase = serve(shareRoot, undefined, { staticRoot: linkedRoot });
+  const dirLink = await fetch(`${dirLinkBase}/app.js`, { signal: AbortSignal.timeout(5000) });
+  const dirLinkBody = await dirLink.text();
+  report(
+    "static /app.js in a viewer folder that is a link is refused",
+    dirLink.status === 403 && !dirLinkBody.includes("VIEWER_CHECK_OUTSIDE_SECRET"),
+    { status: dirLink.status, body: dirLinkBody.slice(0, 120) },
+  );
   const nasLink = await getJson(`${linkBase}/api/nas`);
   report(
     "a nas-status.json that is a link is refused",
