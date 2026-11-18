@@ -4,7 +4,17 @@
 // (the share not mounted) is never written.
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, rename, rm, stat } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  type FileHandle,
+} from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { HttpError } from "./errors.ts";
 import { artifactPath, type Sha256 } from "./record.ts";
@@ -228,5 +238,101 @@ export class Share {
       await this.guard();
       await rm(path, { force: true });
     }
+  }
+}
+
+/// One FLAC under artifacts/, open for reading only, and its size.
+export type OpenArtifact = { file: FileHandle; size: number };
+
+/// Read-only access to the FLACs under artifacts/ for the viewer. It has no write step. Every step
+/// checks the share marker and the NAS window, and every chunk read checks the window again, so a
+/// stream that runs into 10:57 UTC stops at its next chunk. It never follows a link: the file opens
+/// with O_NOFOLLOW, no folder on the way may be a link, and the real path must lie in artifacts/.
+export class ArtifactReader {
+  constructor(
+    private readonly root: string,
+    private readonly clock: Clock,
+  ) {}
+
+  private async guard() {
+    assertWindowOpen(this.clock());
+    try {
+      await stat(join(this.root, SHARE_MARKER));
+    } catch {
+      throw new HttpError(503, "share_unavailable", "the transcripts share is not mounted");
+    }
+    assertWindowOpen(this.clock());
+  }
+
+  /// Open artifacts/<2 hex>/<sha>.flac, or null when there is no file. The caller closes it.
+  async open(sha: Sha256): Promise<OpenArtifact | null> {
+    const artifacts = join(this.root, "artifacts");
+    const relative = artifactPath(sha);
+    const path = join(this.root, relative);
+    const refuse = () =>
+      new HttpError(403, "link_refused", "the audio path is a link or leaves artifacts/");
+    await this.guard();
+    let file: FileHandle;
+    try {
+      file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (error instanceof Error && "code" in error) {
+        if (error.code === "ENOENT") return null;
+        if (error.code === "ELOOP") throw refuse();
+      }
+      throw error;
+    }
+    try {
+      const info = await file.stat();
+      if (!info.isFile()) throw refuse();
+      for (const folder of [artifacts, dirname(path)]) {
+        await this.guard();
+        if (!(await lstat(folder)).isDirectory()) throw refuse();
+      }
+      await this.guard();
+      const real = await realpath(path);
+      if (real !== join(await realpath(artifacts), relative.slice("artifacts/".length)))
+        throw refuse();
+      const same = await stat(real);
+      if (same.dev !== info.dev || same.ino !== info.ino) throw refuse();
+      return { file, size: info.size };
+    } catch (error) {
+      await file.close();
+      throw error;
+    }
+  }
+
+  /// The bytes start to end (both included) of an open artifact, read in chunks of at most 1 MiB
+  /// that each check the NAS window. The stream closes the file when it ends, fails or is cancelled.
+  stream({ file }: OpenArtifact, start: number, end: number): ReadableStream<Uint8Array> {
+    let at = start;
+    let closed = false;
+    const close = async () => {
+      if (closed) return;
+      closed = true;
+      await file.close().catch(() => {});
+    };
+    return new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        try {
+          if (at > end) {
+            await close();
+            controller.close();
+            return;
+          }
+          assertWindowOpen(this.clock());
+          const want = Math.min(CHUNK, end - at + 1);
+          const buffer = new Uint8Array(want);
+          const { bytesRead } = await file.read(buffer, 0, want, at);
+          if (bytesRead === 0) throw new Error("the file ended before the range");
+          at += bytesRead;
+          controller.enqueue(buffer.subarray(0, bytesRead));
+        } catch (error) {
+          await close();
+          controller.error(error);
+        }
+      },
+      cancel: close,
+    });
   }
 }
