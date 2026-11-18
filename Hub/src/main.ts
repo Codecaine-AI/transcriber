@@ -8,6 +8,8 @@
 //   HUB_VIEWER_PORT  default 8798. The read-only viewer API (viewer.ts) listens on 127.0.0.1 only,
 //                    over plain HTTP for Caddy, with its own readonly database handle.
 //   HUB_NAS_STATUS   default ~/data/transcripts/nas-status.json, the NAS status job's file
+// The hub writes the time of each 200 POST /v1/records to HUB_CONFIG/last-sync.json, which the NAS
+// status job (nas-status.ts) reads.
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHub } from "./hub.ts";
@@ -33,6 +35,7 @@ const hub = createHub({
   db,
   shareRoot,
   tokensPath: join(configDir, "tokens.json"),
+  syncStatePath: join(configDir, "last-sync.json"),
 });
 const tls = {
   cert: Bun.file(join(configDir, "tls/cert.pem")),

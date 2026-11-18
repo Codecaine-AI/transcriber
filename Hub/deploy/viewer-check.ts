@@ -1,5 +1,10 @@
 // Checks of the viewer API (src/viewer.ts), run on services-01 against a copy of the database:
 //   bun deploy/viewer-check.ts <database> <share>
+// Make the copy with VACUUM INTO, or set journal_mode=delete on it. The live database is in WAL
+// mode, and a .backup or cp copy stays in WAL mode with no -shm file, so the readonly handle fails
+// with SQLITE_CANTOPEN:
+//   sqlite3 ~/data/transcripts/transcripts.sqlite "VACUUM INTO '/path/to/copy.sqlite'"
+//   sqlite3 /path/to/copy.sqlite "PRAGMA journal_mode=delete"    (for a .backup copy)
 // It starts the viewer on free loopback ports: one with the real clock and two with fixed clocks
 // (11:00 and 12:01 UTC). It only reads the database (a readonly handle) and the share. For the
 // link refusals it builds a small fake share in a temp folder, with links to one real FLAC, and a
@@ -312,6 +317,42 @@ try {
     wispr.res.status === 200 && typeof wispr.body.total === "number",
     wispr.body.total,
   );
+  // Each take is in one source: the two source totals add up to all takes, and the Wispr Flow
+  // takes with no transcription row (no mode, no text) count as wispr-flow.
+  const totalOf = async (query: string) =>
+    (await getJson(`${base}/api/records${query}`)).body.total as number;
+  const [all, fromWispr, fromTranscriber] = [
+    await totalOf(""),
+    await totalOf("?source=wispr-flow"),
+    await totalOf("?source=transcriber"),
+  ];
+  const textless =
+    db
+      .query<{ n: number }, []>(
+        "select count(*) as n from recordings r where r.mode is null and not exists" +
+          " (select 1 from transcriptions t where t.recording_id = r.recording_id)",
+      )
+      .get()?.n ?? 0;
+  const withMode =
+    db.query<{ n: number }, []>("select count(*) as n from recordings where mode is not null").get()
+      ?.n ?? 0;
+  report(
+    "source totals split all takes, textless Wispr Flow takes count as wispr-flow",
+    fromWispr + fromTranscriber === all && fromTranscriber === withMode,
+    { all, wispr_flow: fromWispr, transcriber: fromTranscriber, textless, with_mode: withMode },
+  );
+  // HEAD carries the Content-Length of the GET body.
+  for (const path of ["/", "/api/records", "/api/insights", "/api/nas"]) {
+    const get = await fetch(base + path);
+    const length = (await get.arrayBuffer()).byteLength;
+    const head = await fetch(base + path, { method: "HEAD" });
+    await head.arrayBuffer();
+    report(
+      `HEAD ${path} has the GET Content-Length`,
+      head.status === get.status && head.headers.get("content-length") === String(length),
+      { get: length, head: head.headers.get("content-length") },
+    );
+  }
   for (const query of [
     "source=foo",
     "audio=2",

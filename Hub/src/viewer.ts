@@ -130,8 +130,14 @@ function parseFilters(db: Database, params: URLSearchParams): Filters {
   return filters;
 }
 
+/// A Wispr Flow take: one with a Wispr Flow transcription, or a take with no mode and no
+/// transcription at all. Wispr Flow takes with empty text have no transcription row (importer.py
+/// and hub-sync archive.ts store none), and every Wispr Flow take has no mode. A Transcriber take
+/// with a transcription is never matched, so its source stays transcriber.
 const IS_WISPR =
-  "exists (select 1 from transcriptions t where t.recording_id = r.recording_id and t.provider = ?)";
+  "(exists (select 1 from transcriptions t where t.recording_id = r.recording_id and t.provider = ?)" +
+  " or (r.mode is null and not exists" +
+  " (select 1 from transcriptions t where t.recording_id = r.recording_id)))";
 
 function filterSql(filters: Filters): RecordingFilter {
   const where: string[] = [];
@@ -479,10 +485,16 @@ export function createViewer(config: ViewerConfig) {
         res = json({ error: "internal" }, 500);
       }
     }
-    // A HEAD reply keeps the status and headers and drops the body.
+    // A HEAD reply keeps the status and headers, and the Content-Length of the GET body, and
+    // drops the body. The audio route sets its own Content-Length and sends no body on HEAD.
     if (req.method === "HEAD" && res.body) {
-      await res.body.cancel().catch(() => {});
-      res = new Response(null, { status: res.status, headers: res.headers });
+      const headers = new Headers(res.headers);
+      try {
+        headers.set("Content-Length", String((await res.arrayBuffer()).byteLength));
+      } catch {
+        headers.delete("Content-Length");
+      }
+      res = new Response(null, { status: res.status, headers });
     }
     try {
       log(
