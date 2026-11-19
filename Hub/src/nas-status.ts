@@ -456,7 +456,8 @@ function backupAge(manifests: Maybe<Manifests>) {
     newest_created_at: iso(made),
     day: manifests.days.at(-1)!.day,
     max_hours: BACKUP_MAX_HOURS,
-    backup_stale: hours > BACKUP_MAX_HOURS,
+    // The raw age decides, not the rounded hours, so a copy 26 h 1 min old is stale.
+    backup_stale: Date.now() - made > BACKUP_MAX_HOURS * 3_600_000,
   };
 }
 

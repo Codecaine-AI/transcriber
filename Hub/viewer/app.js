@@ -790,11 +790,14 @@ function backupAgeNow(s) {
   const made = typeof created === "string" ? Date.parse(created) : NaN;
   if (!Number.isFinite(made))
     return { unavailable: true, reason: "the status file gives no valid creation time" };
-  return {
-    hours: (Date.now() - made) / 3_600_000,
-    day: age.day,
-    flagged: age.backup_stale === true,
-  };
+  const hours = (Date.now() - made) / 3_600_000;
+  // The file's own alarm state must be readable for a green banner. An age this page computes as
+  // over the limit stays red even then, because that cause is known without the file's flag.
+  const readable =
+    typeof age.backup_stale === "boolean" && typeof age.newest_created_at === "string";
+  if (!readable && hours <= BACKUP_MAX_HOURS)
+    return { unavailable: true, reason: "the status file gives no valid backup alarm state" };
+  return { hours, day: age.day, flagged: age.backup_stale === true };
 }
 
 const hoursText = (h) => `${Math.round(h * 10) / 10} h`;
