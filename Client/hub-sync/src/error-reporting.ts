@@ -33,33 +33,44 @@ export const dsnFromFile = (file: string) => () => {
   try {
     return readFileSync(file, "utf8");
   } catch (e) {
-    throw new Error(`no DSN file at ${file} (${(e as NodeJS.ErrnoException).code ?? "unreadable"})`);
+    throw new Error(
+      `no DSN file at ${file} (${(e as NodeJS.ErrnoException).code ?? "unreadable"})`,
+    );
   }
 };
 
 /** The DSN in an env var, else in the same name in a dotenv file such as ~/workspace/.env (envsync writes it). */
-export const dsnFromEnv = (name: string, envFile: string, env: Record<string, string | undefined> = process.env) => () => {
-  const value = env[name]?.trim();
-  if (value) return value;
-  let text = "";
-  try {
-    text = readFileSync(envFile, "utf8");
-  } catch {
-    throw new Error(`no ${name} in the environment, and no ${envFile}`);
-  }
-  for (const line of text.split("\n").reverse()) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
-    if (m?.[1] === name && m[2]!.trim() !== "") return m[2]!.trim().replace(/^(["'])(.*)\1$/, "$2");
-  }
-  throw new Error(`no ${name} in the environment or in ${envFile}`);
-};
+export const dsnFromEnv =
+  (name: string, envFile: string, env: Record<string, string | undefined> = process.env) =>
+  () => {
+    const value = env[name]?.trim();
+    if (value) return value;
+    let text = "";
+    try {
+      text = readFileSync(envFile, "utf8");
+    } catch {
+      throw new Error(`no ${name} in the environment, and no ${envFile}`);
+    }
+    for (const line of text.split("\n").reverse()) {
+      const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+      if (m?.[1] === name && m[2]!.trim() !== "")
+        return m[2]!.trim().replace(/^(["'])(.*)\1$/, "$2");
+    }
+    throw new Error(`no ${name} in the environment or in ${envFile}`);
+  };
 
 /** A DSN must be http(s)://<key>@<host>/<project id>, with nothing after the id. */
 function parseDsn(text: string): string | null {
   const dsn = text.trim();
   try {
     const url = new URL(dsn);
-    if ((url.protocol === "http:" || url.protocol === "https:") && url.username !== "" && /^\/\d+$/.test(url.pathname) && url.search === "" && url.hash === "")
+    if (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username !== "" &&
+      /^\/\d+$/.test(url.pathname) &&
+      url.search === "" &&
+      url.hash === ""
+    )
       return dsn;
   } catch {
     // not a URL
@@ -96,7 +107,8 @@ function sdkOptions(s: Sdk, dsn: string, transport?: Options["transport"]): Opti
       delete event.request;
       delete event.user;
       delete event.breadcrumbs;
-      for (const value of event.exception?.values ?? []) for (const frame of value.stacktrace?.frames ?? []) delete frame.vars;
+      for (const value of event.exception?.values ?? [])
+        for (const frame of value.stacktrace?.frames ?? []) delete frame.vars;
       return event;
     },
     ...(transport ? { transport } : {}),

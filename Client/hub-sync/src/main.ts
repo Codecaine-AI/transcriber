@@ -30,7 +30,12 @@ import { stamp } from "../../../Hub/src/ids.ts";
 import { loadTarget } from "./config.ts";
 import { ConfirmStore } from "./confirms.ts";
 import { deleteDryRun } from "./delete-dry-run.ts";
-import { dsnFromEnv, reportError, startErrorReporting, stopErrorReporting } from "./error-reporting.ts";
+import {
+  dsnFromEnv,
+  reportError,
+  startErrorReporting,
+  stopErrorReporting,
+} from "./error-reporting.ts";
 import { assertHttps } from "./hub-client.ts";
 import { runSync } from "./sync.ts";
 

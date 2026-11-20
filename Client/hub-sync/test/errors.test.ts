@@ -21,11 +21,23 @@ async function failedRun(env: Record<string, string>, envFile?: string) {
   }
   const log = join(home, "sync.log");
   const { GLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC: _unset, ...parent } = process.env;
-  const p = Bun.spawn(["bun", MAIN, "--config", join(home, "config"), "--state", join(home, "confirms.sqlite"), "--log", log], {
-    env: { ...parent, HOME: home, ...env },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  const p = Bun.spawn(
+    [
+      "bun",
+      MAIN,
+      "--config",
+      join(home, "config"),
+      "--state",
+      join(home, "confirms.sqlite"),
+      "--log",
+      log,
+    ],
+    {
+      env: { ...parent, HOME: home, ...env },
+      stdout: "ignore",
+      stderr: "ignore",
+    },
+  );
   return { code: await p.exited, log: readFileSync(log, "utf8") };
 }
 
@@ -48,8 +60,14 @@ async function withGlitchTip(body: (dsn: string, bodies: string[]) => Promise<vo
 
 describe("a failed run", () => {
   it.each([
-    ["the environment", (dsn: string) => ({ env: { GLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC: dsn }, file: undefined })],
-    ["~/workspace/.env", (dsn: string) => ({ env: {}, file: `OTHER=1\nGLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC=${dsn}\n` })],
+    [
+      "the environment",
+      (dsn: string) => ({ env: { GLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC: dsn }, file: undefined }),
+    ],
+    [
+      "~/workspace/.env",
+      (dsn: string) => ({ env: {}, file: `OTHER=1\nGLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC=${dsn}\n` }),
+    ],
   ])("sends its error with the DSN from %s, and exits 1", async (_where, setup) => {
     await withGlitchTip(async (dsn, bodies) => {
       const { env, file } = setup(dsn);
@@ -64,6 +82,8 @@ describe("a failed run", () => {
   it("exits 1 with no DSN", async () => {
     const r = await failedRun({});
     expect(r.code).toBe(1);
-    expect(r.log).toContain("errors: off, no GLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC in the environment");
+    expect(r.log).toContain(
+      "errors: off, no GLITCHTIP_DSN_TRANSCRIBER_HUB_SYNC in the environment",
+    );
   });
 });
