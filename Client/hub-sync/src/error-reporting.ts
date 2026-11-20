@@ -6,7 +6,10 @@
 //
 // Privacy: no local variable values (dataCollection.stackFrameVariables, because BunOptions has no
 // includeLocalVariables), no user, cookie, header, query or body data, no breadcrumbs (they would copy log lines), no
-// sessions, no client reports and no machine name. Only the error, its stack and its tags leave the process.
+// sessions, no client reports and no machine name. An exception message keeps its first line only, at most
+// MESSAGE_CAP characters, and a home folder in a message or a path becomes "~". No log line holds the DSN, and a DSN
+// must match the SDK's grammar, so the SDK never prints it. The caller exits with process.exit after
+// stopErrorReporting, so a request that GlitchTip holds open cannot keep the process alive past the 2 s cap.
 import { readFileSync } from "node:fs";
 
 type Sdk = typeof import("@sentry/bun");
@@ -25,6 +28,7 @@ export interface ErrorReportingOptions {
 }
 
 export const FLUSH_CAP_MS = 2000;
+export const MESSAGE_CAP = 300;
 
 let sdk: Sdk | null = null;
 
@@ -61,24 +65,20 @@ export const dsnFromEnv =
     throw new Error(`no ${name} in the environment or in ${envFile}`);
   };
 
-/** A DSN must be https://<key>@<host>/<project id>, with nothing after the id. http is for loopback only. */
+// The DSN grammar of @sentry/core 11.15.0 (utils/dsn.js), with no secret and a numeric project id. A DSN that this
+// accepts never makes the SDK print "Invalid Sentry Dsn: <the DSN>".
+const DSN = /^(https?):\/\/(\w+)@(\[[:.%\w]+\]|[\w.-]+)(?::\d+)?\/\d+$/;
+
+/** A DSN is https://<key>@<host>/<project id>. http is for loopback only. */
 function parseDsn(text: string): string | null {
   const dsn = text.trim();
-  try {
-    const url = new URL(dsn);
-    if (
-      (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname))) &&
-      url.username !== "" &&
-      /^\/\d+$/.test(url.pathname) &&
-      url.search === "" &&
-      url.hash === ""
-    )
-      return dsn;
-  } catch {
-    // not a URL
-  }
-  return null;
+  const m = DSN.exec(dsn);
+  if (m === null) return null;
+  return m[1] === "https" || LOOPBACK.has(m[3]!) ? dsn : null;
 }
+
+const HOME_PATH = /\/(?:Users|home)\/[^/\s"'`]+/g;
+const scrub = (text: string) => text.replace(HOME_PATH, "~");
 
 /** The options that keep private data in the process. */
 function sdkOptions(s: Sdk, dsn: string, transport?: Options["transport"]): Options {
@@ -110,8 +110,16 @@ function sdkOptions(s: Sdk, dsn: string, transport?: Options["transport"]): Opti
       delete event.user;
       delete event.breadcrumbs;
       delete event.server_name; // the machine name, which can hold a person's name
-      for (const value of event.exception?.values ?? [])
-        for (const frame of value.stacktrace?.frames ?? []) delete frame.vars;
+      for (const value of event.exception?.values ?? []) {
+        if (value.value !== undefined)
+          value.value = scrub(value.value.split("\n", 1)[0]!).slice(0, MESSAGE_CAP);
+        for (const frame of value.stacktrace?.frames ?? []) {
+          delete frame.vars;
+          if (frame.filename !== undefined) frame.filename = scrub(frame.filename);
+          if (frame.abs_path !== undefined) frame.abs_path = scrub(frame.abs_path);
+          if (frame.module !== undefined) frame.module = scrub(frame.module);
+        }
+      }
       return event;
     },
     ...(transport ? { transport } : {}),
@@ -141,7 +149,10 @@ export async function startErrorReporting(o: ErrorReportingOptions): Promise<boo
     o.log(`errors: on for ${o.source}`);
     return true;
   } catch (e) {
-    o.log(`errors: off, the SDK did not start: ${e instanceof Error ? e.message : String(e)}`);
+    const message = e instanceof Error ? e.message : String(e);
+    o.log(
+      `errors: off, the SDK did not start: ${message.split(dsn).join("<dsn>").slice(0, MESSAGE_CAP)}`,
+    );
     return false;
   }
 }
