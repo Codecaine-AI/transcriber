@@ -6,7 +6,7 @@
 //
 // Privacy: no local variable values (dataCollection.stackFrameVariables, because BunOptions has no
 // includeLocalVariables), no user, cookie, header, query or body data, no breadcrumbs (they would copy log lines), no
-// sessions and no client reports. Only the error, its stack and its handler tag leave the process.
+// sessions, no client reports and no machine name. Only the error, its stack and its tags leave the process.
 import { readFileSync } from "node:fs";
 
 type Sdk = typeof import("@sentry/bun");
@@ -27,6 +27,8 @@ export interface ErrorReportingOptions {
 export const FLUSH_CAP_MS = 2000;
 
 let sdk: Sdk | null = null;
+
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
 /** The DSN in a file, such as a mode-600 DSN file. */
 export const dsnFromFile = (file: string) => () => {
@@ -59,13 +61,13 @@ export const dsnFromEnv =
     throw new Error(`no ${name} in the environment or in ${envFile}`);
   };
 
-/** A DSN must be http(s)://<key>@<host>/<project id>, with nothing after the id. */
+/** A DSN must be https://<key>@<host>/<project id>, with nothing after the id. http is for loopback only. */
 function parseDsn(text: string): string | null {
   const dsn = text.trim();
   try {
     const url = new URL(dsn);
     if (
-      (url.protocol === "http:" || url.protocol === "https:") &&
+      (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname))) &&
       url.username !== "" &&
       /^\/\d+$/.test(url.pathname) &&
       url.search === "" &&
@@ -107,6 +109,7 @@ function sdkOptions(s: Sdk, dsn: string, transport?: Options["transport"]): Opti
       delete event.request;
       delete event.user;
       delete event.breadcrumbs;
+      delete event.server_name; // the machine name, which can hold a person's name
       for (const value of event.exception?.values ?? [])
         for (const frame of value.stacktrace?.frames ?? []) delete frame.vars;
       return event;
