@@ -126,7 +126,6 @@ class ViewerTests(unittest.TestCase):
     def test_search_pagination_media_ranges_and_local_access(self):
         import subprocess
         import socket
-        import time
         import urllib.request
         import urllib.error
         with tempfile.TemporaryDirectory() as temp:
@@ -147,15 +146,12 @@ class ViewerTests(unittest.TestCase):
             a.commit();a.db.close()
             with socket.socket() as sock:
                 sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
-            process=subprocess.Popen([sys.executable,str(Path(__file__).parent/'archive.py'),'--root',str(root),'--cache',str(cache),'serve','--transcriber-data',str(data),'--port',str(port)],stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+            process=subprocess.Popen([sys.executable,str(Path(__file__).parent/'archive.py'),'--root',str(root),'--cache',str(cache),'serve','--transcriber-data',str(data),'--port',str(port)],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             address=f'http://127.0.0.1:{port}'
             try:
-                for _ in range(100):
-                    try:
-                        with urllib.request.urlopen(address+'/api/summary',timeout=2) as response:summary=json.load(response)
-                        break
-                    except OSError:time.sleep(.05)
-                else:self.fail('Viewer failed to start')
+                # The viewer prints this line after it binds the port, so the first request never races the start.
+                self.assertEqual(process.stdout.readline().strip(),f'Transcript data viewer: {address}')
+                with urllib.request.urlopen(address+'/api/summary',timeout=2) as response:summary=json.load(response)
                 self.assertEqual(summary['sources'][0]['records'],55)
                 with urllib.request.urlopen(address+'/api/dataset') as response:dataset=json.load(response)
                 self.assertEqual(dataset['dataset']['format'],'codecaine-transcripts')
@@ -176,7 +172,12 @@ class ViewerTests(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError) as error:
                     urllib.request.urlopen(address+'/files/%2E%2E/%2E%2E/etc/passwd')
                 self.assertEqual(error.exception.code,404)
+                # The cache index exists next to the archive root, so only the records/ and sources/ guard refuses it.
+                self.assertTrue((cache/'index.sqlite').is_file())
+                with self.assertRaises(urllib.error.HTTPError) as error:
+                    urllib.request.urlopen(address+'/files/%2E%2E/cache/index.sqlite')
+                self.assertEqual(error.exception.code,404)
             finally:
-                process.terminate();process.wait(timeout=5);process.stderr.close()
+                process.terminate();process.wait(timeout=5);process.stdout.close();process.stderr.close()
 
 if __name__=='__main__':unittest.main()
